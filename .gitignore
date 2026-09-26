@@ -1,0 +1,38 @@
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+/credentials.json
+/credentials.yaml
+/credentials.yml
+/secrets.yaml
+/secrets.yml
+/service-account.json
+/service_account.json
+/key.json
+*.key.json
+*.pem
+*.p12
+*.pfx
+/id_rsa
+/id_dsa
+/id_ecdsa
+/id_ed25519
+
+# Python development artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local run data
+runs/
+*.db
+*.db-wal
+*.db-shm
+
+# macOS
+.DS_Store
