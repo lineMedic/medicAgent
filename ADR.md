@@ -103,7 +103,8 @@
 | D60 | 설정·정책·계약·평가 기대값 파일은 TOML(`tomllib`), 모르는 키 거부, null은 키 생략, `pyyaml` 제거. OpenShell 정책만 YAML | 기반 | 유효 (D52·D58의 파일 형식 대체) |
 | D61 | 진행 상태 원본은 `flow/state.toml`, STATUS.md는 생성 파일, `flowctl check`로 선행·게이트·증거·비밀 패턴 검사 | 범위 | 대체됨 → D62 |
 | D62 | 개발 진행 상태·완료 보고는 STATUS.md에 직접 기록. 선행·게이트는 작업 카드로 확인하며 별도 진행 도구 제거 | 범위 | 유효 (D61 대체) |
-| D63 | 저장소·문서 루트 이름은 `lineMedic`. GitHub 생성 목표는 조직 `lineMedic`의 공개 저장소 `lineMedic/lineMedic` | 기반 | 유효 (D42의 저장소 이름 표기 대체) |
+| D63 | 저장소·문서 루트 이름은 `lineMedic`. GitHub 생성 목표는 조직 `lineMedic`의 공개 저장소 `lineMedic/lineMedic` | 기반 | 로컬 이름 유효; GitHub 게시 대상은 D64로 대체 |
+| D64 | GitHub 게시 대상은 사용자 지정 `lineMedic/medicAgent`. 로컬 루트·제품·패키지·데모 대상 이름은 유지 | 기반 | 유효 (D63의 GitHub 게시 대상 대체) |
 
 ## 3. 주제별 보기
 
@@ -115,11 +116,11 @@
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 |
 | PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 |
-| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 |
+| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 |
 
 ## 4. 게이트 대기 결정
 
-[DECISIONS.md §2](DECISIONS.md)의 미정 항목이다. 확정되면 D64 이후 번호로 DECISIONS.md에 기록하고 여기서 행을 옮긴다.
+[DECISIONS.md §2](DECISIONS.md)의 미정 항목이다. 확정되면 D65 이후 번호로 DECISIONS.md에 기록하고 여기서 행을 옮긴다.
 
 | 항목 | 게이트·스파이크 | 확정 전 처리 |
 |---|---|---|
@@ -143,11 +144,11 @@
 ### 행 템플릿 (DECISIONS.md §3)
 
 ```markdown
-| D64 | <결정 한 문장. 대체하면 "D24를 대체"> | <이유·대가> | <영향 문서: docs/NN, tasks/Wxx> | <재시험: 테스트 ID 또는 명령> |
+| D65 | <결정 한 문장. 대체하면 "D24를 대체"> | <이유·대가> | <영향 문서: docs/NN, tasks/Wxx> | <재시험: 테스트 ID 또는 명령> |
 ```
 
 ### 색인 행 템플릿 (이 파일 §2.4)
 
 ```markdown
-| D64 | <결정 한 줄> | <영역> | 유효 |
+| D65 | <결정 한 줄> | <영역> | 유효 |
 ```
