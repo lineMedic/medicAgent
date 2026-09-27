@@ -26,7 +26,7 @@ import pytest
 
 from linemedic import cli
 from linemedic.common.clock import FakeClock
-from linemedic.common.config import ConfigError
+from linemedic.common.config import ConfigError, validate_model
 from linemedic.control_plane import verifier
 from linemedic.control_plane.observer import (
     ContainerObserver,
@@ -34,6 +34,7 @@ from linemedic.control_plane.observer import (
     RecurrenceSignature,
 )
 from linemedic.control_plane.verifier import (
+    Contract,
     FixtureGuard,
     HttpResponse,
     ProberHttp,
@@ -47,7 +48,7 @@ from linemedic.control_plane.verifier import (
 )
 from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness, wrong_200_defects
-from linemedic.integrations.docker import CommandResult, FakeDocker
+from linemedic.integrations.docker import CliDocker, CommandResult, FakeDocker, _CliLogStream
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = REPO_ROOT / "linemedic" / "contracts" / "defect-summary-v1.toml"
@@ -685,6 +686,107 @@ def test_unanswered_sample_is_inconclusive(error):
     assert (result.verdict, result.reason) == ("INCONCLUSIVE", "sample_unanswered")
     assert result.samples_completed == 1
     assert result.detail.startswith("normal-regression: ")
+
+
+def test_slow_final_sample_is_observed_before_pass():
+    """t=30 표본이 60초를 넘겨도 PASS 전에 관찰 상태를 다시 본다(검증에서 발견)."""
+    rig = make_rig()
+
+    def slow(path, query, elapsed):
+        if elapsed >= 30 and query["lot_id"] == HOLDOUT_LOT:
+            rig.docker.streams[TARGET].push(json.dumps(S1_ERROR))  # 느린 응답 동안 재발
+            rig.clock.advance(33)
+        return correct_response(path, query, elapsed)
+
+    rig.http.responder = slow
+    _, result = drive(rig)
+    assert (result.verdict, result.reason) == ("FAIL", "error_recurred")
+    assert result.observation_complete is False
+
+
+def test_stream_end_during_slow_final_sample_is_inconclusive():
+    rig = make_rig()
+
+    def slow(path, query, elapsed):
+        if elapsed >= 30 and query["lot_id"] == HOLDOUT_LOT:
+            rig.docker.streams[TARGET].end()
+            rig.clock.advance(33)
+        return correct_response(path, query, elapsed)
+
+    rig.http.responder = slow
+    _, result = drive(rig)
+    assert (result.verdict, result.reason) == ("INCONCLUSIVE", "observer_gap")
+
+
+def test_observed_mismatch_wins_over_unanswered_case_in_same_sample():
+    """한 표본에서 틀린 응답을 봤으면 다른 case가 무응답이어도 FAIL이다(검증에서 발견)."""
+
+    def responder(path, query, elapsed):
+        if query["lot_id"] == BUG_LOT:
+            return HttpResponse(200, as_json({**EXPECTED[BUG_LOT], "total_defects": 0}))
+        if query["lot_id"] == NORMAL_LOT:
+            raise RequestTimeout("요청 timeout")
+        return correct_response(path, query, elapsed)
+
+    t, result = drive(make_rig(responder))
+    assert t == 0
+    assert (result.verdict, result.reason) == ("FAIL", "content_mismatch")
+    assert {f["case_id"] for f in result.failed_assertions} == {"missing-inspector"}
+    assert "normal-regression" in result.detail
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"cases": []},
+        {"observation": {**SPEC_08_CONTRACT["observation"], "samples": 3}},
+        {"observation": {**SPEC_08_CONTRACT["observation"], "recurrence_window_seconds": 59}},
+    ],
+    ids=["no_cases", "fewer_samples", "shorter_window"],
+)
+def test_contract_cannot_weaken_core_observation(change):
+    with pytest.raises(ConfigError):
+        validate_model(Contract, {**SPEC_08_CONTRACT, **change}, "contract")
+
+
+def test_cli_log_stream_survives_invalid_utf8():
+    """비신뢰 MES가 잘못된 UTF-8을 써도 관찰 스트림이 계속 읽는다(검증에서 발견)."""
+    payload = b'first\n\xff\xfe broken\n{"after": 1}\n'
+    code = (
+        f"import sys, time; sys.stdout.buffer.write({payload!r}); sys.stdout.flush(); time.sleep(5)"
+    )
+    stream = _CliLogStream([sys.executable, "-c", code])
+    try:
+        lines: list[str] = []
+        deadline = time.monotonic() + 5
+        while len(lines) < 3 and time.monotonic() < deadline:
+            lines += stream.read_lines()
+            time.sleep(0.05)
+        assert lines[0] == "first" and lines[2] == '{"after": 1}'
+        assert "\ufffd" in lines[1]
+        assert stream.alive()
+    finally:
+        stream.close()
+    assert not stream.alive()
+
+
+def test_cli_log_stream_with_dead_reader_is_not_alive():
+    stream = _CliLogStream([sys.executable, "-c", "import time; time.sleep(5)"])
+    try:
+        dead = threading.Thread(target=lambda: None)
+        dead.start()
+        dead.join()
+        stream._reader = dead
+        assert stream.alive() is False
+    finally:
+        stream.close()
+
+
+def test_cli_docker_decodes_invalid_bytes_without_crashing():
+    result = CliDocker(binary=sys.executable)._run(
+        ["-c", "import sys; sys.stdout.buffer.write(b'ok \\xff\\n')"]
+    )
+    assert result.returncode == 0 and result.stdout.startswith("ok ")
 
 
 def test_observer_requires_existing_target():
