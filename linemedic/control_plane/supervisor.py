@@ -98,6 +98,29 @@ def _audit(tx: Tx, work: Any, actor: str, event: str, payload: Mapping[str, Any]
     audit.append(tx, work["run_id"], work["incident_id"], actor, event, payload)
 
 
+def _close_unsent_notice(tx: Tx, work: Any, error: str) -> None:
+    """work의 PENDING 시작 알림을 보내지 않은 채 FAILED로 닫는다(감사 NOTIFICATION_FAILED)."""
+    notice = tx.one(
+        "SELECT * FROM notifications WHERE id = ? AND status = 'PENDING'",
+        (work["start_notification_id"],),
+    )
+    if notice is None:
+        return
+    record = {**json.loads(notice["result_json"] or "{}"), "last": {"error": error}}
+    tx.execute(
+        "UPDATE notifications SET status = 'FAILED', next_attempt_at = NULL, updated_at = ?,"
+        " result_json = ? WHERE id = ? AND status = 'PENDING'",
+        (tx.now, canonical_dumps(record), notice["id"]),
+    )
+    _audit(
+        tx,
+        work,
+        Actor.SUPERVISOR,
+        "NOTIFICATION_FAILED",
+        {"notification_id": notice["id"], "event_type": notice["event_type"], "error": error},
+    )
+
+
 def work_authorization(row: Any) -> dict[str, Any]:
     return json.loads(row["authorization_json"])
 
@@ -516,6 +539,9 @@ class Supervisor:
 
         BLOCKED(`START_NOTICE_UNCONFIRMED`) + incident ESCALATED + `WORK_BLOCKED` intent.
         UNKNOWN도 기다리는 시간이 지나면 멈춘다. 나중에 FOUND가 와도 되살리지 않는다.
+        아직 보내지 않은(PENDING) 시작 알림은 같은 트랜잭션에서 `FAILED(expired_before_send)`로
+        닫는다. 시작하지 않을 work에 "작업 시작 예정" 댓글이 나중에 달리지 않게 한다.
+        SENDING·UNKNOWN은 이미 나갔을 수 있으므로 그대로 두고 조정 결과는 감사만 남긴다.
         """
         blocked = []
         now = self.clock.utc_now()
@@ -548,6 +574,8 @@ class Supervisor:
                     f"{reason}(상태 {row['notice_status']}): 코드 작업을 시작하지 않았다",
                     blocker_code="START_NOTICE_UNCONFIRMED",
                 )
+                if row["notice_status"] == "PENDING":
+                    _close_unsent_notice(tx, work, "expired_before_send")
                 blocked.append(work["id"])
         return blocked
 

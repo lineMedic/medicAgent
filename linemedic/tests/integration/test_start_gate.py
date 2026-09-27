@@ -4,6 +4,7 @@
 - 60초 안에 접수되지 않거나 명확히 실패하면 BLOCKED(`START_NOTICE_UNCONFIRMED`)·incident ESCALATED
 - 늦게 온 receipt(조정 FOUND)는 끝난 work를 되살리지 않는다
 - shadow 모드(쓰기 꺼짐)에서는 게이트가 열리지 않는다
+- 차단된 work의 시작 알림은 나중에 쓰기를 켜도 보내지 않는다(expire가 닫고 worker도 막는다)
 """
 
 import json
@@ -163,3 +164,46 @@ def test_shadow_mode_never_opens_the_gate(store, conn, fake_clock):
     fake_clock.advance(61)
     assert g.sup.expire_start_notices() == [g.work_id]
     assert g.sup.start_attempt(g.work_id).status == "not_ready"
+
+
+def test_expired_start_notice_is_not_sent_after_writes_are_enabled(store, conn, fake_clock):
+    """shadow로 막힌 work에 G10 뒤 "작업 시작 예정" 댓글이 달리지 않는다(PR #48 리뷰 재현)."""
+    g = Gate(store, conn, fake_clock, write_enabled=False)
+    fake_clock.advance(61)
+    assert g.sup.expire_start_notices() == [g.work_id]
+    notice = g.notice()
+    assert notice["status"] == "FAILED"
+    assert json.loads(notice["result_json"])["last"] == {"error": "expired_before_send"}
+    g.github.write_enabled = True  # G10에서 쓰기를 켠다
+    sent = g.worker.process_pending()
+    assert [s["event_type"] for s in sent] == ["WORK_BLOCKED"]
+    bodies = [c["body"] for c in g.comments()]
+    assert len(bodies) == 1
+    assert "진행 중단" in bodies[0] and "작업 시작 예정" not in bodies[0]
+    assert g.notice()["status"] == "FAILED"
+    failed = [
+        json.loads(r[0])
+        for r in g.conn.execute(
+            "SELECT payload_json FROM audit_events WHERE event_type = 'NOTIFICATION_FAILED'"
+        )
+    ]
+    assert {"notification_id": notice["id"], "event_type": "WORK_STARTING"}.items() <= (
+        failed[0].items()
+    )
+
+
+def test_start_notice_of_work_no_longer_waiting_is_not_claimed(store, conn, fake_clock):
+    """expire가 아닌 경로로 멈춘 work의 PENDING 시작 알림도 worker가 보내지 않는다."""
+    g = Gate(store, conn, fake_clock, write_enabled=False)
+    g.sup.on_scope_changed(g.work_id)  # 시작 전 Issue 변경 → BLOCKED(시작 알림은 PENDING 그대로)
+    assert g.work()["status"] == "BLOCKED" and g.notice()["status"] == "PENDING"
+    g.github.write_enabled = True
+    sent = g.worker.process_pending()
+    assert "WORK_STARTING" not in [s["event_type"] for s in sent]
+    assert not any("작업 시작 예정" in c["body"] for c in g.comments())
+    notice = g.notice()
+    assert notice["status"] == "FAILED"
+    assert json.loads(notice["result_json"])["last"] == {
+        "error": "work_not_waiting",
+        "work_status": "BLOCKED",
+    }
