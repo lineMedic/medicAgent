@@ -282,9 +282,11 @@ def test_probe_default_is_dry_run_without_http(capsys):
 class ProbeGitHub:
     """보호 시험용 가짜 GitHub. 봇의 보호 브랜치 쓰기와 리뷰 없는 머지 응답을 바꿀 수 있다."""
 
-    def __init__(self, direct_push_status=409, merge_status=405):
+    def __init__(self, direct_push_status=409, merge_status=405, repo_id=REPO_ID, repo_status=200):
         self.direct_push_status = direct_push_status
         self.merge_status = merge_status
+        self.repo_id = repo_id
+        self.repo_status = repo_status
         self.calls = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -292,6 +294,8 @@ class ProbeGitHub:
         path, method = request.url.path, request.method
         self.calls.append((method, path, token == BOT_TOKEN))
         base = f"/repos/{REPO}"
+        if method == "GET" and path == base:
+            return httpx.Response(self.repo_status, json={"id": self.repo_id, "full_name": REPO})
         if method == "GET" and path == f"{base}/git/ref/heads/main":
             return httpx.Response(200, json={"object": {"sha": "a" * 40}})
         if method == "POST" and path == f"{base}/git/refs":
@@ -327,6 +331,41 @@ def test_probe_passes_when_bot_writes_are_refused():
     assert create_baseline[2] is False
     assert record["created"]["pull_request"] == 5
     assert no_secrets(json.dumps(record, ensure_ascii=False))
+
+
+def test_probe_checks_repo_id_with_both_credentials_before_writing():
+    fake = ProbeGitHub()
+    run_probe(fake)
+    first_write = next(i for i, c in enumerate(fake.calls) if c[0] != "GET")
+    repo_reads = [c for c in fake.calls[:first_write] if c[1] == f"/repos/{REPO}"]
+    assert [c[2] for c in repo_reads] == [False, True]  # setup, 봇 순서
+
+
+def test_probe_repo_id_mismatch_fails_without_any_write():
+    """이름이 다른 repo를 가리키면 전용 데모 repo 밖에 쓰지 않는다(PR #36 리뷰)."""
+    fake = ProbeGitHub(repo_id=REPO_ID + 1)
+    record = run_probe(fake)
+    assert record["verdict"] == "FAIL"
+    assert "repo ID 불일치" in record["reason"]
+    assert [c for c in fake.calls if c[0] != "GET"] == []
+    assert record["created"] == {}
+
+
+def test_probe_repo_lookup_failure_is_inconclusive_without_any_write():
+    fake = ProbeGitHub(repo_status=404)
+    record = run_probe(fake)
+    assert record["verdict"] == "INCONCLUSIVE"
+    assert [c for c in fake.calls if c[0] != "GET"] == []
+
+
+def test_probe_rejects_non_numeric_repo_id_without_http():
+    def explode(request):
+        raise AssertionError("must not call GitHub")
+
+    client = httpx.Client(transport=httpx.MockTransport(explode))
+    env = dict(ENV, GITHUB_REPOSITORY_ID="abc")
+    record = probe.run_probe(env, client=client, clock=FakeClock())
+    assert record["verdict"] == "FAIL"
 
 
 def test_probe_fails_when_bot_can_push_or_merge():

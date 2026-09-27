@@ -35,6 +35,7 @@ def tool_call_response() -> httpx.Response:
         headers={"x-request-id": "req-tool-1"},
         json={
             "id": "chatcmpl-1",
+            "model": ENV["NVIDIA_MODEL_ID"],
             "choices": [
                 {
                     "index": 0,
@@ -118,6 +119,9 @@ def test_pass_when_tool_call_roundtrip_and_structured_proposal():
     assert record["calls"][1]["usage"] is None
     assert record["calls"][0]["tool_calls"][0]["name"] == "get_incident"
     assert record["final_proposal"]["action"]["type"] == "escalate"
+    assert record["response_model"] == ENV["NVIDIA_MODEL_ID"]
+    assert record["calls"][0]["response_model"] == ENV["NVIDIA_MODEL_ID"]
+    assert record["calls"][1]["response_model"] is None
     assert SECRET_KEY not in json.dumps(record, ensure_ascii=False)
 
 
@@ -138,6 +142,29 @@ def test_fail_on_auth_error_without_leaking_key():
     assert record["verdict"] == "FAIL"
     assert record["reason"] == "HTTP_401"
     assert SECRET_KEY not in json.dumps(record, ensure_ascii=False)
+
+
+def test_failed_call_is_recorded_with_request_id_and_error_body():
+    """실패 run에서도 진단에 필요한 request ID·오류 본문이 calls에 남는다(PR #35 리뷰)."""
+    record = run_with(
+        lambda request: httpx.Response(
+            401, headers={"x-request-id": "req-123"}, json={"detail": "unauthorized"}
+        )
+    )
+    assert record["verdict"] == "FAIL"
+    assert len(record["calls"]) == 1
+    call = record["calls"][0]
+    assert call["status_code"] == 401
+    assert call["request_id"] == "req-123"
+    assert "unauthorized" in call["error_body"]
+    assert record["response_model"] is None
+
+
+def test_non_object_response_is_recorded():
+    record = run_with(lambda request: httpx.Response(200, text="<html>gateway</html>"))
+    assert record["verdict"] == "INCONCLUSIVE"
+    assert record["calls"][0]["status_code"] == 200
+    assert "gateway" in record["calls"][0]["error_body"]
 
 
 def test_rate_limit_is_inconclusive():
