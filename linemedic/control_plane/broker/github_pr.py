@@ -54,11 +54,18 @@ BASE_PREFIX = "baseline"
 MAX_PULL_PAGES = 10
 TITLE_MAX = 200
 HYPOTHESIS_MAX = 1500
-# closing keyword 뒤에 Issue 참조(#n, owner/repo#n, URL)가 오면 머지로 Issue가 닫힐 수 있다
+# closing keyword 뒤에 Issue 참조(#n, owner/repo#n, URL)가 오면 머지로 Issue가 닫힐 수 있다.
+# 앞 경계를 `\b`로 두지 않는다. Python은 한글·`_`를 단어 문자로 봐서 `원인fixes #1`·`_fixes #1`을
+# 놓친다. 영문자·숫자가 앞에 붙은 경우(`prefixes`)만 키워드가 아니다.
 _CLOSING = re.compile(
-    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b"
-    r"(?=\s*:?\s*(?:[\w.-]+/[\w.-]+)?#\d|\s*:?\s*https?://)"
+    r"(?i)(?<![A-Za-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b"
+    r"(?=\W*:?\s*(?:[\w.-]+/[\w.-]+)?#\d|\W*:?\s*https?://)"
 )
+# 에이전트·관찰 문장 속 Issue·PR 참조(#n, owner/repo#n). `#` 뒤에 ZWSP를 넣어 참조가 되지 않게 한다
+_ISSUE_REF = re.compile(r"#(?=\d)")
+_ZERO_WIDTH_SPACE = "\u200b"
+MAX_FAILURE_SUMMARIES = 2
+FAILURE_SUMMARY_MAX = 200
 DISCLAIMER = (
     "재현 테스트는 실제 원인이 반드시 코드라는 증거가 아닙니다.",
     "검사는 악성 코드 부재나 모든 업무 동작을 보장하지 않습니다.",
@@ -83,6 +90,23 @@ def neutralize_closing(text: str) -> str:
 
 def has_closing_keyword(text: str) -> bool:
     return _CLOSING.search(text) is not None
+
+
+def neutralize_issue_refs(text: str) -> str:
+    """`#12`·`owner/repo#12`의 `#` 뒤에 ZWSP를 넣는다.
+
+    키워드 철자와 상관없이 참조·closing이 되지 않는다.
+    """
+    return _ISSUE_REF.sub("#" + _ZERO_WIDTH_SPACE, text)
+
+
+def _untrusted(text: str) -> str:
+    """에이전트·관찰·테스트 출력 문장을 PR 본문에 넣기 전 정제한다.
+
+    비밀·멘션·모든 URL(등록 repo 포함)·HTML을 무력화하고(`sanitize_text`), Issue 참조를 끊고,
+    closing keyword를 바꾼다. 서버가 쓰는 `Related to #<n>` 줄에는 쓰지 않는다.
+    """
+    return neutralize_closing(neutralize_issue_refs(sanitize_text(text, None)))
 
 
 # ── 계획 ──────────────────────────────────────────────────────
@@ -144,6 +168,27 @@ def _stage(checks: list[dict[str, Any]], name: str) -> str:
         f"{record.get('result')} (exit {record.get('exit_code')}, 수집 {junit.get('tests')}개, "
         f"실패 {junit.get('failures')}개, 오류 {junit.get('errors')}개, container {container})"
     )
+
+
+def _failures(checks: list[dict[str, Any]], name: str) -> str:
+    """단계의 실패 case 요약(spec 06 §8 `<예상 실패 또는 실패 이유>`).
+
+    테스트 이름·메시지는 비신뢰 문자열이라 정제한다.
+    """
+    record = next((c for c in reversed(checks) if c.get("check") == name), None)
+    cases = [
+        c
+        for c in ((record or {}).get("junit") or {}).get("cases", [])
+        if c.get("outcome") in ("failed", "error")
+    ]
+    if not cases:
+        return "실패 내용 기록 없음"
+    shown = [
+        _untrusted(f"{c.get('name')}: {c.get('message') or c.get('outcome')}")[:FAILURE_SUMMARY_MAX]
+        for c in cases[:MAX_FAILURE_SUMMARIES]
+    ]
+    more = f" 외 {len(cases) - len(shown)}건" if len(cases) > len(shown) else ""
+    return "; ".join(shown) + more
 
 
 @dataclass
@@ -223,7 +268,7 @@ class PrOpener:
         changed = ", ".join(
             f"{f['path']} (+{f['additions']}/-{f['deletions']})" for f in policy.get("files", [])
         )
-        hypothesis = neutralize_closing(sanitize_text(action.root_cause_hypothesis, repo))
+        hypothesis = _untrusted(action.root_cause_hypothesis)
         title = neutralize_closing(
             sanitize_text(f"LineMedic 수정 제안 — {incident['service']} {row['incident_id']}", repo)
         )[:TITLE_MAX]
@@ -238,12 +283,13 @@ class PrOpener:
             f"- 검사한 candidate: {candidate['candidate_sha']} / {candidate['candidate_tree']}",
             f"- 원인 가설(에이전트 판단, 검증되지 않음): {hypothesis[:HYPOTHESIS_MAX]}",
             f"- 근거: {', '.join(evidence_ids) or '없음'}"
-            f" — 관찰: {neutralize_closing(sanitize_text(observed or '관찰 요약 없음', repo))}",
+            f" — 관찰: {_untrusted(observed or '관찰 요약 없음')}",
             f"- 변경 파일: {changed or '기록 없음'}",
             "",
             "### 브로커가 관찰한 검사",
             f"- 기준 환경·회귀(R0): {_stage(checks, 'R0')}",
-            f"- base + 새 테스트(R1): {_stage(checks, 'R1')} — 예상한 실패가 재현됐다",
+            f"- base + 새 테스트(R1): {_stage(checks, 'R1')}"
+            f" — 재현된 실패: {_failures(checks, 'R1')}",
             f"- candidate 새 테스트·보호 회귀(R2): {_stage(checks, 'R2')}",
             f"- 검사 기록: 제안 {row['id']}, 패치 SHA-256 {candidate['patch_sha256']}",
             "",

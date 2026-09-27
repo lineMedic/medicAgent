@@ -10,6 +10,7 @@
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,43 @@ def test_pr_body_links_the_issue_without_closing_it(world):
 )
 def test_closing_keywords_are_neutralized(text, expected):
     assert neutralize_closing(text) == expected
+
+
+def test_pr_body_shows_the_reproduced_failure(world):
+    """spec 06 §8: R1 줄에 개수만이 아니라 실패 이유를 보인다(PR #51 리뷰 1)."""
+    world.run()
+    (pull,) = world.github.pulls.values()
+    (r1,) = [line for line in pull["body"].splitlines() if "(R1)" in line]
+    assert "test_missing_inspector_is_counted_as_unassigned" in r1
+    assert "KeyError: 'inspector_id'" in r1
+
+
+@pytest.mark.parametrize(
+    "hypothesis",
+    [
+        "원인fixes #1",
+        "이 수정은fixes #1",
+        "_fixes #1",
+        "**fixes** #1",
+        "fixes https://github.com/demo-team/l3-mes-api/issues/1",
+        "closes demo-team/l3-mes-api#1",
+    ],
+)
+def test_agent_text_cannot_reference_or_close_issues(world, hypothesis):
+    """에이전트 문장의 Issue 참조·URL을 무력화한다. 남는 참조는 서버가 쓴 `Related to #n`뿐이다
+    (PR #51 리뷰 2)."""
+    world.run(root_cause_hypothesis=hypothesis)
+    (pull,) = world.github.pulls.values()
+    body = pull["body"]
+    assert not has_closing_keyword(body)
+    assert re.findall(r"#\d+", body) == [f"#{world.issue_number}"]
+    assert f"Related to #{world.issue_number}" in body
+
+
+@pytest.mark.parametrize("text", ["원인fixes #1", "이 수정은fixes #1", "_fixes #1", "**fixes** #1"])
+def test_closing_keyword_check_does_not_need_a_word_boundary(text):
+    assert has_closing_keyword(text)
+    assert not has_closing_keyword(neutralize_closing(text))
 
 
 def test_same_proposal_processed_twice_makes_one_pr(world):  # T-IDEM-01

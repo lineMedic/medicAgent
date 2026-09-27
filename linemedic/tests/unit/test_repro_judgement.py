@@ -95,6 +95,29 @@ def test_unsafe_or_inconsistent_junit_is_rejected(data, reason):
     assert str(info.value) == reason
 
 
+def test_failure_message_is_kept_for_failed_cases_only():
+    """PR 본문 R1 줄에 보일 실패 요약(spec 06 §8 `<예상 실패 또는 실패 이유>`)."""
+    keyerror = report("r1_keyerror")
+    assert keyerror.cases[0].message == "KeyError: 'inspector_id'"
+    assert keyerror.summary()["cases"][0]["message"] == "KeyError: 'inspector_id'"
+    passed = report("r2_all_passed")
+    assert all(case.message is None for case in passed.cases)
+    assert all("message" not in case for case in passed.summary()["cases"])
+
+
+def test_failure_message_in_summary_is_masked_and_bounded():
+    secret = "ghp_" + "A" * 36
+    data = (
+        '<testsuite tests="2" failures="1" errors="1" skipped="0">'
+        f'<testcase classname="c" name="a"><failure message="token {secret}"/></testcase>'
+        f'<testcase classname="c" name="b"><error message="{"E" * 500}"/></testcase>'
+        "</testsuite>"
+    ).encode()
+    first, second = parse_junit(data, LIMIT).summary()["cases"]
+    assert secret not in first["message"] and "[REDACTED:github_token]" in first["message"]
+    assert len(second["message"]) == 200
+
+
 def test_error_outranks_failure_in_one_testcase():
     data = (
         b'<testsuite tests="1" failures="0" errors="1" skipped="0">'

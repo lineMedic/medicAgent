@@ -121,7 +121,7 @@
 | D78 | work lifecycle: API 트랜잭션에 멱등 기록 포함, 현재 snapshot 승인·자동 승인 정책, incident 연결 기록, scope 변경 상태별 처리, start_attempt 유일 attempt 발급·슬롯 대기, retry 중복 거절·새 incident, cancel 상태별, work 조회 API·CLI | 입력 | 유효 (spec 04 §3·§7·§8, spec 15 §6·§8 구체화) |
 | D79 | 알림: worker 분리·SENDING 선커밋, 대상은 catalog·DB work만(no_bound_issue 미전송), shadow는 PENDING 유지, 안전한 거절만 3회 backoff(Retry-After 우선), UNKNOWN 재발송 금지·조정 규칙(봇+marker+본문 hash), provider·저장 시각 분리, 시작 게이트·60초 만료·늦은 receipt 무부활, 템플릿 정제, 상태 표시, 알림 운영 API·CLI | 알림 | 유효 (spec 16 §1~§7 구체화) |
 | D80 | 패치 게이트: 정책 파일 단일 원본·segment glob, 좁은 diff 문법·거부 규칙, 기준 base 3자 일치, 작업 트리 없는 candidate·적용 뒤 tree 재확인·결정적 commit, runner 고정 image ID·실행 프로필·inspect 재확인·결과 mount 안전 읽기, R0/R1/R2 세부 판정, 게이트는 트랜잭션 밖·고칠 수 없는 결과는 즉시 멈춤·W11 전 통과는 멈춤, 에이전트 보기 축소, runner-image·doctor | PR·릴리스·검증 | 유효 (spec 06 §2~§5 구체화) |
-| D81 | 봇 PR: 결정은 broker·실행은 PrOpener·세 트랜잭션, 생성 직전 재조회(scope·사람 작업·baseline·브랜치 점유), 재사용 기준, git push(force·hook·credential 노출 없음, porcelain 분류), 결과별 전이·blocker·side effect, 본문 템플릿·closing keyword 무력화·marker, 조정 규칙(무변경=PR·브랜치 없음), 실행 조회·조정 API·CLI 키 | PR·릴리스·검증 | 유효 (spec 06 §6·§8·§10, spec 15 §7 구체화) |
+| D81 | 봇 PR: 결정은 broker·실행은 PrOpener·세 트랜잭션, 생성 직전 재조회(scope·사람 작업·baseline·브랜치 점유), 재사용 기준, git push(force·hook·credential 노출 없음, porcelain 분류), 결과별 전이·blocker·side effect, 본문 템플릿(R1 실패 요약 포함)·에이전트 문장의 Issue 참조·URL 무력화와 closing keyword 검사·marker, 조정 규칙(무변경=PR·브랜치 없음), 실행 조회·조정 API·CLI 키 | PR·릴리스·검증 | 유효 (spec 06 §6·§8·§10, spec 15 §7 구체화) |
 
 ## 3. 주제별 보기
 

@@ -625,6 +625,19 @@ def test_fixable_failure_gives_one_revision_then_escalates(store, conn, seed, tm
     assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == 0  # T-REPRO-03: PR 없음
 
 
+def test_junit_failure_messages_stay_out_of_the_agent_view(store, conn, seed, tmp_path):
+    """실패 요약은 host 기록·PR 본문용이다. 에이전트 조회에는 check·result·reason만 보인다."""
+    w = World(store, conn, seed, tmp_path)
+    proposal_id = w.submit("fix_breaks_regression")
+    w.broker.process_pending()
+    _, record = w.proposal(proposal_id)
+    (r2,) = [c for c in record["checks"] if c["check"] == "R2"]
+    messages = [c["message"] for c in r2["junit"]["cases"] if c.get("message")]
+    assert messages  # 실패한 보호 회귀 case의 요약이 host 기록에 남는다
+    status = json.dumps(w.status(proposal_id), ensure_ascii=False)
+    assert all(message not in status for message in messages)
+
+
 def test_unfixable_environment_problem_escalates_without_using_the_revision(
     store, conn, seed, tmp_path
 ):

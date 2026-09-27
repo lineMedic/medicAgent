@@ -36,7 +36,7 @@
 | 16 | W25 | UNIT_TESTED | UNIT_TESTED | `make test` → 1067 passed(W25 테스트 31개: 경합 7, lifecycle 24), `make lint` → PASS, 경합 시험(스레드 2·4·8, 각자 DB 연결): 활성 work 1·`WORK_STARTING` 1·attempt 최대 1, 변이 20개 모두 테스트 실패로 잡힘 | | 2026-09-27T10:53Z |
 | 17 | W26 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1098 passed(W26 테스트 31개: 알림 25, 시작 게이트 6), `make lint` → PASS, `make test-live` → N12 1 skipped(쓰기 허락 표시 없음), 변이 24개 모두 테스트 실패로 잡힘, live 시험 흐름을 FakeGitHub로 한 번 따라 실행. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`, `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`, `LINEMEDIC_LIVE_NOTIFY_ISSUE=<open Issue 번호>`로 `make test-live` 1회 → `evidence/N12-notification-route.md`(시작 댓글·S6 차단 댓글·강제 timeout 조정·미전송). SMTP는 G12 선택 시에만 | 2026-09-27T11:22Z |
 | 18 | W10 | UNIT_TESTED | UNIT_TESTED | `make test` → 1293 passed(W10 테스트 195개: 정책 98, 판정 54, runner 단계 13, 게이트·브로커 30), `make test-docker` → 11 passed(W10 실제 컨테이너 7개: R0/R1/R2·비재현·회귀·timeout·OOM·N06 격리), `make lint` → PASS, 변이 79개 중 78개가 테스트 실패로 잡힘(1개는 동등 변이), `evidence/N06-runner-isolation.md`(로컬 개발 Mac) | | 2026-09-27T12:25Z |
-| 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1357 passed(W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T13:16Z |
+| 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1357 passed(W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음. PR #51 리뷰 반영(R1 실패 요약·에이전트 문장 Issue 참조 무력화) 뒤: Python 3.14.7 1380 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), ruff PASS, `test_runner_docker.py` 7 passed | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T14:01Z |
 | 20 | W12 | LIVE_VERIFIED | NOT_CHECKED | | G7·G8 | |
 | 21 | W13 | LIVE_VERIFIED | NOT_CHECKED | | G2·G7·G8·G10 | |
 | 22 | W27 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -100,6 +100,26 @@
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
 
+### W11 리뷰 반영 (카드 밖, 2026-09-27T14:01Z)
+
+- 계기: PR #51 리뷰(CHANGES_REQUESTED) — PR 본문 2건. 수정은 jgoneit 요청으로 Claude Code가 PR 브랜치에 직접 했다(maintainer edit)
+- 수정:
+  1. R1 실패 이유가 PR 본문에 없음(spec 06 §8 `<예상 실패 또는 실패 이유>`):
+     - W10 junit 파싱(`runner.py`)이 failed·error case의 `message`를 기록한다. 비밀을 가리고 200자로 자른다
+     - PR 본문 R1 줄에 `재현된 실패: <테스트 이름>: <message>`(최대 2건)를 넣는다
+     - 에이전트 조회(`CHECK_RESULT_FIELDS`)에는 보이지 않는다
+  2. closing keyword 무력화 빈틈(`원인fixes #1`·`_fixes #1`·`**fixes** #1` 통과):
+     - 에이전트·관찰·테스트 출력 문장은 `_untrusted()`로 정제한다. 순서는 `sanitize_text(…, None)`(등록 repo URL도 무력화) → Issue 참조 `#` 뒤 ZWSP → closing keyword 교체
+     - 본문에 남는 참조는 서버가 쓴 `Related to #<n>`뿐이다
+     - `_CLOSING` 앞 경계를 `\b` 대신 `(?<![A-Za-z0-9])`로 바꿔 검사(`has_closing_keyword`)도 한글·`_`·`*` 인접을 잡는다
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - Python 3.14.7: 1380 passed, 1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정)
+  - `ruff check`·`ruff format --check` PASS
+  - `test_runner_docker.py` 7 passed(Docker 29.8). 테스트 image·컨테이너는 지웠고 evidence는 다시 쓰지 않았다
+  - 새 테스트 14개(단위 2, PR 본문·closing 11, 에이전트 조회 1)가 수정 전 코드에서 13개 실패하는 것을 먼저 확인했다. Issue URL 1건은 기존 코드도 막고 있었다
+- 판단: D81 ⑨ 추가, ADR 요약 갱신. PR 설명(작성자 텍스트)은 고치지 않고 PR 댓글로 알렸다
+- 남은 일: W10 리뷰 반영의 남은 일 중 "W11: PR 본문에 R1 실패 요약" 완료. 나머지는 그대로다
+
 ### W11 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T13:16Z)
 
 - 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). FakeGitHub·FakePusher와 실제 git·SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
@@ -154,7 +174,7 @@
   - `LINEMEDIC_RECORD_EVIDENCE=1`로 `evidence/N06-runner-isolation.md`를 다시 기록(probe 7개, inspect `ulimits` fsize 64 MiB)
   - 새 테스트 12개(단위 10, 게이트·브로커 2)는 수정 전 코드에서 실패하는 것을 먼저 확인했다. 리뷰 재현(`wait`가 `No such container`) → proposal PROTECTION_UNAVAILABLE(`r0_docker_wait_failed`), incident ESCALATED, work BLOCKED, 차단 알림 1건, 컨테이너 없음
 - 판단: D80 ⑤ 보충, docs/07 §2에 결과 mount 예외와 파일 크기 상한을 적었다. 프로세스가 죽는 경우(예외가 아닌 종료)는 지금처럼 CHECKING으로 남고 재시작 때 `recover_checking`이 다시 검사한다
-- 남은 일: 이 브랜치는 #48의 수정 전 커밋(`5a52d5a`) 위에 있다. #48·#49가 병합되면 main을 병합해 다시 확인한다. G1 데모 호스트(Linux)에서 결과 폴더 권한(0555)이 컨테이너 uid 10001의 새 항목 생성을 막는지 N06 재확인 때 본다. W11: PR 본문에 "테스트 PASS는 악성 코드 없음이 아님"과 R1 실패 요약(길이 제한)을 보이기. W13·W14: 게이트 실제 소요 시간 기록
+- 남은 일: 이 브랜치는 #48의 수정 전 커밋(`5a52d5a`) 위에 있다. #48·#49가 병합되면 main을 병합해 다시 확인한다. G1 데모 호스트(Linux)에서 결과 폴더 권한(0555)이 컨테이너 uid 10001의 새 항목 생성을 막는지 N06 재확인 때 본다. W11: PR 본문에 "테스트 PASS는 악성 코드 없음이 아님"과 R1 실패 요약(길이 제한)을 보이기 — 완료(W11 리뷰 반영). W13·W14: 게이트 실제 소요 시간 기록
 
 ### W10 완료 보고 (2026-09-27T12:25Z)
 
