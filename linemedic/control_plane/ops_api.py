@@ -26,31 +26,13 @@ from linemedic.control_plane.app import (
     require_operator_role,
 )
 from linemedic.control_plane.auth import OperatorPrincipal, load_visible_incident
+from linemedic.control_plane.codes import RUN_ID_PATTERN, BlockerCode
 from linemedic.control_plane.errors import ApiError, success_body
 from linemedic.control_plane.idempotency import Outcome
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
 
 router = APIRouter()
-
-# docs/03 §5 blocker_code 14개
-BlockerCode = Literal[
-    "UNSUPPORTED_ACTION",
-    "INSUFFICIENT_EVIDENCE",
-    "CONFLICTING_REQUIREMENTS",
-    "PERMISSION_REQUIRED",
-    "HUMAN_WORK_IN_PROGRESS",
-    "LOOKUP_INCOMPLETE",
-    "START_NOTICE_UNCONFIRMED",
-    "MODEL_UNAVAILABLE",
-    "BUDGET_EXCEEDED",
-    "VALIDATION_FAILED",
-    "SOURCE_CHANGED",
-    "EXTERNAL_RESULT_UNKNOWN",
-    "VERIFICATION_FAILED",
-    "OBSERVATION_INCONCLUSIVE",
-]
-RUN_ID_PATTERN = r"^r-\d{8}-\d{6}-[0-9a-f]{4}$"
 
 
 class _Body(BaseModel):

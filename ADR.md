@@ -114,6 +114,7 @@
 | D71 | `persist_result`로 결과 저장·verifier 전용 전이·RECOVERY_* intent를 한 트랜잭션에, 판정 중 오류는 INCONCLUSIVE, S1b 시험 사건은 demo 도우미로 준비하고 활성 run에 기록 | 배포 | 유효 (spec 08 §7·§9 구체화) |
 | D72 | fingerprint 배열 인코딩·source 기준 service, 관찰 시계 60초 3회, terminal 사건 흡수, 정제 로그 JSONL 보관, `/tools`는 RUNNING attempt만, search_logs 제한 | 입력 | 유효 (spec 15 §3.1·03 §2 구체화) |
 | D73 | S2-lite: vision-inspection·설비 catalog, 합성 지표 30분·60 sample, 연속 3 sample 이상 규칙, 설비 범위 조회 도구, 같은 라인 배포 기록·deployed_at | 입력 | 유효 (spec 09 §3·03 §2 구체화) |
+| D74 | 제안 접수: B01·B02 동기, 멱등 재전송 우선, B02 422도 제출 합산 2회에 포함, 백그라운드 B03~B06(docs/03 §5 코드만), 거절 후 수정 1회·예산 소진 이관, create_pr는 W10 전까지 PROTECTION_UNAVAILABLE, 초안·blocker report payload, JSON Schema 생성 | 배포 | 유효 (spec 03 §3·§4·06 §1·§7 구체화) |
 
 ## 3. 주제별 보기
 
@@ -124,7 +125,7 @@
 | 알림 | D33 D34 D39 D70 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
-| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 |
+| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 |
 | 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 D68 |
 
 ## 4. 게이트 대기 결정

@@ -1,13 +1,14 @@
-"""에이전트 조회 도구 `/tools/*` (W07: get_incident·search_logs·get_deploys, spec 03 §2).
+"""에이전트 도구 `/tools/*` (W07: get_incident·search_logs·get_deploys, spec 03 §2).
 
-W08: query_equipment_metrics·get_knowledge. 나머지는 W09(submit_proposal·get_proposal),
-W27·W28(search_cases·get_bound_issue)에서 더한다.
+W08: query_equipment_metrics·get_knowledge. W09: submit_proposal·get_proposal.
+나머지는 W27·W28(search_cases·get_bound_issue)에서 더한다.
 
 - agent token의 run·incident·attempt·work가 지금 사건과 맞고 work가 RUNNING일 때만 답한다.
   아니면 없는 사건과 같은 404다(T-AUTH-02).
 - 응답에 시나리오 이름·정답 category·기대 fixture·평가 입력을 넣지 않는다. `features`는 힌트다.
 - `search_logs`의 `q`는 대소문자를 무시하는 부분 문자열이다. 정규식·shell을 쓰지 않는다.
 - 로그·증거는 비신뢰 데이터다. 안의 지시문·Issue 번호·URL을 해석하지 않는다.
+- `submit_proposal`의 202는 접수일 뿐 허용·실행 성공이 아니다. 결과는 `get_proposal`로 본다.
 """
 
 import json
@@ -19,18 +20,24 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from linemedic.common.clock import from_rfc3339, to_rfc3339
+from linemedic.common.ids import is_valid_entity_id
 from linemedic.common.sanitize import disable_urls
 from linemedic.control_plane import evidence
 from linemedic.control_plane.app import (
     AppContext,
     context,
+    idempotency_key,
     principal,
+    read_raw_body,
     reject_unknown_query,
     request_id,
 )
 from linemedic.control_plane.auth import AgentPrincipal, load_visible_incident
+from linemedic.control_plane.broker import intake
+from linemedic.control_plane.broker.proposals import ProposalStatus
 from linemedic.control_plane.deploys import deploy_records
 from linemedic.control_plane.errors import ApiError, success_body
+from linemedic.control_plane.symptoms import observed_symptom
 
 router = APIRouter()
 LOG_QUERY_MAX_CHARS = 200
@@ -53,24 +60,6 @@ def _related_services(ctx: AppContext, service: str) -> frozenset[str]:
 
 def _shift(value: str, **delta: float) -> str:
     return to_rfc3339(from_rfc3339(value) + timedelta(**delta))
-
-
-METRIC_SYMPTOMS = {
-    "brightness_drop": "{equipment} 밝기가 기준보다 낮게 관찰됨",
-    "confidence_drop": "{equipment} 판정 신뢰도가 기준보다 낮게 관찰됨",
-}
-
-
-def _symptom(details: dict[str, Any]) -> str | None:
-    """관찰 사실만 적는다. 원인을 추정하는 문장을 만들지 않는다."""
-    metric = details.get("metric")
-    if isinstance(metric, dict) and metric.get("anomaly") in METRIC_SYMPTOMS:
-        return METRIC_SYMPTOMS[metric["anomaly"]].format(equipment=metric.get("equipment_id"))
-    sig = details.get("signature")
-    if not isinstance(sig, dict) or not sig.get("endpoint") or not sig.get("error_type"):
-        return None
-    error_type = str(sig["error_type"]).split(":", 1)[0]
-    return f"{sig['endpoint']} 요청에서 {error_type} 오류 반복 관찰"
 
 
 def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> tuple[dict, list]:
@@ -101,7 +90,7 @@ def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> 
         "service": service,
         "line_id": incident["line_id"],
         "category": incident["category"],
-        "symptom": _symptom(details),
+        "symptom": observed_symptom(details),  # 관찰 사실만, 원인 추정 없음
         "features": {
             "recent_deploy": any(recent_from <= d["observed_at"] <= first_seen for d in history),
             "scope": "equipment" if "metric" in details else "service",
@@ -287,4 +276,60 @@ async def get_knowledge(
 ) -> JSONResponse:
     reject_unknown_query(request, frozenset({"q"}))
     data = await run_in_threadpool(_knowledge, context(request), _agent(request), incident_id, q)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+@router.post(intake.PROPOSALS_PATH)
+async def submit_proposal(request: Request) -> JSONResponse:
+    reject_unknown_query(request)
+    agent = _agent(request)
+    key = idempotency_key(request)
+    raw = await read_raw_body(request)
+    status_code, body = await run_in_threadpool(
+        intake.submit, context(request), agent, key, raw, request_id(request)
+    )
+    return JSONResponse(status_code=status_code, content=body)
+
+
+def _proposal(ctx: AppContext, agent: AgentPrincipal, proposal_id: str) -> dict:
+    if not is_valid_entity_id(proposal_id, "PROP"):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    with ctx.store.read() as tx:
+        incident = load_visible_incident(tx, agent, agent.incident_id)
+        row = tx.one(
+            "SELECT * FROM proposals WHERE id = ? AND run_id = ? AND incident_id = ?"
+            " AND attempt_id = ?",
+            (proposal_id, agent.run_id, agent.incident_id, agent.attempt_id),
+        )
+    if row is None:
+        raise ApiError("RESOURCE_NOT_FOUND")  # 다른 사건·attempt의 제안도 없는 것과 같다
+    payload = json.loads(row["payload_json"])
+    record = json.loads(row["checks_json"])
+    revision_allowed = (
+        row["decision"] == "REJECTED"
+        and incident["status"] == "INVESTIGATING"
+        and incident["submissions"] < ctx.max_submissions
+    )
+    status = ProposalStatus.model_validate(
+        {
+            "proposal_id": row["id"],
+            "incident_id": row["incident_id"],
+            "category": payload["category"],
+            "action_type": payload["action"]["type"],
+            "decision": row["decision"],
+            "decision_reason": record.get("decision_reason"),
+            "checks": record["checks"],
+            "received_at": row["received_at"],
+            "submissions_used": incident["submissions"],
+            "max_submissions": ctx.max_submissions,
+            "revision_allowed": revision_allowed,
+        }
+    )
+    return status.model_dump(mode="json")
+
+
+@router.get(intake.PROPOSALS_PATH + "/{proposal_id}")
+async def get_proposal(proposal_id: str, request: Request) -> JSONResponse:
+    reject_unknown_query(request)
+    data = await run_in_threadpool(_proposal, context(request), _agent(request), proposal_id)
     return JSONResponse(content=success_body(request_id(request), data))
