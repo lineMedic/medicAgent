@@ -43,6 +43,7 @@ from linemedic.common.sanitize import mask_secrets
 from linemedic.control_plane import audit, idempotency
 from linemedic.control_plane.app import AppContext, safe_validation_errors
 from linemedic.control_plane.auth import AgentPrincipal
+from linemedic.control_plane.broker.github_pr import Execution, PrOpener, Stop
 from linemedic.control_plane.broker.patch_gate import GateOutcome, GateRequest, PatchGate
 from linemedic.control_plane.broker.proposals import Proposal, ProposalReceipt
 from linemedic.control_plane.broker.work_order import build_draft
@@ -165,11 +166,15 @@ def _block(
     missing: list[str] | None = None,
     next_steps: list[str] | None = None,
     retry_condition: str | None = None,
+    actor: Actor = Actor.BROKER,
+    side_effect_state: str = "NONE",
+    side_effect_identities: list[str] | None = None,
 ) -> None:
     """incident ESCALATED·work BLOCKED와 WORK_BLOCKED 알림 intent를 같은 트랜잭션에 기록한다.
 
     `symptom_impact`는 사건 details의 관찰 사실로 host가 채운다(모델 요약은 `agent_summary`로 따로).
-    `evidence_ids`는 호출자가 이 run·사건에서 확인한 ID만 넘긴다.
+    `evidence_ids`는 호출자가 이 run·사건에서 확인한 ID만 넘긴다. 외부에 남은 것(push한 브랜치·PR)은
+    `side_effect_state`·`side_effect_identities`로 적는다.
     """
     observed = observed_symptom(json.loads(incident["details_json"] or "{}"))
     result = coupled_transition(
@@ -180,7 +185,7 @@ def _block(
         work_id=work["id"],
         expected_work_version=work["version"],
         work_to="BLOCKED",
-        actor=Actor.BROKER,
+        actor=actor,
         reason=reason,
         details=details,
     )
@@ -194,6 +199,8 @@ def _block(
         owner_route_id=route_id,
         observed_at=tx.now,
         attempted_actions=attempted,
+        side_effect_state=side_effect_state,
+        side_effect_identities=side_effect_identities or [],
         missing_requirements=missing or [],
         operator_next_step=next_steps or [],
         retry_condition=retry_condition or RETRY_AFTER_APPROVAL,
@@ -400,6 +407,7 @@ class Broker:
     route_id: str
     max_submissions: int = 2
     patch_gate: PatchGate | None = None  # 없으면 create_pr는 PROTECTION_UNAVAILABLE
+    pr_opener: PrOpener | None = None  # 없으면 게이트를 통과해도 PR 없이 멈춘다(W11)
 
     def run(self, stop: threading.Event, interval_seconds: float = 1.0) -> None:
         """같은 프로세스의 백그라운드 루프(W13 `make start`가 thread로 띄운다. 프로세스당 하나).
@@ -442,20 +450,38 @@ class Broker:
         return done
 
     def recover_checking(self) -> int:
-        """재시작 때 CHECKING에 남은 제안: 외부 실행 intent가 없으면 다시 검사하도록 RECEIVED로.
+        """재시작 때 CHECKING에 남은 제안을 정리한다. RECEIVED로 되돌린 수를 돌려준다.
 
-        intent가 있는 제안은 그대로 둔다. 그 execution은 UNKNOWN 규칙(reconcile)을 따른다.
+        - 외부 실행 intent가 없으면 다시 검사하도록 RECEIVED로 둔다
+        - 봇 PR 실행이 결과를 모른 채 끝났으면(INTENDED·RUNNING) `PrOpener.recover`가 UNKNOWN으로
+          두고, 제안은 ALLOWED(EXECUTION_UNKNOWN)로 닫는다. 그 execution은 운영자 reconcile을 따른다
         """
+        if self.pr_opener is not None:
+            self.pr_opener.recover()
         with self.store.tx() as tx:
             reset = 0
-            for row in tx.all("SELECT id FROM proposals WHERE decision = 'CHECKING'"):
-                if tx.one("SELECT 1 FROM executions WHERE proposal_id = ?", (row["id"],)) is None:
+            for row in tx.all("SELECT * FROM proposals WHERE decision = 'CHECKING'"):
+                execution = tx.one(
+                    "SELECT id, status FROM executions WHERE proposal_id = ?", (row["id"],)
+                )
+                if execution is None:
                     tx.execute(
                         "UPDATE proposals SET decision = 'RECEIVED' WHERE id = ?"
                         " AND decision = 'CHECKING'",
                         (row["id"],),
                     )
                     reset += 1
+                elif execution["status"] == "UNKNOWN":
+                    case = self._case(tx, row)
+                    case.record["execution_id"] = execution["id"]
+                    case.record["checks"].append(
+                        {
+                            "check": "CREATE_PR",
+                            "result": "EXECUTION_UNKNOWN",
+                            "reason": "interrupted_before_result",
+                        }
+                    )
+                    self._decide(tx, case, "ALLOWED", "PROPOSAL_ALLOWED", "EXECUTION_UNKNOWN")
             return reset
 
     def _claim(self) -> dict[str, Any] | None:
@@ -522,7 +548,11 @@ class Broker:
                 self._escalate(tx, case)
         if request is not None:
             assert self.patch_gate is not None
-            self._finish_gate(row["id"], self.patch_gate.check(request))  # git·docker: 트랜잭션 밖
+            outcome = self.patch_gate.check(request)  # git·docker: 트랜잭션 밖
+            if outcome.passed and self.pr_opener is not None:
+                self._open_pr(row["id"], outcome)
+            else:
+                self._finish_gate(row["id"], outcome)
 
     def _gate_request(self, tx: Tx, case: _Case) -> GateRequest:
         """제안 base를 비교할 run 기준(BASELINE_COMMIT)과 사건 서비스의 최근 배포 관찰 base."""
@@ -576,6 +606,131 @@ class Broker:
                 outcome.code,
                 revisable=outcome.revisable,
                 detail=f"패치 게이트 {last} 단계: {outcome.code}({outcome.reason})",
+            )
+
+    # 봇 PR (W11): 외부 호출은 트랜잭션 밖, 결과는 다시 연 트랜잭션에서 상태를 재확인하고 쓴다
+
+    def _checking_case(self, tx: Tx, proposal_id: str) -> _Case | None:
+        row = tx.one("SELECT * FROM proposals WHERE id = ?", (proposal_id,))
+        return self._case(tx, row) if row is not None and row["decision"] == "CHECKING" else None
+
+    def _save_checks(self, tx: Tx, case: _Case) -> None:
+        tx.execute(
+            "UPDATE proposals SET checks_json = ? WHERE id = ? AND decision = 'CHECKING'",
+            (canonical_dumps(case.record), case.row["id"]),
+        )
+
+    def _stop_pr(self, tx: Tx, case: _Case, stop: Stop) -> None:
+        """PR을 만들지 않고 멈춘다(외부 생성 전). 에이전트가 고칠 수 있는 일이 아니다."""
+        case.record["checks"].append(
+            {"check": "CREATE_PR", "result": stop.code, "reason": stop.reason}
+        )
+        self._reject(
+            tx,
+            case,
+            stop.code,
+            revisable=False,
+            blocker=stop.blocker,
+            stage="external_write",
+            detail=f"봇 PR을 만들기 전 확인에서 멈췄다({stop.reason})",
+        )
+
+    def _pr_decided(self, tx: Tx, case: _Case, execution_id: str, reason: str) -> None:
+        result = "PASS" if reason == "PR_OPENED" else reason
+        case.record["execution_id"] = execution_id
+        case.record["checks"].append({"check": "CREATE_PR", "result": result})
+        self._decide(tx, case, "ALLOWED", "PROPOSAL_ALLOWED", reason)
+
+    def _open_pr(self, proposal_id: str, outcome: GateOutcome) -> None:
+        opener = self.pr_opener
+        assert opener is not None and outcome.candidate is not None
+        assert outcome.workdir is not None
+        state_changed = Stop("STATE_CONFLICT", "state_changed", "VALIDATION_FAILED")
+        with self.store.tx() as tx:
+            case = self._checking_case(tx, proposal_id)
+            if case is None:
+                return
+            case.record["checks"].extend(outcome.checks)
+            case.record["candidate"] = outcome.candidate
+            if not case.still_validating():
+                return self._stop_pr(tx, case, state_changed)
+            stop = opener.db_problem(tx, case.work)
+            if stop is not None:
+                return self._stop_pr(tx, case, stop)
+            plan = opener.plan(
+                case.row,
+                case.incident,
+                case.work,
+                case.proposal,
+                case.record["checks"],
+                outcome.candidate,
+                observed_symptom(json.loads(case.incident["details_json"] or "{}")),
+                _scoped_evidence(tx, case),
+            )
+            if not opener.port.write_enabled:  # G10 전(shadow): 계획만 남긴다
+                case.record["pr_plan"] = {"head": plan.head, "base": plan.base, "title": plan.title}
+                disabled = Stop(
+                    "PROTECTION_UNAVAILABLE", "github_write_disabled", "PERMISSION_REQUIRED"
+                )
+                return self._stop_pr(tx, case, disabled)
+            self._save_checks(tx, case)
+        found = opener.precheck(plan)  # 외부 생성 직전 재조회: 트랜잭션 밖
+        with self.store.tx() as tx:
+            case = self._checking_case(tx, proposal_id)
+            if case is None:
+                return
+            if not case.still_validating():
+                return self._stop_pr(tx, case, state_changed)
+            verdict = opener.evaluate(tx, case.work, plan, found)
+            if isinstance(verdict, Stop):
+                return self._stop_pr(tx, case, verdict)
+            execution_id = opener.intend(tx, plan)
+            if isinstance(verdict, dict):  # 같은 work·candidate의 봇 PR을 재사용한다
+                reused = Execution("SUCCEEDED", "reused", {"reused": True}, pull=verdict)
+                opener.record(tx, plan, execution_id, reused, case.incident, case.work)
+                return self._pr_decided(tx, case, execution_id, "PR_OPENED")
+            case.record["execution_id"] = execution_id
+            self._save_checks(tx, case)
+        result = opener.execute(plan, execution_id, outcome.workdir / "repo.git", found.head_sha)
+        with self.store.tx() as tx:
+            case = self._checking_case(tx, proposal_id)
+            incident = tx.one("SELECT * FROM incidents WHERE id = ?", (plan.incident_id,))
+            work = tx.one("SELECT * FROM work_items WHERE id = ?", (plan.work_id,))
+            moving = case is not None and case.still_validating()
+            # 외부 결과는 상태가 바뀌었어도 기록한다(전이는 상태가 그대로일 때만)
+            opener.record(tx, plan, execution_id, result, incident, work, transition=moving)
+            if case is None:
+                return
+            if result.status == "SUCCEEDED":
+                return self._pr_decided(tx, case, execution_id, "PR_OPENED")
+            if result.status == "UNKNOWN":
+                return self._pr_decided(tx, case, execution_id, "EXECUTION_UNKNOWN")
+            self._pr_decided(tx, case, execution_id, "EXECUTION_FAILED")
+            if not moving:
+                return
+            identities = [] if result.stage == "push" else [f"branch {plan.head}"]
+            if isinstance(result.detail.get("pr_number"), int):
+                identities.append(f"PR #{result.detail['pr_number']}")
+            assert result.blocker is not None
+            _block(
+                tx,
+                self.route_id,
+                incident,
+                work,
+                reason=result.blocker,
+                stage="external_write",
+                reason_detail=(
+                    f"봇 PR 생성의 {result.stage} 단계가 거절됐다({result.detail.get('reason')})."
+                    " 다시 시도하지 않고 멈춘다"
+                ),
+                evidence_ids=_scoped_evidence(tx, case),
+                details={"proposal_id": proposal_id, "execution_id": execution_id},
+                attempted=[f"create_pr {execution_id} → FAILED({result.stage})"],
+                next_steps=[
+                    "GitHub 권한·브랜치·PR 상태를 확인한 뒤 새 generation 승인 여부를 판단"
+                ],
+                side_effect_state="OBSERVED" if identities else "NONE",
+                side_effect_identities=identities,
             )
 
     # B03~B06: 통과하면 None, 실패하면 (검사 코드, 세부)
@@ -645,8 +800,14 @@ class Broker:
         *,
         revisable: bool = True,
         detail: str | None = None,
+        blocker: str | None = None,
+        stage: str = "validation",
     ) -> None:
-        """거절. `revisable`이 False면(에이전트가 고칠 수 없는 사유) 예산이 남아도 멈춘다."""
+        """거절. `revisable`이 False면(에이전트가 고칠 수 없는 사유) 예산이 남아도 멈춘다.
+
+        `blocker`를 주면 차단 보고 코드로 쓴다(기본: 기준 변경은 SOURCE_CHANGED, 나머지는
+        VALIDATION_FAILED).
+        """
         self._decide(tx, case, "REJECTED", "PROPOSAL_REJECTED", code)
         if not case.still_validating():
             return  # 상태가 이미 바뀌었으면 전이하지 않는다
@@ -673,8 +834,9 @@ class Broker:
             self.route_id,
             incident,
             case.work,
-            reason="SOURCE_CHANGED" if code == "SOURCE_CHANGED" else "VALIDATION_FAILED",
-            stage="validation",
+            reason=blocker
+            or ("SOURCE_CHANGED" if code == "SOURCE_CHANGED" else "VALIDATION_FAILED"),
+            stage=stage,
             reason_detail=f"{reason_detail}. {detail}" if detail else reason_detail,
             evidence_ids=_scoped_evidence(tx, case),
             details={"proposal_id": case.row["id"], "rejected": code},

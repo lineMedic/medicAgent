@@ -125,7 +125,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="UNKNOWN 알림을 bound Issue 댓글 조회로만 조정 (W26, 다시 보내지 않음)",
     )
     reconcile_parser.add_argument("--notification-id", required=True)
-    for command_parser in (approve_parser, retry_parser, cancel_parser, reconcile_parser):
+    execution_parser = sub.add_parser(
+        "reconcile",
+        help="결과 불명 execution(CREATE_PR·CREATE_ISSUE)을 외부 조회로만 조정 (W11)",
+    )
+    execution_parser.add_argument("--run-id", required=True)
+    execution_parser.add_argument("--execution-id", required=True)
+    for command_parser in (
+        approve_parser,
+        retry_parser,
+        cancel_parser,
+        reconcile_parser,
+        execution_parser,
+    ):
         command_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
         command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
@@ -356,6 +368,42 @@ def _notification_reconcile(
     return _print_response(response)
 
 
+def _execution_reconcile(
+    args: argparse.Namespace, transport: httpx.BaseTransport | None = None
+) -> int:
+    """execution을 읽고 그 갱신 시각을 멱등 키에 넣어 조정한다.
+
+    같은 상태에서 다시 부르면 저장된 응답을 받는다.
+    조정 기록으로 execution이 바뀐 뒤에는 새 키라 다시 조회한다.
+    """
+    target = _ops_target(args, "reconcile")
+    if target is None:
+        return 2
+    base_url, headers = target
+    path = f"/ops/executions/{args.execution_id}"
+    try:
+        with httpx.Client(base_url=base_url, timeout=60.0, transport=transport) as client:
+            current = client.get(path, headers=headers)
+            if current.status_code != 200:
+                return _print_response(current)
+            updated_at = current.json()["data"]["updated_at"]
+            response = client.post(
+                f"{path}/reconcile",
+                json={"schema_version": "linemedic.v4", "run_id": args.run_id},
+                headers={
+                    **headers,
+                    "Idempotency-Key": f"reconcile:{args.execution_id}:{updated_at}",
+                },
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"reconcile 실패: Control API에 연결하지 못했다({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return 2
+    return _print_response(response)
+
+
 def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
     target = _ops_target(args, "issue-bind")
     if target is None:
@@ -469,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
         return _work_command(args)
     if args.command == "notification-reconcile":
         return _notification_reconcile(args)
+    if args.command == "reconcile":
+        return _execution_reconcile(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

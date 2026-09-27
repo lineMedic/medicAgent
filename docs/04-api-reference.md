@@ -88,7 +88,8 @@ category ↔ action 대응과 근거 개수 규칙은 [03-domain-model.md §4](0
 | POST `/ops/cases/rebuild-index` | operator maintenance | PUBLISHED 노트로 index 재구축. outcome 불변 | W27 |
 | GET `/ops/cases/{note_id}` | operator read | revision·source·검증 수준 | W27 |
 | POST `/ops/releases` | operator approve | 정확한 최종 SHA 배포 승인 | W12 |
-| POST `/ops/executions/{id}/reconcile` | operator reconcile | 외부 상태 읽기·기록만. 새 변경 금지 | W11 |
+| GET `/ops/executions/{id}` | operator read | 외부 실행 intent·결과·조정 기록(CLI가 멱등 키에 갱신 시각을 쓴다) | W11 |
+| POST `/ops/executions/{id}/reconcile` | operator reconcile | 외부 상태 읽기·기록만. 새 변경 금지. body `{schema_version, run_id}`(execution의 run과 같아야 함) | W11 |
 | POST `/ops/incidents/{id}/escalate` | operator | 중단 이유 기록. RESOLVED 전이 없음 | W06 |
 | POST `/ops/runs` | operator demo | 새 run 준비 | W19 |
 | POST `/ops/runs/{id}/archive` | operator demo | 신규 작업 중단·증거 export. 삭제 아님 | W19 |

@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W11** ([tasks/W11-bot-pr-reconcile.md](tasks/W11-bot-pr-reconcile.md), 봇 PR 생성·결과 불명 기록·reconcile CLI — 선행 W10·W24~W26(fake) 충족. FakeGitHub로 UNIT_TESTED까지, 실제 PR은 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W12** ([tasks/W12-exact-release.md](tasks/W12-exact-release.md), 사람이 승인한 exact SHA 배포와 업무 검증 연결 — 선행 W05·W11(fake) 충족. 사전 검사·배포 로직은 fake/docker로 UNIT_TESTED까지, 실제 승인 배포는 G7·G8). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -36,7 +36,7 @@
 | 16 | W25 | UNIT_TESTED | UNIT_TESTED | `make test` → 1067 passed(W25 테스트 31개: 경합 7, lifecycle 24), `make lint` → PASS, 경합 시험(스레드 2·4·8, 각자 DB 연결): 활성 work 1·`WORK_STARTING` 1·attempt 최대 1, 변이 20개 모두 테스트 실패로 잡힘 | | 2026-09-27T10:53Z |
 | 17 | W26 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1098 passed(W26 테스트 31개: 알림 25, 시작 게이트 6), `make lint` → PASS, `make test-live` → N12 1 skipped(쓰기 허락 표시 없음), 변이 24개 모두 테스트 실패로 잡힘, live 시험 흐름을 FakeGitHub로 한 번 따라 실행. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`, `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`, `LINEMEDIC_LIVE_NOTIFY_ISSUE=<open Issue 번호>`로 `make test-live` 1회 → `evidence/N12-notification-route.md`(시작 댓글·S6 차단 댓글·강제 timeout 조정·미전송). SMTP는 G12 선택 시에만 | 2026-09-27T11:22Z |
 | 18 | W10 | UNIT_TESTED | UNIT_TESTED | `make test` → 1293 passed(W10 테스트 195개: 정책 98, 판정 54, runner 단계 13, 게이트·브로커 30), `make test-docker` → 11 passed(W10 실제 컨테이너 7개: R0/R1/R2·비재현·회귀·timeout·OOM·N06 격리), `make lint` → PASS, 변이 79개 중 78개가 테스트 실패로 잡힘(1개는 동등 변이), `evidence/N06-runner-isolation.md`(로컬 개발 Mac) | | 2026-09-27T12:25Z |
-| 19 | W11 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
+| 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1357 passed(W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T13:16Z |
 | 20 | W12 | LIVE_VERIFIED | NOT_CHECKED | | G7·G8 | |
 | 21 | W13 | LIVE_VERIFIED | NOT_CHECKED | | G2·G7·G8·G10 | |
 | 22 | W27 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,48 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W11 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T13:16Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). FakeGitHub·FakePusher와 실제 git·SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/control_plane/broker/github_pr.py`(새): `PrOpener`
+    - 사전 조건·PR 계획(브랜치 이름, spec 06 §8 본문 템플릿, closing keyword 무력화, marker)
+    - 외부 생성 직전 재조회(Issue → mirror → scope, 사람 작업, baseline, 브랜치 점유)와 재사용 판정
+    - INTENDED → push → create_pull → get_pull 확인, 결과 기록(PR_OPENED·EXECUTION_UNKNOWN·FAILED), 재시작 복구
+  - `linemedic/control_plane/broker/reconcile.py`(새): `ExecutionReconciler`(CREATE_PR 조정, CREATE_ISSUE는 W24 router, DEPLOY는 W12)
+  - `linemedic/integrations/git_push.py`(새): `GitPusher`(force·hook·credential 노출 없음, porcelain 분류)·`FakePusher`
+  - `linemedic/integrations/github.py`: `get_branch_head`, FakeGitHub 브랜치·PR head SHA(없는 브랜치로 PR을 만들면 422)
+  - `linemedic/control_plane/broker/intake.py`: 게이트 통과 뒤 PR 흐름(세 트랜잭션), 재시작 때 UNKNOWN 제안 정리, `_block`에 actor·side effect
+  - `broker/patch_gate.py`(`workdir`), `broker/proposals.py`(PR 결과 코드), `contracts/api/proposal-status.schema.json` 재생성
+  - `ops_api.py`·`app.py`: `GET /ops/executions/{id}`, `POST /ops/executions/{id}/reconcile`(run 일치·멱등), `AppContext.execution_reconciler`
+  - `linemedic/cli.py`·`Makefile`: `make reconcile RUN_ID= EXECUTION_ID=`(execution을 읽어 갱신 시각을 멱등 키에 넣음)
+  - 테스트: `integration/test_github_pr.py`(41), `integration/test_execution_unknown.py`(14), `unit/test_git_push.py`(7), `unit/test_github_port.py`(+2), 도우미 `helpers/pr_world.py`
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 1357 passed, 18 deselected / `make lint` → PASS / `make test-docker` → 11 passed
+  - 실제 git: 로컬 bare 원격에 새 브랜치 push, 같은 SHA 재push, 되감기 push 거절(force 없음), https만 허용
+  - 변이 확인 53개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - 본문: closing keyword 무력화·Related to·원인 가설 정제·보장하지 않는 것·marker 제거
+    - 사전 조건: 시작 알림 ACCEPTED, 조회 오류(뒤쪽 조회 실패 포함), scope 재확인, mirror 갱신, 사람 작업, baseline 이동·없음
+    - 재사용·점유: 재사용 조건, 브랜치 SHA 점유, 봇 작성자·head SHA·base 확인, logical key
+    - 실행: 이미 candidate면 push 생략, push·생성 불명을 실패로, 보내지 않은 생성, Conflict·NotFound 매핑, 생성 뒤 검증, 검증 조회 오류, PR_READY, 전이 플래그, 재시작 INTENDED
+    - 조정: marker 확인, 다른 PR과 함께 있는 FOUND, 브랜치가 남았는데 escalate, 상태 확인 없는 전이, 끝난 execution 조회, 조회 오류를 부재로
+    - broker·push·API: 재조회 뒤 상태 확인, shadow, 불명을 PASS로, 실패 차단·남은 브랜치 보고, 재사용 경로, 수정 허용, 재시작 제안 방치, --no-verify·거절 판정·credential.helper·protocol·askpass·사용자 설정, run 일치, 실패 뒤 멱등 기록, CLI 키, Fake 브랜치 없는 PR
+- 수용 기준:
+  - T-EXEC-01: PR 생성 직후 timeout(부작용 있음) → UNKNOWN, 두 번째 생성 호출 0회, reconcile → FOUND → PR_OPENED: PASS
+  - T-IDEM-01(PR 경로): 같은 제안을 두 번 처리해도 PR 1개(push 1·생성 1·execution 1): PASS
+  - 사전 조건 불충족(시작 알림 미접수, Issue closed·scope 변경, 사람 담당자·사람 PR, baseline 이동·없음, 브랜치 점유, shadow, 조회 실패, 취소 요청) → PR 생성 0, 사유 기록: PASS
+  - PR 본문에 closing keyword가 없고 `Related to #`가 있다(에이전트 문장의 `fixes #1`·URL 포함): PASS
+  - 다른 작성자가 같은 브랜치명·marker로 만든 PR → 채택하지 않음(CONFLICT): PASS
+  - live(G2·G10): 전용 repo 봇 PR 1개, head SHA = candidate SHA, 리뷰어가 봇이 아님: NOT_RUN (G2·G10, 시드 push·baseline 브랜치 필요)
+- 판단: D81(역할·트랜잭션 경계, 생성 직전 재조회와 멈춤 blocker, 재사용 기준, push 분류·credential 전달, 결과별 전이·side effect, 본문 템플릿·closing keyword, 조정 규칙, 실행 조회·조정 API·CLI 키)
+- 증거: 커밋은 이 보고를 포함한 W11 커밋. live PR 기록은 실제 실행 전이라 없다
+- 작업 중 발견(W26 범위, 고치지 않음): `make notification-reconcile`은 멱등 키가 알림 ID로 고정돼, INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 돌아온다. W11 `make reconcile`은 갱신 시각을 키에 넣어 이 문제를 피했다. W26은 소유 브랜치에서 고치는 것을 제안한다
+- 남은 일·위험:
+  - live 봇 PR은 시드 push(W03)와 run별 `baseline/<run>` 브랜치(W19·W13)가 있어야 한다. W13 실제 run에서 PR 번호·head SHA·리뷰어를 기록한다
+  - push 전송 오류는 모두 UNKNOWN으로 봐 운영자 조정이 늘 수 있다(D81 대가). 브랜치만 남은 경우는 사람이 정리한다
+  - 자동 bounded 재조회는 H04다
+- 다음 카드: W12 (fake·docker 부분)
 
 ### W10 완료 보고 (2026-09-27T12:25Z)
 
