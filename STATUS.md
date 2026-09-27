@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W06** ([tasks/W06-store-auth.md](tasks/W06-store-auth.md), DB·상태 전이·감사·인증·멱등성 — 선행 B00, 게이트 없이 목표 상태까지 가능). W05 2부(결과 저장·incident 전이)는 W06 뒤에 한다. W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W05 (2부)** ([tasks/W05-verifier.md](tasks/W05-verifier.md) 2부, verifier 결과 저장과 verifier 전용 incident 전이 — 선행 W06 충족, 게이트 없이 목표 상태까지 가능). 그다음은 W07이다. W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -25,7 +25,7 @@
 | 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`. 시드 push는 W04 이후 | 2026-09-27T04:02Z |
 | 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
-| 8 | W06 | UNIT_TESTED | NOT_CHECKED | | | |
+| 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
 | 9 | W05 (2부) | UNIT_TESTED | NOT_CHECKED | | | |
 | 10 | W07 | UNIT_TESTED | NOT_CHECKED | | | |
 | 11 | W08 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,45 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W06 완료 보고 (2026-09-27T05:46Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음
+- 변경 파일:
+  - `linemedic/control_plane/migrations/0001_init.sql`: spec 04 §5 DDL을 구분선 사이에 원문 그대로 두고 `schema_migrations`만 더했다
+  - `linemedic/control_plane/store.py`: `connect`(foreign_keys·WAL·busy_timeout·autocommit), `migrate`(파일마다 한 트랜잭션, 모르는 번호 거부), `Store.tx()`(`BEGIN IMMEDIATE`, SQLITE_BUSY 3회 재시도 후 `StoreBusy`), `Store.read()`(query_only), `cas_update`(허용 목록 테이블·열, 0행이면 `StateConflict`). `Tx`는 SQL 실행과 시각만 가진다
+  - `linemedic/control_plane/state.py`: docs/03 incident·work 전이 표와 결합 표를 데이터로 두고 `transition_incident`·`transition_work`·`coupled_transition`(결합 표 밖 조합·다른 incident의 work 거부, 알림 종류 반환). 주체는 `Actor` 열거형만 받고 전이마다 감사 기록
+  - `linemedic/control_plane/audit.py`(비밀을 가려 `audit_events` 기록), `idempotency.py`(NEW/REPLAY/CONFLICT/IN_FLIGHT, 재시작 때 RECEIVED → UNKNOWN), `auth.py`(token hash 등록부, agent token 발급·attempt 폐기, operator 역할, 사건 범위 가드 `load_visible_incident`), `errors.py`(외피·코드 → HTTP·고정 메시지)
+  - `linemedic/control_plane/app.py`: app factory, 라우팅 전 prefix 인증 가드, body 처리(크기 → `loads_strict` → pydantic strict·extra=forbid), `Idempotency-Key` 필수, 예외 → 오류 외피, 공개 문서 경로 없음
+  - `linemedic/control_plane/ops_api.py`: `GET /ops/incidents/{id}`, `POST /ops/incidents/{id}/escalate`(D70)
+  - `linemedic/control_plane/notifications/outbox.py`: 알림 intent `enqueue`(PENDING만, 발송은 W26), `linemedic/control_plane/runs.py`(`create_run`·manifest·`new_run`), `linemedic/common/sanitize.py`(비밀 마스킹·멘션 무력화·허용 repo 밖 URL 비활성화·HTML 이스케이프)
+  - `linemedic/cli.py`(`run-new`), `Makefile`(`run-new`), DECISIONS.md·ADR.md(D68~D70)
+  - 테스트: `integration/test_ddl_constraints.py`(21), `unit/test_state_transitions.py`(261), `unit/test_auth.py`(22), `integration/test_idempotency.py`(15), `unit/test_api_contract.py`(41), `unit/test_sanitize.py`(17), `integration/test_store.py`(16), 도우미 `linemedic/tests/helpers/`(테스트 전용 행 생성·API 준비)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 547 passed, 4 deselected / `make lint` → PASS / `make test-docker` → 3 passed
+  - `make run-new` → run `r-20260927-054424-94f9`, routing scope `eval:r-20260927-054424-94f9`, `runs/linemedic.db`(migration 1, 활성 run 1개, `foreign_key_check` 빈 결과, 감사 `RUN_CREATED`)
+  - 변이 확인: `/ops` prefix 가드 제거, broker에게 RESOLVED 허용, 멱등 재반환 제거, 본문 hash 비교 제거, extra 필드 허용, 스트림 크기 제한 제거, CAS 상태 조건 제거를 각각 넣으면 테스트가 실패했다. prefix 가드 제거는 처음에 endpoint 역할 검사 때문에 통과해서, 라우트가 없는 `/ops` 경로의 403 테스트를 더한 뒤 실패를 확인했다. 확인 뒤 원래 코드로 되돌렸다
+- 테스트 ID별 결과:
+  - DDL 제약: PACKAGE-VALIDATION §3의 1~18·20 PASS, 0001이 spec 04 §5와 글자 단위로 같음. 19(FTS5 필터 질의)는 `case_search`를 만드는 W27에서 한다
+  - T-STATE-02 PASS: verifier가 아닌 8개 주체의 RESOLVED·SUCCEEDED 전이와 결합 전이 모두 거부
+  - T-STATE-03 PASS: WORK_ORDER_DRAFTED에서 모든 도착 상태·모든 주체 거부
+  - 전이 표 전수: incident 10×10·work 11×11 쌍을 9개 주체로 시험(표 안의 허용 주체만 성공, version +1, 감사 1건)
+  - T-AUTH-01 PASS: agent token으로 `/ops/incidents/*` 조회·중단 → 403, DB·요청 기록·감사·알림 변화 없음. 라우트 없는 `/ops` 경로도 403. W12에서 `/ops/releases`로 다시 확인한다
+  - T-AUTH-02 PASS: agent 범위 가드가 같은 run의 다른 사건·다른 run·없는 사건·형식 오류를 모두 같은 404로 거부. W07의 `/tools` endpoint로 다시 확인한다
+  - T-AUTH-03 PASS: body의 `actor`·`status`·`role`·`model`·`policy_version`·`X-Operator` → 422, DB 변화 없음
+  - T-IDEM-01 PASS: 같은 키·같은 본문 두 번 → 같은 응답, 전이·감사·알림 1회. key 순서·공백만 다른 본문도 같은 요청
+  - T-IDEM-02 PASS: 같은 키·다른 본문 → 409 `IDEMPOTENCY_CONFLICT`, DB 변화 없음. RECEIVED/UNKNOWN → 409 `STATE_CONFLICT`(재실행 없음)
+  - 그 밖: `schema_version: "linemedic.v2"` → 422, 오래된 `expected_incident_version` → 409 `STATE_CONFLICT`(현재 상태·version), 크기 초과 → 413(Content-Length·스트림 둘 다), 중복 key·NaN·JSON 아님 → 422, SQLITE_BUSY → 503, 오류 응답에 token·입력 비밀 없음
+- 판단:
+  - D68: DB 위치·migration 기록·재시도 한도·요청마다 새 연결
+  - D69: 전 경로 인증과 라우팅 전 prefix 가드, token hash 메모리 등록부(P0 한 프로세스), 범위 밖·없음 동일 404, 제안 외 형식 오류 코드 `INVALID_REQUEST`, 성공 응답만 멱등 저장
+  - D70: escalate body와 동작. operator는 표대로 PR_OPENED에서만 중단할 수 있다. 결합 표가 요구하는 알림 intent를 위해 outbox `enqueue`(기록 부분)를 W26 시그니처로 먼저 만들었다
+- 증거: 커밋은 이 보고를 포함한 W06 커밋. DB는 git 제외 경로 `runs/linemedic.db`에 있다
+- 남은 일·위험:
+  - W26 전에는 PENDING 알림이 발송되지 않고 쌓인다. route catalog 검증·발송·재시도는 W26
+  - agent token 등록부는 메모리다. 프로세스를 다시 시작하면 모두 무효가 된다(진행 중 attempt 자동 재개 없음과 같은 방향)
+  - operator 중단은 허용 표대로 PR_OPENED에서만 된다. 시작 전 취소는 W25의 work cancel이 맡는다
+- 다음 카드: W05 (2부)
 
 ### W05 (1부) 완료 보고 (2026-09-27T05:07Z)
 

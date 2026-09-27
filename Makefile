@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -71,3 +71,8 @@ scenario-s1:
 verify-negative:
 	@test -n "$(RUN_ID)" || { echo "사용법: make verify-negative RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
 	$(PY) -m linemedic.cli verify-negative --run-id "$(RUN_ID)" --mes-image "$(MES_IMAGE)"
+
+# 새 run (W06: 제어 DB migration과 demo_runs 활성 전환·manifest 기록. baseline 브랜치 등은 W19).
+# host manifest가 있으면 경로와 SHA-256을 run manifest에 남긴다.
+run-new:
+	$(PY) -m linemedic.cli run-new $(if $(wildcard evidence/host-manifest.json),--host-manifest evidence/host-manifest.json,)
