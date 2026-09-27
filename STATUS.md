@@ -22,7 +22,7 @@
 | 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
 | 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
 | 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
-| 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`. 시드 push는 W04 이후 | 2026-09-27T04:02Z |
+| 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`(첫 쓰기 전 repo 숫자 ID 대조). 시드 push는 코드 미구현 — G2 뒤 계획 출력·`--confirm-write` 구조로 구현 | 2026-09-27T04:02Z |
 | 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
@@ -110,6 +110,18 @@
 - 실행: `make test` 상당 → Python 3.12.2 1100 passed, 3.14.4 1099 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), `ruff check`·`ruff format --check` PASS. docker·live 미실행
 - 판단: D79 ⑥ 보충(시작하지 않을 work에 시작 예정 알림 금지)
 - 남은 일: #49가 병합되면 이 브랜치에 main을 병합한다. 조정의 본문 hash 정확 일치는 live N12(강제 timeout → FOUND)에서 GitHub의 줄바꿈·끝 공백 보존을 확인한다. T-NOT-01의 workspace·agent 순서는 W28·W13에서 같은 감사에 잇는다(그때까지 Issue #16 열어 둠)
+
+### B00·W02·W03 사후 리뷰 반영 (카드 밖, 2026-09-27T11:28Z)
+
+- 계기: 병합된 PR #33(B00)·#35(W02)·#36(W03)에 리뷰어가 사후 수정을 요청했다(CHANGES_REQUESTED, 별도 PR로 작업)
+- 수정 (main 기준 한 브랜치, 원래 PR별 커밋):
+  1. B00 — Python 3.14의 json은 아주 깊은 중첩을 RecursionError 없이 파싱해서 `loads_strict`의 깊은 중첩 거부가 사라졌다(3.14에서 `test_loads_strict_rejects_deeply_nested_json_as_strict_error` 실패). 파싱 전에 문자열 밖 괄호 깊이를 세어 `MAX_JSON_DEPTH`(64)를 넘으면 `StrictJSONError`로 거부한다. `requires-python`은 그대로 둔다
+  2. B00(낮음) — `.env.example` 머리말에 ` #`가 든 값은 값 전체를 따옴표로 감싸라는 안내
+  3. W02 — N01 `_chat`이 판정 전에 call을 `calls`에 붙인다(401·429·비호환 응답에서 `calls: []`로 request ID·오류 본문이 사라지던 문제). 응답 본문의 `model`을 `response_model`로 기록한다
+  4. W03 — `github_protection_probe`가 첫 쓰기 전에 setup·봇 credential로 repo 숫자 ID를 `GITHUB_REPOSITORY_ID`와 대조한다. 다르면 FAIL, 조회 실패면 INCONCLUSIVE이고 둘 다 쓰기 0회
+- 실행: `make test` 상당(`pytest -m "not (docker or live_*)"`) → Python 3.12.2·3.14.4 모두 1075 passed(#47 병합 뒤 main 기준. 수정 전 3.14에서는 깊은 중첩 테스트 1건 실패), `ruff check`·`ruff format --check` PASS. 새 테스트는 수정 전 코드에서 실패하는 것을 먼저 확인했다. docker·live 미실행
+- 판단: 시드 push(W03 카드의 `seed_demo_repo.py` push 부분)는 아직 코드가 없다. G2 뒤 probe와 같은 구조(기본은 계획만 출력, `--confirm-write`일 때만 원격 main에 최초 1회 push, force push 없음)로 코드로 구현한다
+- 남은 일: #48이 먼저 병합돼 이 브랜치에 main을 병합하고 STATUS.md 충돌(같은 자리에 넣은 보고 블록)을 시각순으로 풀었다. 이 PR이 병합되면 열린 #50·#51 브랜치에 main을 병합한다(force push 없음)
 
 ### W26 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T11:22Z)
 

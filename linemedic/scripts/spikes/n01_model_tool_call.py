@@ -122,6 +122,7 @@ def _chat(
     messages: list[dict[str, Any]],
     clock: Clock,
     step: str,
+    calls: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     url = env["NVIDIA_BASE_URL"].rstrip("/") + "/chat/completions"
     payload = {
@@ -140,6 +141,7 @@ def _chat(
         "status_code": response.status_code,
         "latency_ms": round((clock.monotonic() - started) * 1000),
     }
+    calls.append(call)  # 실패 응답도 request ID·오류 본문이 남도록 판정 전에 붙인다
     try:
         body = response.json()
     except ValueError:
@@ -150,8 +152,10 @@ def _chat(
         transient = response.status_code == 429 or response.status_code >= 500
         raise SpikeFailure("INCONCLUSIVE" if transient else "FAIL", f"HTTP_{response.status_code}")
     if not isinstance(body, dict):
+        call["error_body"] = response.text[:MAX_ERROR_BODY_CHARS]
         raise SpikeFailure("INCONCLUSIVE", "NOT_OPENAI_COMPATIBLE: 응답이 JSON 객체가 아님")
     call["usage"] = _usage(body)
+    call["response_model"] = body.get("model") if isinstance(body.get("model"), str) else None
     return body, call
 
 
@@ -234,6 +238,7 @@ def run_spike(
         "schema_version": "linemedic.v4",
         "started_at": to_rfc3339(clock.utc_now()),
         "model_id": env.get("NVIDIA_MODEL_ID") or None,
+        "response_model": None,  # 응답 본문의 model. model_id와 같은지 evidence로 확인한다
         "base_url": env.get("NVIDIA_BASE_URL") or None,
         "calls": [],
         "final_proposal": None,
@@ -254,8 +259,8 @@ def run_spike(
     try:
         for round_index in range(MAX_TOOL_ROUNDS + 1):
             step = "tool_request" if round_index == 0 else f"after_tool_result_{round_index}"
-            body, call = _chat(client, env, messages, clock, step)
-            record["calls"].append(call)
+            body, call = _chat(client, env, messages, clock, step, record["calls"])
+            record["response_model"] = record["response_model"] or call["response_model"]
             message, finish_reason = _first_message(body)
             call["finish_reason"] = finish_reason
             tool_calls = _parse_tool_calls(message)
