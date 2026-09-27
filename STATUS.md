@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W26** ([tasks/W26-notifications.md](tasks/W26-notifications.md), outbox·GitHub 댓글·시작 게이트·차단 보고 — 선행 W22(fake)·W25 충족. fake로 UNIT_TESTED까지, 실제 댓글 receipt는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W10** ([tasks/W10-patch-gate-runner.md](tasks/W10-patch-gate-runner.md), 패치 정책·candidate 생성·격리 runner R0/R1/R2 — 선행 W04·W09 충족, 자율성 A, 목표 UNIT_TESTED(`make test-docker` 포함)). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -34,7 +34,7 @@
 | 14 | W23 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2) | `make test` → 1003 passed(W23 테스트 40개: polling 통합 39, 포트 1), `make lint` → PASS, `make test-live` → S5-new 1 skipped(`LINEMEDIC_LIVE_S5` 표시 없음)·github smoke 2 skipped(G2), 변이 30개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`ISSUE_TRUSTED_AUTHOR_IDS` / 확인: `LINEMEDIC_LIVE_S5=1 make test-live` 중 승인된 작성자가 새 Issue 1개 생성 → `evidence/S5-new-issue-detect.md`(감지·생성 시각) | 2026-09-27T10:04Z |
 | 15 | W24 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1036 passed(W24 테스트 33개), `make lint` → PASS, `make test-live` → S4 2 skipped(쓰기 허락·후보 준비 표시 없음), 변이 27개 모두 테스트 실패로 잡힘(W23 변이 30개도 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 S4-new·existing 1회, 사람이 후보 Issue 2개를 만든 뒤 `LINEMEDIC_LIVE_S4_AMBIGUOUS=1`로 S4-ambiguous 1회 → `evidence/S4-issue-live.md`. issue form을 데모 repo에 복사 | 2026-09-27T10:33Z |
 | 16 | W25 | UNIT_TESTED | UNIT_TESTED | `make test` → 1067 passed(W25 테스트 31개: 경합 7, lifecycle 24), `make lint` → PASS, 경합 시험(스레드 2·4·8, 각자 DB 연결): 활성 work 1·`WORK_STARTING` 1·attempt 최대 1, 변이 20개 모두 테스트 실패로 잡힘 | | 2026-09-27T10:53Z |
-| 17 | W26 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 (G12 선택) | |
+| 17 | W26 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1098 passed(W26 테스트 31개: 알림 25, 시작 게이트 6), `make lint` → PASS, `make test-live` → N12 1 skipped(쓰기 허락 표시 없음), 변이 24개 모두 테스트 실패로 잡힘, live 시험 흐름을 FakeGitHub로 한 번 따라 실행. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`, `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`, `LINEMEDIC_LIVE_NOTIFY_ISSUE=<open Issue 번호>`로 `make test-live` 1회 → `evidence/N12-notification-route.md`(시작 댓글·S6 차단 댓글·강제 timeout 조정·미전송). SMTP는 G12 선택 시에만 | 2026-09-27T11:22Z |
 | 18 | W10 | UNIT_TESTED | NOT_CHECKED | | | |
 | 19 | W11 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 20 | W12 | LIVE_VERIFIED | NOT_CHECKED | | G7·G8 | |
@@ -99,6 +99,63 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W26 리뷰 반영 (카드 밖, 2026-09-27T11:49Z)
+
+- 계기: PR #48 리뷰(CHANGES_REQUESTED) — 차단된 work의 시작 알림이 나중에 발송됨(재현). shadow로 60초가 지나 BLOCKED가 된 뒤 G10에서 쓰기를 켜면 "작업 시작 예정" 댓글 다음에 "진행 중단 — START_NOTICE_UNCONFIRMED"가 달렸다(알림 정확성 위반)
+- 수정:
+  1. `Supervisor.expire_start_notices`: 같은 트랜잭션에서 아직 PENDING인 시작 알림을 `FAILED(expired_before_send)`로 닫는다(감사 NOTIFICATION_FAILED). SENDING·UNKNOWN은 그대로 둔다
+  2. `OutboxWorker._claim`: WORK_STARTING은 work가 WAITING_NOTIFICATION일 때만 가져가고, 아니면 보내지 않고 `FAILED(work_not_waiting)`로 닫는다. `on_scope_changed` 같은 다른 차단 경로도 막힌다
+  3. 테스트: 리뷰 재현(shadow → 61초 → expire → 쓰기 켬 → 시작 댓글 0개·차단 댓글 1개), scope 변경으로 멈춘 work의 시작 알림 미발송. 수정 전 2건 실패 확인
+- 실행: `make test` 상당 → Python 3.12.2 1100 passed, 3.14.4 1099 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), `ruff check`·`ruff format --check` PASS. docker·live 미실행
+- 판단: D79 ⑥ 보충(시작하지 않을 work에 시작 예정 알림 금지)
+- 남은 일: #49가 병합되면 이 브랜치에 main을 병합한다. 조정의 본문 hash 정확 일치는 live N12(강제 timeout → FOUND)에서 GitHub의 줄바꿈·끝 공백 보존을 확인한다. T-NOT-01의 workspace·agent 순서는 W28·W13에서 같은 감사에 잇는다(그때까지 Issue #16 열어 둠)
+
+### W26 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T11:22Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). FakeGitHub와 실제 SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/control_plane/notifications/worker.py`(새): `OutboxWorker`
+    - `process_pending`(PENDING → SENDING 커밋 → 발송 → 결과 기록), `recover_sending`, `reconcile`
+    - 시작 알림이 ACCEPTED가 되면 같은 트랜잭션에서 시작 게이트를 연다
+  - `linemedic/control_plane/notifications/github_comment.py`(새): `GitHubCommentAdapter.send`(ACCEPTED·REJECTED(safe_to_retry)·UNKNOWN), `reconcile`(FOUND·CONFIRMED_ABSENT·INCONCLUSIVE·CONFLICT)
+  - `linemedic/control_plane/notifications/templates.py`(새): 이벤트 7종 본문, blocker report 렌더러, 알림 marker, 상태 표시 문구
+  - `linemedic/control_plane/supervisor.py`:
+    - `on_start_notice_accepted`(READY, 늦은 receipt는 감사만)
+    - `Supervisor.expire_start_notices`(60초 초과·실패 → BLOCKED `START_NOTICE_UNCONFIRMED`)
+    - `start_attempt`의 필수 route 확인과 receipt 두 시각 기록
+  - `linemedic/control_plane/ops_api.py`·`app.py`: `GET /ops/notifications`, `POST /ops/notifications/{id}/reconcile`, `AppContext.outbox_worker`
+  - `linemedic/cli.py`·`Makefile`: `make notification-reconcile NOTIFICATION_ID=`
+  - 테스트: `integration/test_start_gate.py`(6), `integration/test_notifications.py`(25), `live/test_notification_live.py`(N12·S6, live_github)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 1098 passed, 11 deselected / `make lint` → PASS
+  - `make test-live` → N12 1개 skipped(쓰기 허락 표시 없음), 나머지 live도 skipped(G2·G3)
+  - live 시험 흐름을 FakeGitHub로 한 번 따라 실행했다(실제 GitHub 호출 없음, evidence 파일 만들지 않음):
+    - 시작 댓글 → READY → attempt, S6 차단 댓글
+    - 강제 timeout → UNKNOWN → 조정 FOUND(댓글 1개), 미전송 FAILED(no_bound_issue)
+  - 변이 확인 24개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - worker: UNKNOWN을 재시도로, 안전한 거절도 즉시 FAILED, 재시도 상한 무시, backoff 없음, 재시작 SENDING 복구 없음, receipt 뒤 게이트 안 엶, bound Issue 없어도 보냄, payload의 Issue 번호로 보냄, shadow에서도 보냄, 저장 시각 기록 제거
+    - adapter: 조정의 작성자·marker·본문 hash 확인 제거, 연결 전 실패를 UNKNOWN으로
+    - 템플릿: 본문 정제 제거, marker 없음, "뜻하지 않는 것" 문구 제거
+    - 시작 게이트: 대기 시간 무시, 실패한 시작 알림도 기다림, 필수 route 확인 제거, receipt 두 시각 기록 제거, 늦은 receipt로 부활
+    - 운영 API: 목록에 payload 노출
+- 수용 기준:
+  - T-NOT-01: receipt 전 `start_attempt` 거부(attempt 0), receipt 뒤 READY → attempt, 감사에 receipt 저장 시각 < attempt 시작: PASS. workspace·agent 실행 순서는 그것을 만드는 카드(W28·W13)가 같은 감사에 잇는다(지금은 workspace를 만드는 코드가 없다)
+  - T-NOT-02: ACCEPTED 표시 "댓글 등록", 템플릿에 "읽음/배달" 없음: PASS
+  - T-NOT-03: 댓글 생성 뒤 timeout → UNKNOWN·재발송 0·조정 FOUND, 재시작 SENDING → UNKNOWN, 중복 enqueue 1건: PASS
+  - T-NOT-04: 모델 없이(`MODEL_UNAVAILABLE`) blocker report 완성, 발송(댓글 등록) 또는 미전송(`FAILED(no_bound_issue)`) 기록: PASS
+  - T-NOT-05: verifier PASS 뒤 알림 FAILED → incident RESOLVED 유지: PASS
+  - T-NOT-06: payload의 수신자·Issue 번호·URL·`@team` → catalog 밖 전송 0, 링크·멘션 무력화, 비밀 마스킹: PASS
+  - 60초 초과 → BLOCKED, 뒤에 온 receipt가 work를 되살리지 않음: PASS
+  - live 시작 댓글 receipt·S6 차단 알림·N12(접수·강제 timeout·미전송): NOT_RUN (G2·G10)
+- 판단: D79(worker 배치, 대상 결정·미전송, shadow, 재시도 범위·backoff, receipt 두 시각, 조정 규칙, 시작 게이트·만료, 템플릿 정제, 상태 표시, 운영 API)
+- 증거: 커밋은 이 보고를 포함한 W26 커밋. `evidence/N12-notification-route.md`는 실제 실행 전이라 없다
+- 남은 일·위험:
+  - G2·G10이 열리면 사람이 전용 repo의 open Issue를 고른다. 사용자 허락 뒤 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1 LINEMEDIC_LIVE_NOTIFY_ISSUE=<번호> make test-live`로 N12를 1회 실행한다(댓글 3개가 남는다). N12가 확인되기 전에는 알림 완료를 주장하지 않는다
+  - outbox worker와 시작 알림 만료를 주기적으로 돌리는 루프는 W13(`make start`), 시작 직전 Issue 재조회(EXT)는 W28(지금은 mirror 기준)
+  - shadow 모드에서는 승인한 work가 모두 60초 뒤 `START_NOTICE_UNCONFIRMED`로 멈춘다(의도한 동작, D79 대가)
+  - SMTP adapter는 G12에서 고를 때만 만든다
+- 다음 카드: W10
 
 ### W25 완료 보고 (2026-09-27T10:53Z)
 

@@ -31,7 +31,7 @@ from datetime import timedelta
 from typing import Any
 
 from linemedic.common.canonical_json import canonical_dumps
-from linemedic.common.clock import Clock, to_rfc3339
+from linemedic.common.clock import Clock, from_rfc3339, to_rfc3339
 from linemedic.common.config import LineMedicConfig
 from linemedic.common.ids import new_id
 from linemedic.control_plane import audit
@@ -96,6 +96,29 @@ def _expect(work: Any, expected_version: int, allowed: Iterable[str]) -> None:
 
 def _audit(tx: Tx, work: Any, actor: str, event: str, payload: Mapping[str, Any]) -> None:
     audit.append(tx, work["run_id"], work["incident_id"], actor, event, payload)
+
+
+def _close_unsent_notice(tx: Tx, work: Any, error: str) -> None:
+    """work의 PENDING 시작 알림을 보내지 않은 채 FAILED로 닫는다(감사 NOTIFICATION_FAILED)."""
+    notice = tx.one(
+        "SELECT * FROM notifications WHERE id = ? AND status = 'PENDING'",
+        (work["start_notification_id"],),
+    )
+    if notice is None:
+        return
+    record = {**json.loads(notice["result_json"] or "{}"), "last": {"error": error}}
+    tx.execute(
+        "UPDATE notifications SET status = 'FAILED', next_attempt_at = NULL, updated_at = ?,"
+        " result_json = ? WHERE id = ? AND status = 'PENDING'",
+        (tx.now, canonical_dumps(record), notice["id"]),
+    )
+    _audit(
+        tx,
+        work,
+        Actor.SUPERVISOR,
+        "NOTIFICATION_FAILED",
+        {"notification_id": notice["id"], "event_type": notice["event_type"], "error": error},
+    )
 
 
 def work_authorization(row: Any) -> dict[str, Any]:
@@ -419,6 +442,37 @@ def cancel(
     raise ApiError("STATE_CONFLICT", {"current_status": status})
 
 
+# ── 시작 알림 게이트 (W26) ─────────────────────────────────────
+
+
+def on_start_notice_accepted(tx: Tx, notification: Any) -> str:
+    """필수 route의 시작 알림 receipt가 저장됐다. 그 work가 아직 알림 대기면 READY로 옮긴다.
+
+    이미 BLOCKED·CANCELLED 등으로 끝난 work는 되살리지 않는다(늦게 온 receipt).
+    """
+    work = tx.one("SELECT * FROM work_items WHERE id = ?", (notification["work_id"],))
+    if work is None or work["start_notification_id"] != notification["id"]:
+        return "not_start_notice"
+    if work["status"] != "WAITING_NOTIFICATION":
+        _audit(
+            tx,
+            work,
+            Actor.NOTIFIER,
+            "LATE_START_RECEIPT",
+            {"notification_id": notification["id"], "work_status": work["status"]},
+        )
+        return "late"
+    transition_work(
+        tx,
+        work["id"],
+        work["version"],
+        "READY",
+        Actor.NOTIFIER,
+        details={"notification_id": notification["id"], "receipt_id": notification["receipt_id"]},
+    )
+    return "ready"
+
+
 # ── supervisor ────────────────────────────────────────────────
 
 
@@ -440,6 +494,7 @@ class Supervisor:
         self.clock = clock
         self.agent = config.agent
         self.route_id = route_id or config.notifications.required_start_route_id
+        self.start_wait_seconds = config.notifications.start_wait_seconds
 
     def auto_approve(self, work_id: str) -> None:
         """승인된 작성자(W23 `auto_start_eligible`)의 work를 등록 정책으로 승인한다."""
@@ -479,6 +534,51 @@ class Supervisor:
                     tx, work, Actor.SUPERVISOR, "WORK_CANCEL_REQUESTED", {"reason": "scope_changed"}
                 )
 
+    def expire_start_notices(self) -> list[str]:
+        """시작 알림이 `start_wait_seconds` 안에 접수되지 않았거나 명확히 실패한 work를 멈춘다.
+
+        BLOCKED(`START_NOTICE_UNCONFIRMED`) + incident ESCALATED + `WORK_BLOCKED` intent.
+        UNKNOWN도 기다리는 시간이 지나면 멈춘다. 나중에 FOUND가 와도 되살리지 않는다.
+        아직 보내지 않은(PENDING) 시작 알림은 같은 트랜잭션에서 `FAILED(expired_before_send)`로
+        닫는다. 시작하지 않을 work에 "작업 시작 예정" 댓글이 나중에 달리지 않게 한다.
+        SENDING·UNKNOWN은 이미 나갔을 수 있으므로 그대로 두고 조정 결과는 감사만 남긴다.
+        """
+        blocked = []
+        now = self.clock.utc_now()
+        with self.store.tx() as tx:
+            rows = tx.all(
+                "SELECT w.id AS work_id, n.status AS notice_status,"
+                " n.created_at AS notice_created_at"
+                " FROM work_items w LEFT JOIN notifications n ON n.id = w.start_notification_id"
+                " WHERE w.status = 'WAITING_NOTIFICATION' ORDER BY w.created_at"
+            )
+            for row in rows:
+                if row["notice_status"] == "ACCEPTED":
+                    continue
+                created = row["notice_created_at"]
+                expired = created is None or (now - from_rfc3339(created)).total_seconds() > (
+                    self.start_wait_seconds
+                )
+                if not expired and row["notice_status"] != "FAILED":
+                    continue
+                work = _work(tx, row["work_id"])
+                reason = (
+                    "시작 알림 실패"
+                    if row["notice_status"] == "FAILED"
+                    else "시작 알림 대기 시간 초과"
+                )
+                self._block(
+                    tx,
+                    work,
+                    "START_NOTICE_UNCONFIRMED",
+                    f"{reason}(상태 {row['notice_status']}): 코드 작업을 시작하지 않았다",
+                    blocker_code="START_NOTICE_UNCONFIRMED",
+                )
+                if row["notice_status"] == "PENDING":
+                    _close_unsent_notice(tx, work, "expired_before_send")
+                blocked.append(work["id"])
+        return blocked
+
     def start_attempt(self, work_id: str) -> AttemptStart:
         """시작 게이트. 이 함수만 attempt를 만든다(INV-12)."""
         with self.store.tx() as tx:
@@ -490,13 +590,15 @@ class Supervisor:
             notice = None
             if work["start_notification_id"]:
                 notice = tx.one(
-                    "SELECT status, event_type, work_id FROM notifications WHERE id = ?",
+                    "SELECT status, event_type, work_id, route_id, accepted_at, result_json"
+                    " FROM notifications WHERE id = ?",
                     (work["start_notification_id"],),
                 )
             if (
                 notice is None
                 or notice["event_type"] != "WORK_STARTING"
-                or notice["work_id"] != work_id
+                or notice["work_id"] != work_id  # 같은 work·generation의 시작 알림
+                or notice["route_id"] != self.route_id  # 필수 route
                 or notice["status"] != "ACCEPTED"
             ):
                 return AttemptStart("not_ready", work_id, reason="start_notice_unconfirmed")
@@ -547,11 +649,18 @@ class Supervisor:
                     "deadline": deadline,
                     "tool_call_budget": self.agent.tool_call_budget,
                     "max_submissions": self.agent.max_submissions,
+                    # provider 시각과, 이 audit와 같은 시계로 receipt를 저장한 시각(receipt ≤ 시작)
+                    "start_notice_accepted_at": notice["accepted_at"],
+                    "start_notice_recorded_at": json.loads(notice["result_json"] or "{}").get(
+                        "recorded_at"
+                    ),
                 },
             )
         return AttemptStart("started", work_id, attempt_id, deadline, self.agent.tool_call_budget)
 
-    def _block(self, tx: Tx, work: Any, reason: str, symptom: str) -> None:
+    def _block(
+        self, tx: Tx, work: Any, reason: str, symptom: str, blocker_code: str = "SOURCE_CHANGED"
+    ) -> None:
         incident = _incident(tx, work)
         result = coupled_transition(
             tx,
@@ -566,7 +675,7 @@ class Supervisor:
             details={"work_id": work["id"]},
         )
         report = blocker_report(
-            blocker_code="SOURCE_CHANGED",  # blocker_code 14종 중 Issue 변경에 해당
+            blocker_code=blocker_code,  # Issue 변경은 14종 중 SOURCE_CHANGED
             stage="preflight",
             incident=incident,
             work=work,

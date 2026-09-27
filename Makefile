@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -121,3 +121,9 @@ retry-work:
 cancel-work:
 	@test -n "$(WORK_ID)" || { echo "사용법: make cancel-work WORK_ID=WORK-... [EXPECTED_VERSION=] [NOTE=]"; exit 2; }
 	$(PY) -m linemedic.cli cancel-work --work-id "$(WORK_ID)" $(if $(EXPECTED_VERSION),--expected-version "$(EXPECTED_VERSION)",) $(if $(NOTE),--note "$(NOTE)",)
+
+# 알림 조정 (W26): 결과 불명(UNKNOWN) 알림을 bound Issue 댓글 조회로만 확인한다. 다시 보내지 않는다.
+# 봇 작성자 + marker + 본문 hash가 모두 맞는 댓글이 정확히 1개일 때만 ACCEPTED로 기록한다.
+notification-reconcile:
+	@test -n "$(NOTIFICATION_ID)" || { echo "사용법: make notification-reconcile NOTIFICATION_ID=NOT-..."; exit 2; }
+	$(PY) -m linemedic.cli notification-reconcile --notification-id "$(NOTIFICATION_ID)"
