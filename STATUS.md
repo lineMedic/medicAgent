@@ -113,7 +113,7 @@
 - 환경: 개발 Mac(arm64, kernel 25.6.0), Python 3.12.2, SQLite 3.46.0(FTS5), git 2.55.0(Homebrew), Docker 28.1.1. **데모 호스트 manifest가 아니다** — W00에서 확정 호스트로 다시 만든다
 - 결정·해석: D65(config hash 범위). ruff 대상을 Python 파일로 한정했다(ruff 0.16이 Markdown도 포맷 대상으로 잡아 spec/ 수정 위험). doctor 필수 env는 config 기본값이 없는 18개로 정했다
 - 증거: 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa`(구현). 후속 커밋에서 `make host-manifest`가 명령줄을 출력하지 않게 고침(W00의 `make host-manifest > evidence/host-manifest.json`이 순수 JSON이 되도록, 출력 JSON 파싱 확인) 및 이 보고 기록
-- 남은 일·위험: 원격 push 안 함(사용자 허락 대기). 작업 위치는 fork `minjcho/medicAgent`이며 upstream `lineMedic/medicAgent` 쓰기 권한 없음 → 팀장 초대 또는 PR로 반영 필요
+- 남은 일·위험: 사용자 허락으로 fork `minjcho/medicAgent`의 `b00-bootstrap` 브랜치에 push하고 팀 저장소에 PR [#33](https://github.com/lineMedic/medicAgent/pull/33)을 열었다(2026-09-27T03:11Z, 이슈 #1 연결). 머지는 팀장 리뷰 후 결정한다. upstream `lineMedic/medicAgent` 쓰기 권한은 없다
 - 다음 카드: W01 게이트 없는 부분 (W00은 G1 대기)
 
 ### D64 승인 허용 후 게시 재개 — 실행 제한 지속 (2026-09-26T18:05:17Z)
