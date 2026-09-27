@@ -13,7 +13,9 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+
+import httpx
 
 from linemedic.common.config import (
     DEFAULT_CONFIG_PATH,
@@ -22,6 +24,7 @@ from linemedic.common.config import (
     load_settings,
     process_env,
 )
+from linemedic.scripts.github_setup_check import REPO_FULL_NAME_RE, default_get
 from linemedic.scripts.host_manifest import fts5_available, run_version_command
 
 Status = Literal["OK", "MISSING", "FAIL", "NOT_CONFIGURED"]
@@ -65,6 +68,8 @@ class DoctorContext:
     env: Mapping[str, str] = field(default_factory=dict)
     which: Callable[[str], str | None] = shutil.which
     run: Callable[[list[str]], str | None] = run_version_command
+    # GitHub GET (path, token) → (HTTP 상태, JSON). None이면 실제 GitHub API를 부른다.
+    github_get: Callable[[str, str], tuple[int, Any]] | None = None
 
 
 CheckFn = Callable[[DoctorContext], tuple[Status, str]]
@@ -120,6 +125,30 @@ def check_env(ctx: DoctorContext) -> tuple[Status, str]:
     if missing:
         return "NOT_CONFIGURED", "미설정 변수: " + ", ".join(missing)
     return "OK", f"필수 변수 {len(REQUIRED_ENV)}개 설정됨"
+
+
+GITHUB_DOCTOR_ENV = ("GITHUB_REPOSITORY", "GITHUB_REPOSITORY_ID", "GITHUB_BROKER_CREDENTIAL")
+
+
+@register("github", required=True)
+def check_github(ctx: DoctorContext) -> tuple[Status, str]:
+    """봇 credential이 있고, 그 credential로 조회한 repo 숫자 ID가 설정과 같은지 확인한다(W03)."""
+    missing = [name for name in GITHUB_DOCTOR_ENV if not ctx.env.get(name)]
+    if missing:
+        return "NOT_CONFIGURED", "미설정 변수: " + ", ".join(missing)
+    full_name, expected_id = ctx.env["GITHUB_REPOSITORY"], ctx.env["GITHUB_REPOSITORY_ID"]
+    if not REPO_FULL_NAME_RE.fullmatch(full_name) or not expected_id.isdigit():
+        return "FAIL", "GITHUB_REPOSITORY(owner/name) 또는 GITHUB_REPOSITORY_ID(숫자) 형식 오류"
+    get = ctx.github_get or default_get
+    try:
+        status, body = get(f"/repos/{full_name}", ctx.env["GITHUB_BROKER_CREDENTIAL"])
+    except httpx.HTTPError as exc:
+        return "FAIL", f"GitHub 조회 실패: {type(exc).__name__}"
+    if status != 200 or not isinstance(body, dict):
+        return "FAIL", f"봇 credential로 {full_name} 조회 실패 (HTTP {status})"
+    if str(body.get("id")) != expected_id:
+        return "FAIL", f"repo ID 불일치: 설정 {expected_id}, 실제 {body.get('id')}"
+    return "OK", f"{body.get('full_name')} (ID {expected_id}) 봇 credential로 조회됨"
 
 
 def run_checks(ctx: DoctorContext) -> list[CheckResult]:

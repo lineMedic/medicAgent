@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W03의 게이트 없이 가능한 부분** ([tasks/W03-github-setup.md](tasks/W03-github-setup.md), GitHub 설정 점검 스크립트를 FakeGitHub 기준으로 준비). W00은 G1, W01은 G6, W02의 live 부분은 G3·G4·G5 대기다. 그다음은 게이트가 필요 없는 W04다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W04** ([tasks/W04-mes-fixtures.md](tasks/W04-mes-fixtures.md), 합성 MES 서비스·버그 base·fixture·holdout — 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live는 G2·G10 대기다. W03의 시드 push는 W04가 끝난 뒤 G2·사람 허락으로 한다.
 
 ## 작업표
 
@@ -22,7 +22,7 @@
 | 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
 | 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
 | 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
-| 5 | W03 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
+| 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`. 시드 push는 W04 이후 | 2026-09-27T04:02Z |
 | 6 | W04 | UNIT_TESTED | NOT_CHECKED | | | |
 | 7 | W05 (1부) | UNIT_TESTED | NOT_CHECKED | | | |
 | 8 | W06 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,27 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W03 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T04:02Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). 점검·시험 스크립트와 단위 테스트까지 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/scripts/github_setup_check.py`: 읽기 전용 점검(repo ID·이름, squash만 허용, 봇 identity·리뷰어와 다름, 봇 관리자 권한 없음·push 가능·App 설치 범위, `baseline/*` 보호). 보호 규칙은 기존 branch protection(GraphQL)과 ruleset(REST)을 모두 확인하고, 실제 적용 설정을 `observed`로 남긴다
+  - `linemedic/scripts/github_protection_probe.py`: 쓰기 시험. 기본은 계획만 출력(PLANNED), `--confirm-write`일 때만 실행. 봇의 baseline 직접 쓰기 거절, 리뷰 없는 squash 머지 거절을 확인하고, 리뷰어 승인 가능 여부는 MANUAL로 남긴다. 만든 브랜치·PR은 삭제하지 않고 `probe` 라벨
+  - `linemedic/scripts/doctor.py`: `github` 항목(필수) — credential·repo 설정 확인 후 봇 credential로 repo ID 일치 확인
+  - `linemedic/tests/unit/test_github_setup.py`(17개), `linemedic/tests/unit/test_common.py`(doctor 전체 OK 테스트에 가짜 GitHub 조회 주입)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 63 passed, 1 deselected / `make lint` → PASS
+  - `github_setup_check --env-file /dev/null` → 종료 코드 2 / `github_protection_probe --env-file /dev/null` → 종료 코드 2
+  - `python -m linemedic.cli doctor` → `github` NOT_CONFIGURED, 비밀 값 출력 없음
+- 판단:
+  - 보호 조건: 필수 승인 1 이상, stale approval 폐기, 관리자 우회 불가, PR·force push 우회 허용 대상 0, force push 금지. `requireLastPushApproval`은 판정에 넣지 않고 관찰값으로만 기록했다(카드가 "최신 변경 승인(stale approval 폐기)"로 적어 둘을 같은 조건으로 본다)
+  - 거절 판정: 직접 쓰기는 HTTP 403·405·409·422를 거절로 본다. 리뷰 없는 머지는 405만 거절로 보고, 그 밖의 4xx는 원인이 보호인지 권한인지 알 수 없어 INCONCLUSIVE로 둔다
+  - 봇 권한: 사용자 토큰은 "다른 repo 접근 여부"를 API 응답으로 확인할 수 없어 PASS 설명에 그 한계를 적는다
+  - GitHub API 버전 헤더는 N11 전이라 기본으로 보내지 않고 `--api-version` 선택 옵션으로만 둔다(D46)
+- 증거: 커밋은 이 보고를 포함한 W03 커밋. `evidence/github-setup-check.json`·`evidence/github-protection-probe.json`은 실제 실행 전이라 없다
+- 남은 일·재개 조건: G2가 열리면 설정 점검 실행 → 사용자 허락 후 보호 쓰기 시험 → W04 이후 `seed_demo_repo.py`의 push 부분 구현·실행과 `BASELINE_COMMIT` 기록
+- 다음 카드: W04
 
 ### W02 중단 보고 — live 부분 G3·G4·G5 대기 (2026-09-27T03:23Z)
 

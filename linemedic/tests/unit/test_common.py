@@ -328,7 +328,12 @@ def test_doctor_all_required_ok_exits_0(tmp_path):
     env["CASE_SEARCH_ENGINE"] = "sqlite_fts5"
     env["GITHUB_REPOSITORY"] = "demo-team/l3-mes-api"
     env["BASELINE_COMMIT"] = "a" * 40
-    ctx = doctor.DoctorContext(config_path=DEFAULT_CONFIG, env=env)
+    ctx = doctor.DoctorContext(
+        config_path=DEFAULT_CONFIG,
+        env=env,
+        # W03의 github 항목이 실제 GitHub를 부르지 않도록 가짜 조회 결과를 준다
+        github_get=lambda path, token: (200, {"id": 1, "full_name": "demo-team/l3-mes-api"}),
+    )
     results = doctor.run_checks(ctx)
     required_bad = [r for r in results if r.required and r.status != "OK"]
     assert required_bad == []
