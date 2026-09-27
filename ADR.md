@@ -108,6 +108,9 @@
 | D65 | `config_hash`는 설정 파일 + 설정 키에 대응하는 env만 포함. 호스트·run 식별 env는 `RuntimeEnv`로 분리해 해시에서 제외 | 기반 | 유효 (D52 구체화) |
 | D66 | MES 로그에 `top_frame_line` 추가(`top_frame`은 줄 번호 없음), 로트 파일 형식 `{lot_id, records}` | 입력 | 유효 (D57 확장) |
 | D67 | verifier reason 코드·판정 순서, 신뢰 prober 컨테이너로 internal network의 MES 호출, S1b는 MES 태그 위에 한 파일만 덮음 | 배포 | 유효 (spec 08 §5 구체화) |
+| D68 | 제어 DB `<RUNS_DIR>/linemedic.db`, DDL 원문 migration + `schema_migrations`, 요청마다 `BEGIN IMMEDIATE`, SQLITE_BUSY 3회 재시도 후 정지, 전이 주체는 `Actor` 열거형 | 기반 | 유효 (D45 구체화) |
+| D69 | 전 경로 Bearer 인증과 라우팅 전 prefix 가드, token hash 메모리 등록부, 범위 밖·없음 동일 404, `INVALID_REQUEST`·`INTERNAL_ERROR`, 성공 응답만 멱등 저장 | 보안 | 유효 (spec 03 §1·07 §3 구체화) |
+| D70 | escalate body, operator는 PR_OPENED에서만 중단, 결합 전이의 WORK_BLOCKED/RECOVERY_NOT_VERIFIED intent를 outbox `enqueue`로 같은 트랜잭션에 기록(발송은 W26) | 알림 | 유효 (spec 03 §5 구체화) |
 
 ## 3. 주제별 보기
 
@@ -115,11 +118,11 @@
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
 | 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 |
-| 알림 | D33 D34 D39 |
+| 알림 | D33 D34 D39 D70 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
-| 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 |
+| 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
 | PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 |
-| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 |
+| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 D68 |
 
 ## 4. 게이트 대기 결정
 

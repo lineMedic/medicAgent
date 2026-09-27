@@ -9,8 +9,17 @@ import sys
 from pathlib import Path
 
 from linemedic import __version__
-from linemedic.common.config import DEFAULT_CONFIG_PATH, DEFAULT_ENV_FILE, process_env
+from linemedic.common.clock import SystemClock
+from linemedic.common.config import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_ENV_FILE,
+    ConfigError,
+    load_settings,
+    process_env,
+)
+from linemedic.control_plane import runs
 from linemedic.control_plane.observer import ObserverError
+from linemedic.control_plane.store import Store, StoreError
 from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness
 from linemedic.integrations.docker import DockerError
@@ -55,6 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="S1b를 덮을 MES 이미지 태그 (env MES_BASE_IMAGE_ID가 있으면 ID 일치를 확인)",
     )
     negative_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    run_parser = sub.add_parser(
+        "run-new", help="제어 DB migration 후 새 run을 활성으로 기록 (W06: DB 부분, W19에서 완성)"
+    )
+    run_parser.add_argument(
+        "--db", type=Path, help="제어 DB 경로 (기본: <RUNS_DIR 또는 runs>/linemedic.db)"
+    )
+    run_parser.add_argument(
+        "--host-manifest",
+        type=Path,
+        help="run manifest에 경로·SHA-256을 남길 host manifest (예: evidence/host-manifest.json)",
+    )
+    run_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    run_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     return parser
 
 
@@ -100,6 +123,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print("verify-negative: verifier가 S1b를 기대대로 거절하지 않았다", file=sys.stderr)
         return 1
+    if args.command == "run-new":
+        env = process_env(args.env_file)
+        if args.host_manifest is not None and not args.host_manifest.is_file():
+            print(f"run-new 실패: host manifest가 없다: {args.host_manifest}", file=sys.stderr)
+            return 2
+        try:
+            settings = load_settings(args.config, env)
+            db_path = args.db or runs.default_db_path(env)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            clock = SystemClock()
+            summary = runs.new_run(Store(db_path, clock), settings, clock, args.host_manifest)
+        except (ConfigError, StoreError) as exc:
+            print(f"run-new 실패: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
     raise AssertionError(f"unhandled command: {args.command}")
 
 
