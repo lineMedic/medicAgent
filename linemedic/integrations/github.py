@@ -18,12 +18,14 @@
 - `FakeGitHub`: 메모리 상태·페이지네이션·PR 섞인 Issue 목록·장애 주입(`fail_next`).
 """
 
+import dataclasses
 import hashlib
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 
 import httpx
@@ -65,6 +67,7 @@ class GitHubResponse:
     etag: str | None = None
     rate: RateInfo = field(default_factory=RateInfo)
     has_next: bool = False
+    server_time: str | None = None  # 응답 Date 헤더(UTC `...Z`). polling 경계로 쓴다(W23)
 
 
 @dataclass(frozen=True)
@@ -225,7 +228,9 @@ class GitHubPort(Protocol):
 
     def create_issue_comment(self, number: int, body: str) -> GitHubResponse | WritePlan: ...
 
-    def list_pulls(self, *, head: str | None = None, state: str = "open") -> GitHubResponse: ...
+    def list_pulls(
+        self, *, head: str | None = None, state: str = "open", page: int = 1
+    ) -> GitHubResponse: ...
 
     def get_pull(self, number: int) -> GitHubResponse: ...
 
@@ -314,11 +319,15 @@ class GitHubBase:
             params["since"] = since
         return self._send("GET", path, params=params)
 
-    def list_pulls(self, *, head: str | None = None, state: str = "open") -> GitHubResponse:
+    def list_pulls(
+        self, *, head: str | None = None, state: str = "open", page: int = 1
+    ) -> GitHubResponse:
         params: dict[str, Any] = {}
         if head is not None:
             params["head"] = _head_filter(head)
         params["state"] = _choice(state, ("open", "closed", "all"), "state")
+        params["per_page"] = 100
+        params["page"] = _bounded_int(page, 1, 10_000, "page")
         return self._send("GET", f"{self._repo}/pulls", params=params)
 
     def get_pull(self, number: int) -> GitHubResponse:
@@ -369,6 +378,16 @@ def _error_message(response: httpx.Response) -> str:
     return mask_secrets(str(message))[:MAX_ERROR_MESSAGE_CHARS]
 
 
+def _server_time(headers: httpx.Headers) -> str | None:
+    try:
+        moment = parsedate_to_datetime(headers.get("date", ""))
+    except (TypeError, ValueError, IndexError):
+        return None
+    if moment is None or moment.tzinfo is None:
+        return None
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _to_response(response: httpx.Response) -> GitHubResponse:
     headers = response.headers
     rate = RateInfo(
@@ -378,15 +397,16 @@ def _to_response(response: httpx.Response) -> GitHubResponse:
     )
     etag = headers.get("etag")
     status = response.status_code
+    server_time = _server_time(headers)
     if status == 304:
-        return GitHubResponse(304, None, etag, rate)
+        return GitHubResponse(304, None, etag, rate, server_time=server_time)
     if 200 <= status < 300:
         try:
             data = response.json() if response.content else None
         except ValueError:
             raise Unknown("invalid_json_response", request_sent=True) from None
         has_next = bool(_NEXT_LINK.search(headers.get("link", "")))
-        return GitHubResponse(status, data, etag, rate, has_next)
+        return GitHubResponse(status, data, etag, rate, has_next, server_time)
     message = _error_message(response)
     limited = rate.remaining == 0 or rate.retry_after is not None or "rate limit" in message.lower()
     if status == 429 or (status == 403 and limited):
@@ -498,6 +518,7 @@ class FakeRequest:
     path: str
     params: Mapping[str, Any]
     body: Mapping[str, Any] | None
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 _FAILURES: dict[str, Callable[[], GitHubError]] = {
@@ -564,12 +585,36 @@ class FakeGitHub(GitHubBase):
         author_login: str = "reporter",
         state: str = "open",
         labels: Sequence[str] = (),
-        assignees: Sequence[str] = (),
+        assignees: Sequence[int] = (),
         is_pull: bool = False,
     ) -> dict[str, Any]:
         """외부 사람이 만든 Issue(또는 PR 항목)를 넣는다. 요청 기록에 남지 않는다."""
         user = {"login": author_login, "id": author_id, "type": "User"}
         return self._new_issue(title, body, user, list(labels), state, list(assignees), is_pull)
+
+    def update_issue(self, number: int, **changes: Any) -> dict[str, Any]:
+        """사람이 Issue를 고친 것처럼 필드를 바꾸고 updated_at을 지금으로 올린다.
+
+        `labels`는 이름 목록, `assignees`는 user ID 목록으로 받는다.
+        """
+        issue = self.issues[number]
+        for key, value in changes.items():
+            if key == "labels":
+                issue["labels"] = [{"name": name} for name in value]
+            elif key == "assignees":
+                issue["assignees"] = [{"login": f"user{uid}", "id": uid} for uid in value]
+            elif key in ("title", "body", "state"):
+                issue[key] = value
+            else:
+                raise ValueError(f"바꿀 수 없는 필드: {key}")
+        now = _gh_time(self.clock)
+        issue["updated_at"] = now
+        issue["closed_at"] = now if issue["state"] == "closed" else None
+        return issue
+
+    def remove_issue(self, number: int) -> None:
+        """삭제·이전으로 목록에서 사라진 Issue."""
+        self.issues.pop(number)
 
     def fail_next(
         self,
@@ -601,7 +646,7 @@ class FakeGitHub(GitHubBase):
         user: dict[str, Any],
         labels: list[str],
         state: str = "open",
-        assignees: list[str] | None = None,
+        assignees: list[int] | None = None,
         is_pull: bool = False,
     ) -> dict[str, Any]:
         number, now = self._next_number, _gh_time(self.clock)
@@ -617,11 +662,12 @@ class FakeGitHub(GitHubBase):
             "state": state,
             "user": user,
             "labels": [{"name": label} for label in labels],
-            "assignees": [{"login": login} for login in assignees or []],
+            "assignees": [{"login": f"user{uid}", "id": uid} for uid in assignees or []],
             "created_at": now,
             "updated_at": now,
             "closed_at": now if state == "closed" else None,
             "html_url": html_url,
+            "repository_url": f"https://api.github.com/repos/{self.full_name}",
         }
         if is_pull:
             issue["pull_request"] = {"html_url": html_url}
@@ -643,7 +689,9 @@ class FakeGitHub(GitHubBase):
         body: Mapping[str, Any] | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> GitHubResponse:
-        request = FakeRequest(method, path, dict(params or {}), dict(body) if body else None)
+        request = FakeRequest(
+            method, path, dict(params or {}), dict(body) if body else None, dict(headers or {})
+        )
         self.requests.append(request)
         failure = self._take_failure(request)
         if failure is not None and not failure.after_side_effect:
@@ -651,7 +699,7 @@ class FakeGitHub(GitHubBase):
         response = self._route(request, dict(headers or {}))
         if failure is not None:
             raise _FAILURES[failure.kind]()
-        return response
+        return dataclasses.replace(response, server_time=_gh_time(self.clock))
 
     def _route(self, request: FakeRequest, headers: dict[str, str]) -> GitHubResponse:
         if request.path == "/user" and request.method == "GET":
@@ -746,7 +794,22 @@ class FakeGitHub(GitHubBase):
             pulls = [p for p in pulls if p["state"] == params["state"]]
         if "head" in params:
             pulls = [p for p in pulls if p["head"]["label"] == params["head"]]
-        return GitHubResponse(200, pulls)
+        per_page, page = params["per_page"], params["page"]
+        chunk = pulls[(page - 1) * per_page : page * per_page]
+        return GitHubResponse(200, chunk, has_next=page * per_page < len(pulls))
+
+    def add_pull(
+        self, *, title: str, body: str = "", author_id: int = 200001, head: str = "feature"
+    ) -> dict[str, Any]:
+        """사람이 연 PR(테스트 준비용). Issue 번호 공간을 같이 쓴다."""
+        user = {"login": f"user{author_id}", "id": author_id, "type": "User"}
+        issue = self._new_issue(title, body, user, [], is_pull=True)
+        owner = self.full_name.split("/")[0]
+        pull = {**issue, "head": {"ref": head, "label": f"{owner}:{head}"}, "base": {"ref": "main"}}
+        pull.pop("pull_request")
+        pull["merged"] = False
+        self.pulls[issue["number"]] = pull
+        return pull
 
     def _create_pull(self, body: Mapping[str, Any]) -> GitHubResponse:
         owner = self.full_name.split("/")[0]

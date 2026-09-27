@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -94,3 +94,9 @@ scenario-s2-lite:
 # 파일이 모델과 다르면 make test의 schema 비교 테스트가 실패한다.
 api-schema:
 	$(PY) -m linemedic.scripts.api_schema
+
+# Issue 조회 1회 (W23): 등록 repo Issue를 mirror·checkpoint에 반영한다. 처음이면 관찰만(backlog 실행 없음).
+# issue_intake.enabled=false(G10 전)면 만들 work를 planned로만 보고한다. G2 env가 없으면 NOT_CONFIGURED(종료 코드 2).
+issue-sync:
+	@test -n "$(RUN_ID)" || { echo "사용법: make issue-sync RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
+	$(PY) -m linemedic.cli issue-sync --run-id "$(RUN_ID)"

@@ -32,6 +32,7 @@ from linemedic.control_plane.auth import (
 )
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.errors import ApiError, error_response
+from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.knowledge import KnowledgeBase
 from linemedic.control_plane.log_store import LogStore
 from linemedic.control_plane.metrics_store import MetricsStore
@@ -59,6 +60,7 @@ class AppContext:
     metrics_max_samples: int = 60  # docs/07 tools.metrics.max_samples
     knowledge: KnowledgeBase | None = None
     max_submissions: int = 2  # docs/07 agent.max_submissions (attempt당 서로 다른 제출 합산)
+    issue_sync: IssueSync | None = None  # 등록 repo Issue 조회(W23). G2 전에는 없음
 
 
 def _under(path: str, prefix: str) -> bool:

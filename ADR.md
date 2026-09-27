@@ -116,13 +116,14 @@
 | D73 | S2-lite: vision-inspection·설비 catalog, 합성 지표 30분·60 sample, 연속 3 sample 이상 규칙, 설비 범위 조회 도구, 같은 라인 배포 기록·deployed_at | 입력 | 유효 (spec 09 §3·03 §2 구체화) |
 | D74 | 제안 접수: B01·B02 동기, 멱등 재전송 우선, B02 422도 제출 합산 2회에 포함, 백그라운드 B03~B06(docs/03 §5 코드만), 거절 후 수정 1회·예산 소진 이관, create_pr는 W10 전까지 PROTECTION_UNAVAILABLE, 초안·blocker report payload, JSON Schema 생성 | 배포 | 유효 (spec 03 §3·§4·06 §1·§7 구체화) |
 | D75 | GitHub 포트: 공용 경로·검증·쓰기 차단 base, HTTP 상태·전송 예외 매핑(`request_sent`), `write_enabled` 명시 필수 shadow, repo·route·작성자 catalog, doctor 봇 identity, live smoke 쓰기 이중 허락 | 배포 | 유효 (spec 15 §2·16 §1·02 §4 구체화, D46 확장) |
+| D76 | Issue polling: scope별 활성화·checkpoint, 서버 시각 경계·cap delta는 읽은 곳까지, 처음 볼 때만 새 Issue 판정, 사람 작업·closed·권한 회수·삭제 처리, ETag·전체 조회·rate limit backoff, shadow planned, sync API | 입력 | 유효 (spec 15 §2·§3.3·§5 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
-| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 |
+| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 |
 | 알림 | D33 D34 D39 D70 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |

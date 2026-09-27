@@ -19,6 +19,8 @@ from linemedic.common.config import (
     process_env,
 )
 from linemedic.control_plane import detector, runs
+from linemedic.control_plane.catalog import Catalog
+from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.log_store import FileLogStore
 from linemedic.control_plane.observer import ObserverError
 from linemedic.control_plane.redaction import eval_identifiers
@@ -26,6 +28,7 @@ from linemedic.control_plane.store import Store, StoreError
 from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness
 from linemedic.integrations.docker import CliDocker, DockerError
+from linemedic.integrations.github import GitHubNotConfigured, github_from_settings
 from linemedic.scripts import doctor, host_manifest
 
 
@@ -72,6 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     s2_parser.add_argument("--db", type=Path, help="제어 DB 경로")
     s2_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     s2_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    sync_parser = sub.add_parser(
+        "issue-sync",
+        help="등록 repo Issue를 한 번 조회해 mirror·checkpoint를 갱신 (W23, 처음이면 관찰만)",
+    )
+    sync_parser.add_argument("--run-id", required=True, help="make run-new가 만든 활성 run")
+    sync_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+    sync_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    sync_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
     detect_parser = sub.add_parser(
         "detect-once",
@@ -162,6 +174,50 @@ def _scenario_s2_lite(args: argparse.Namespace) -> int:
     return 0
 
 
+def _issue_sync(args: argparse.Namespace) -> int:
+    env = process_env(args.env_file)
+    try:
+        settings = load_settings(args.config, env)
+        port = github_from_settings(settings)
+    except GitHubNotConfigured as exc:
+        print(f"issue-sync: NOT_CONFIGURED (G2): {exc}", file=sys.stderr)
+        return 2
+    except ConfigError as exc:
+        print(f"issue-sync 실패: {exc}", file=sys.stderr)
+        return 2
+    try:
+        db_path = args.db or runs.default_db_path(env)
+        if not db_path.is_file():
+            print(
+                f"issue-sync 실패: 제어 DB가 없다: {db_path} (먼저 make run-new)", file=sys.stderr
+            )
+            return 2
+        clock = SystemClock()
+        store = Store(db_path, clock)
+        store.migrate()
+        manifest = _run_manifest(store, args.run_id)
+        if manifest is None:
+            print(f"issue-sync 실패: 활성 run이 아니다: {args.run_id}", file=sys.stderr)
+            return 2
+        sync = IssueSync(
+            store,
+            port,
+            run_id=args.run_id,
+            config=settings.config,
+            catalog=Catalog.from_config(settings.config),
+            clock=clock,
+            routing_scope=manifest.get("routing_scope") or f"eval:{args.run_id}",
+        )
+        result = sync.poll_once()
+    except (StoreError, ValueError) as exc:
+        print(f"issue-sync 실패: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        port.close()
+    print(json.dumps({"run_id": args.run_id, **result.as_dict()}, ensure_ascii=False, indent=2))
+    return 0 if result.error is None and result.mode not in ("busy", "backoff") else 1
+
+
 def _detect_once(args: argparse.Namespace) -> int:
     env = process_env(args.env_file)
     db_path = args.db or runs.default_db_path(env)
@@ -228,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         return _detect_once(args)
     if args.command == "scenario-s2-lite":
         return _scenario_s2_lite(args)
+    if args.command == "issue-sync":
+        return _issue_sync(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)
