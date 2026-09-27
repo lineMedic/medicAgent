@@ -465,20 +465,36 @@ def test_ops_notifications_list_and_reconcile(box):
     )
 
 
-def test_cli_notification_reconcile_calls_control_api(box, tmp_path, monkeypatch):
+def test_ops_get_notification(box):
+    notification_id = box.enqueue("WORK_BLOCKED", report(work=None))
+    api = make_api(box.store, box.conn, catalog=_catalog(), outbox_worker=box.worker)
+    response = api.client.get(f"/ops/notifications/{notification_id}", headers=api.operator)
+    item = response.json()["data"]
+    assert (item["id"], item["status"]) == (notification_id, "PENDING")
+    assert item["updated_at"] and "payload_json" not in item
+    assert "recipient" not in json.dumps(item)
+    for missing in ("NOT-0000000000FF", "not-an-id"):
+        response = api.client.get(f"/ops/notifications/{missing}", headers=api.operator)
+        assert response.status_code == 404
+
+
+def _cli_reconcile(box, tmp_path, monkeypatch, notification_id):
+    """CLI를 API에 붙여 실행한다. 보낸 (method, 멱등 키)를 돌려준다."""
     from linemedic import cli
 
-    notification_id = box.enqueue("WORK_BLOCKED", report(work=None))
-    box.github.fail_next("timeout", after_side_effect=True)
-    box.worker.process_pending()
     api = make_api(box.store, box.conn, catalog=_catalog(), outbox_worker=box.worker)
+    sent: list[tuple[str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         headers = {
             k: v for k, v in request.headers.items() if k in ("authorization", "idempotency-key")
         }
-        headers["content-type"] = "application/json"
-        response = api.client.post(request.url.path, content=request.content, headers=headers)
+        sent.append((request.method, headers.get("idempotency-key")))
+        if request.method == "GET":
+            response = api.client.get(request.url.path, headers=headers)
+        else:
+            headers["content-type"] = "application/json"
+            response = api.client.post(request.url.path, content=request.content, headers=headers)
         return httpx.Response(response.status_code, content=response.content)
 
     monkeypatch.setenv("CONTROL_OPERATOR_TOKEN", OPERATOR_TOKEN)
@@ -492,4 +508,33 @@ def test_cli_notification_reconcile_calls_control_api(box, tmp_path, monkeypatch
         ]
     )
     assert cli._notification_reconcile(args, transport=httpx.MockTransport(handler)) == 0
+    return sent
+
+
+def test_cli_notification_reconcile_calls_control_api(box, tmp_path, monkeypatch):
+    notification_id = box.enqueue("WORK_BLOCKED", report(work=None))
+    box.github.fail_next("timeout", after_side_effect=True)
+    box.worker.process_pending()
+    _cli_reconcile(box, tmp_path, monkeypatch, notification_id)
     assert box.notification(notification_id)["status"] == "ACCEPTED"
+
+
+def test_cli_notification_reconcile_retries_after_inconclusive(
+    box, fake_clock, tmp_path, monkeypatch
+):
+    """INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 아니라 새로 조회한다."""
+    notification_id = box.enqueue("WORK_BLOCKED", report(work=None))
+    box.github.fail_next("timeout", after_side_effect=True)
+    box.worker.process_pending()
+    fake_clock.advance(5)
+    box.github.fail_next("timeout")  # 첫 조정의 댓글 조회 실패
+    first = _cli_reconcile(box, tmp_path, monkeypatch, notification_id)
+    record = json.loads(box.notification(notification_id)["result_json"])["reconcile"]
+    assert record["outcome"] == "INCONCLUSIVE"
+    assert box.notification(notification_id)["status"] == "UNKNOWN"
+    fake_clock.advance(5)
+    second = _cli_reconcile(box, tmp_path, monkeypatch, notification_id)
+    assert [m for m, _ in first] == [m for m, _ in second] == ["GET", "POST"]
+    assert first[1][1] != second[1][1]
+    assert box.notification(notification_id)["status"] == "ACCEPTED"
+    assert len(box.comments()) == 1  # 재발송 없음

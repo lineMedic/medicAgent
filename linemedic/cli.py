@@ -345,18 +345,30 @@ def _work_command(args: argparse.Namespace, transport: httpx.BaseTransport | Non
 def _notification_reconcile(
     args: argparse.Namespace, transport: httpx.BaseTransport | None = None
 ) -> int:
+    """알림을 읽고 그 갱신 시각을 멱등 키에 넣어 조정한다.
+
+    같은 상태에서 다시 부르면 저장된 응답을 받는다.
+    INCONCLUSIVE 등 조정 기록으로 알림이 바뀐 뒤에는 새 키라 다시 조회한다.
+    """
     target = _ops_target(args, "notification-reconcile")
     if target is None:
         return 2
     base_url, headers = target
+    path = f"/ops/notifications/{args.notification_id}"
     try:
         with httpx.Client(base_url=base_url, timeout=30.0, transport=transport) as client:
+            current = client.get(path, headers=headers)
+            if current.status_code != 200:
+                return _print_response(current)
+            updated_at = current.json()["data"]["updated_at"]
             response = client.post(
-                f"/ops/notifications/{args.notification_id}/reconcile",
+                f"{path}/reconcile",
                 json={"schema_version": "linemedic.v4"},
                 headers={
                     **headers,
-                    "Idempotency-Key": f"notification-reconcile:{args.notification_id}",
+                    "Idempotency-Key": (
+                        f"notification-reconcile:{args.notification_id}:{updated_at}"
+                    ),
                 },
             )
     except httpx.HTTPError as exc:

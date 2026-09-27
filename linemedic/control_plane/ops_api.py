@@ -658,29 +658,58 @@ async def list_notifications(
         where, params = ("WHERE status = ?", [status]) if status else ("", [])
         with ctx.store.read() as tx:
             rows = tx.all(
-                "SELECT id, run_id, incident_id, work_id, event_type, route_id, status,"
-                " attempt_count, next_attempt_at, receipt_id, accepted_at, created_at, updated_at,"
-                f" result_json FROM notifications {where}"
+                f"SELECT {NOTIFICATION_COLUMNS} FROM notifications {where}"
                 " ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (*params, limit),
             )
-        items = []
-        for row in rows:
-            route = routes.get(row["route_id"])
-            last = (_json(row["result_json"]) or {}).get("last") or {}
-            items.append(
-                {
-                    **{k: row[k] for k in row.keys() if k != "result_json"},
-                    "status_label": templates.status_label(
-                        row["status"], route.adapter if route else ""
-                    ),
-                    "last_error": last.get("error") or last.get("observation"),
-                }
-            )
-        return items
+        return [_notification_item(row, routes) for row in rows]
 
     items = await run_in_threadpool(load)
     return JSONResponse(content=success_body(request_id(request), {"notifications": items}))
+
+
+@router.get("/ops/notifications/{notification_id}")
+async def get_notification(
+    notification_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+) -> JSONResponse:
+    """한 알림. 형식 오류·없음·범위 밖은 모두 같은 404다."""
+    ctx = context(request)
+    routes = ctx.catalog.routes if ctx.catalog is not None else {}
+
+    def load() -> dict:
+        if not is_valid_entity_id(notification_id, "NOT"):
+            raise ApiError("RESOURCE_NOT_FOUND")
+        with ctx.store.read() as tx:
+            row = tx.one(
+                f"SELECT {NOTIFICATION_COLUMNS} FROM notifications WHERE id = ?",
+                (notification_id,),
+            )
+            if row is None:
+                raise ApiError("RESOURCE_NOT_FOUND")
+            load_visible_incident(tx, operator, row["incident_id"])
+        return _notification_item(row, routes)
+
+    data = await run_in_threadpool(load)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+NOTIFICATION_COLUMNS = (
+    "id, run_id, incident_id, work_id, event_type, route_id, status, attempt_count,"
+    " next_attempt_at, receipt_id, accepted_at, created_at, updated_at, result_json"
+)
+
+
+def _notification_item(row: Any, routes: dict) -> dict:
+    """수신 주소·payload 없이 운영 화면에 보일 값만."""
+    route = routes.get(row["route_id"])
+    last = (_json(row["result_json"]) or {}).get("last") or {}
+    return {
+        **{k: row[k] for k in row.keys() if k != "result_json"},
+        "status_label": templates.status_label(row["status"], route.adapter if route else ""),
+        "last_error": last.get("error") or last.get("observation"),
+    }
 
 
 def _reconcile_notification(
