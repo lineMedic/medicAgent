@@ -6,6 +6,8 @@
 
 import os
 
+import pytest
+
 from linemedic.common.clock import FakeClock
 from linemedic.control_plane.broker.runner import (
     JUNIT_NAME,
@@ -51,6 +53,7 @@ def test_container_uses_only_server_fixed_image_argv_and_limits(tmp_path):
         "--memory 512m",
         "--memory-swap 512m",
         "--pids-limit 64",
+        "--ulimit fsize=67108864",
         "--cap-drop ALL",
         "--security-opt no-new-privileges",
         "--user 10001:10001",
@@ -129,6 +132,7 @@ def test_profile_problems_cover_every_isolation_item(tmp_path):
         "memory_swap": -1,
         "nano_cpus": 0,
         "pids_limit": None,
+        "ulimits": [],
         "pid_mode": "host",
         "user": "0:0",
         "mounts": [
@@ -146,6 +150,7 @@ def test_profile_problems_cover_every_isolation_item(tmp_path):
         "swap",
         "cpus",
         "pids",
+        "file_size_limit",
         "namespaces",
         "user",
         "repo_read_only",
@@ -162,14 +167,94 @@ def test_logs_are_capped_and_kept_outside_the_container_writable_mount(tmp_path)
     assert result.log_truncated and result.log_bytes == 4096
     assert result.log_path == str(tmp_path / "logs" / "R1.log")
     assert not (tmp_path / "results" / "R1" / "R1.log").exists()
-    assert oct(os.stat(tmp_path / "results" / "R1").st_mode & 0o777) == "0o777"
+    # 단계가 끝나면 host가 정리할 수 있게 폴더 권한을 되돌린다
+    assert oct(os.stat(tmp_path / "results" / "R1").st_mode & 0o777) == "0o755"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root는 폴더 권한을 무시한다")
+def test_container_can_write_only_the_precreated_junit_file(tmp_path):
+    """결과 폴더는 0555라 새 파일·폴더를 만들 수 없고 junit.xml 하나에만 쓴다(PR #50 리뷰)."""
+    seen = {}
+
+    def during_run(results):
+        seen["dir_mode"] = oct(os.stat(results).st_mode & 0o777)
+        seen["entries"] = sorted(os.listdir(results))
+        for attempt in (
+            lambda: (results / "extra.bin").write_bytes(b"x"),
+            lambda: (results / "sub").mkdir(),
+        ):
+            try:
+                attempt()
+                seen.setdefault("created", True)
+            except PermissionError:
+                pass
+
+    result, _ = run_stage(tmp_path, Scripted(exit_code=1, junit="r1_keyerror", before=during_run))
+    assert seen == {"dir_mode": "0o555", "entries": [JUNIT_NAME]}
+    assert result.junit is not None and result.junit_error is None
+
+
+def test_unexpected_entries_in_the_results_folder_are_a_runner_error(tmp_path):
+    """폴더 권한이 지켜지지 않은 host에서 컨테이너가 다른 항목을 만들었으면 결과를 쓰지 않는다."""
+
+    def ignore_permissions(results):
+        os.chmod(results, 0o755)
+        (results / "fill.bin").write_bytes(b"x" * 10)
+
+    result, _ = run_stage(
+        tmp_path, Scripted(exit_code=0, junit="r0_regression_passed", before=ignore_permissions)
+    )
+    assert result.runner_error == "unexpected_result_entries" and result.junit is None
+
+
+@pytest.mark.parametrize(
+    ("method", "error"),
+    [
+        ("wait", "docker_wait_failed"),
+        ("inspect", "docker_inspect_failed"),
+        ("logs_capped", "docker_logs_failed"),
+    ],
+)
+def test_docker_errors_after_run_are_runner_errors_and_the_container_is_removed(
+    tmp_path, monkeypatch, method, error
+):
+    """`docker run` 뒤의 Docker 오류도 예외로 올리지 않는다(PR #50 리뷰: work가 RUNNING에 굳음)."""
+    docker = scripted_docker({"R1": Scripted(exit_code=1, junit="r1_keyerror")})
+
+    def fail(*args, **kwargs):
+        raise DockerError(f"docker {method} 실패: No such container: {NAME}", 1)
+
+    monkeypatch.setattr(docker, method, fail)
+    runner = Runner(docker, profile(), FakeClock())
+    (tmp_path / "tree").mkdir()
+    result = runner.run_stage(
+        stage="R1",
+        name=NAME,
+        tree=tmp_path / "tree",
+        results=tmp_path / "results",
+        logs=tmp_path / "logs",
+        tests=TESTS,
+        labels=LABELS,
+    )
+    assert (result.runner_error, result.exit_code) == (error, 1)
+    assert [c for c in docker.calls if c[0] == "stop"][-1] == ("stop", NAME)
+    assert NAME not in docker.containers
+    assert oct(os.stat(tmp_path / "results").st_mode & 0o777) == "0o755"
+
+
+def test_log_write_failure_is_a_runner_error(tmp_path):
+    (tmp_path / "logs").write_text("not a directory")  # logs 경로에 폴더를 만들 수 없다
+    result, _ = run_stage(tmp_path, Scripted(exit_code=1, junit="r1_keyerror"))
+    assert result.runner_error == "log_write_failed"
 
 
 def test_symlinked_junit_planted_by_the_container_is_not_followed(tmp_path):
     secret = tmp_path / "host-secret.xml"
     secret.write_text("<testsuite tests='0'/>")
 
-    def plant(results):
+    def plant(results):  # 폴더 권한을 무시하는 host를 흉내 낸 뒤 junit.xml을 symlink로 바꾼다
+        os.chmod(results, 0o755)
+        (results / JUNIT_NAME).unlink()
         (results / JUNIT_NAME).symlink_to(secret)
 
     result, _ = run_stage(tmp_path, Scripted(exit_code=1, before=plant))

@@ -37,7 +37,8 @@
 |---|---|
 | `runner.network` | `none` |
 | `runner.user` | non-root UID/GID, 모든 불필요 capability 제거 |
-| `runner.filesystem` | root·checkout read-only, `/tmp`만 크기 제한 tmpfs |
+| `runner.filesystem` | root·checkout read-only, `/tmp`만 크기 제한 tmpfs. 예외: 결과 mount `/work/results`는 폴더가 읽기 전용(0555)이고 미리 만든 `junit.xml` 한 파일만 쓸 수 있다(새 파일·폴더·symlink 불가) |
+| `runner.file_size` | `--ulimit fsize` = `tmpfs_mib`(64 MiB). 결과 mount가 host 디스크에 쓰는 양은 단계당 이 한 파일·이 상한까지다 |
 | `runner.uid` / `gid` | 10001 / 10001 (runner image의 비루트 사용자, 0 금지) |
 | `runner.tmpfs_mib` | 64 (`/tmp`만 쓸 수 있다) |
 | `runner.cpus` / `memory` / `pids` | 1 / 512 MiB / 64 (swap 없음: `--memory-swap` = memory) |

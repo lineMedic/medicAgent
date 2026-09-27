@@ -31,6 +31,7 @@ from linemedic.control_plane.deploys import record_deploy_observed
 from linemedic.control_plane.evidence import add_evidence
 from linemedic.control_plane.knowledge import KnowledgeBase, load_manual_templates
 from linemedic.control_plane.notifications import outbox
+from linemedic.integrations.docker import DockerError
 from linemedic.scripts.seed_demo_repo import build_seed_repo
 from linemedic.tests.helpers.api import ROUTE_ID, RUN, make_api
 from linemedic.tests.helpers.db_rows import (
@@ -739,6 +740,50 @@ def test_gate_crash_leaves_checking_and_restart_rechecks_in_a_new_directory(
     assert w.proposal(proposal_id)[1]["decision_reason"] == "REPRO_NOT_FAILING"
     root = tmp_path / RUN / "checkouts" / proposal_id
     assert sorted(p.name for p in root.iterdir()) == ["1", "2"]
+
+
+def test_docker_error_after_run_escalates_instead_of_holding_the_running_slot(
+    store, conn, seed, tmp_path
+):
+    """PR #50 리뷰 재현: `docker wait`가 No such container여도 work가 RUNNING에 남지 않는다."""
+    docker = local_pytest_docker()
+
+    def vanished(name, timeout):
+        raise DockerError(f"docker wait 실패: No such container: {name}", 1)
+
+    docker.wait = vanished
+    w = World(store, conn, seed, tmp_path, docker=docker)
+    proposal_id = w.submit()
+    w.broker.process_pending()
+    row, record = w.proposal(proposal_id)
+    assert row["decision"] != "CHECKING"
+    assert record["decision_reason"] == "PROTECTION_UNAVAILABLE"
+    assert (record["checks"][-1]["check"], record["checks"][-1]["reason"]) == (
+        "R0",
+        "r0_docker_wait_failed",
+    )
+    assert (w.incident_row()["status"], w.work_row()["status"]) == ("ESCALATED", "BLOCKED")
+    assert not docker.containers  # 컨테이너는 finally에서 지워졌다
+    blocked = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE event_type = 'WORK_BLOCKED'"
+    ).fetchone()[0]
+    assert blocked == 1
+
+
+def test_unexpected_gate_exception_is_protection_unavailable(store, conn, seed, tmp_path):
+    w = World(store, conn, seed, tmp_path)
+
+    def broken():
+        raise OSError("disk full")
+
+    w.broker.patch_gate.runner.image_problem = broken
+    proposal_id = w.submit()
+    w.broker.process_pending()
+    _, record = w.proposal(proposal_id)
+    assert record["decision_reason"] == "PROTECTION_UNAVAILABLE"
+    assert record["checks"][-1]["reason"] == "unexpected_error:OSError"
+    assert (w.incident_row()["status"], w.work_row()["status"]) == ("ESCALATED", "BLOCKED")
+    assert w.incident_row()["submissions"] == 1  # 수정 예산과 관계없이 멈춘다
 
 
 def test_broker_without_a_gate_still_refuses_create_pr(store, conn, seed, tmp_path):

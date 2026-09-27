@@ -142,6 +142,21 @@
   - 자동 bounded 재조회는 H04다
 - 다음 카드: W12 (fake·docker 부분)
 
+### W10 리뷰 반영 (카드 밖, 2026-09-27T13:00Z)
+
+- 계기: PR #50 리뷰(CHANGES_REQUESTED) — 실제 Docker에서 재현된 운영 안전 문제 2건
+- 수정:
+  1. Docker 호출 오류로 work가 RUNNING에 굳음: `Runner.run_stage`가 `docker run` 뒤의 `wait`·inspect·로그 읽기·로그 쓰기 오류를 runner 오류(`docker_wait_failed`·`docker_inspect_failed`·`docker_logs_failed`·`log_write_failed`)로 돌려준다. `PatchGate.check`는 그 밖의 예상하지 못한 예외를 `PROTECTION_UNAVAILABLE`(`unexpected_error:<종류>`, 수정 불가)로 닫아, 브로커의 거절 경로(ESCALATED/BLOCKED·차단 보고)를 탄다
+  2. 결과 mount가 host 디스크에 무제한 쓰기 가능: 결과 폴더를 0555로 두고 미리 만든 `junit.xml`(0666) 한 파일만 쓰게 했다(새 파일·폴더·symlink 불가). `--ulimit fsize`를 `tmpfs_mib`(64 MiB)로 걸고 inspect에서 확인한다. 단계 뒤 0755로 되돌려 host가 정리할 수 있다(Linux에서 uid 10001 소유 하위 폴더가 생기지 않는다). 실행 뒤 다른 항목이 있으면 `unexpected_result_entries`
+- 실행 (로컬 개발 Mac, Docker server 28.1.1):
+  - `make test` 상당 → Python 3.12.2 1301 passed, 3.14.4 1300 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), `ruff check`·`ruff format --check` PASS
+  - `make test-docker` 상당 → 11 passed. 새 probe `test_results_mount_cannot_fill_the_host_disk`: 컨테이너 안에서 결과 폴더에 파일·폴더·symlink 생성 실패, `junit.xml` 쓰기가 정확히 64 MiB에서 EFBIG
+  - `LINEMEDIC_RECORD_EVIDENCE=1`로 `evidence/N06-runner-isolation.md`를 다시 기록(probe 7개, inspect `ulimits` fsize 64 MiB)
+  - 새 테스트 12개(단위 10, 게이트·브로커 2)는 수정 전 코드에서 실패하는 것을 먼저 확인했다. 리뷰 재현(`wait`가 `No such container`) → proposal PROTECTION_UNAVAILABLE(`r0_docker_wait_failed`), incident ESCALATED, work BLOCKED, 차단 알림 1건, 컨테이너 없음
+- 판단: D80 ⑤ 보충, docs/07 §2에 결과 mount 예외와 파일 크기 상한을 적었다. 프로세스가 죽는 경우(예외가 아닌 종료)는 지금처럼 CHECKING으로 남고 재시작 때 `recover_checking`이 다시 검사한다
+- 남은 일: 이 브랜치는 #48의 수정 전 커밋(`5a52d5a`) 위에 있다. #48·#49가 병합되면 main을 병합해 다시 확인한다. G1 데모 호스트(Linux)에서 결과 폴더 권한(0555)이 컨테이너 uid 10001의 새 항목 생성을 막는지 N06 재확인 때 본다. W11: PR 본문에 "테스트 PASS는 악성 코드 없음이 아님"과 R1 실패 요약(길이 제한)을 보이기. W13·W14: 게이트 실제 소요 시간 기록
+
+
 ### W10 완료 보고 (2026-09-27T12:25Z)
 
 - 상태: UNIT_TESTED (카드 목표 도달, `make test-docker` 포함). 외부 쓰기 없음
