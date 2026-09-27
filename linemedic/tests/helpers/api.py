@@ -60,6 +60,21 @@ def seed_pr_opened(api: Api, issue_number: int = 7) -> dict[str, str]:
     return {"incident": incident, "work": work}
 
 
+ATTEMPT = "ATT-00000000000A"
+
+
+def seed_running(api: Api, issue_number: int = 9) -> AgentPrincipal:
+    """조사 중인 사건(INVESTIGATING)·RUNNING work를 넣고 그 attempt의 agent principal을 돌려준다."""
+    conn = api.conn
+    if conn.execute("SELECT 1 FROM demo_runs WHERE id = ?", (RUN,)).fetchone() is None:
+        insert_run(conn, RUN)
+    insert_issue(conn, issue_number)
+    incident = insert_incident(conn, RUN, "INVESTIGATING", attempt_id=ATTEMPT)
+    work = insert_work(conn, RUN, incident, issue_number, "RUNNING", attempt_id=ATTEMPT)
+    api.seeded.update(incident=incident, work=work)
+    return AgentPrincipal(RUN, incident, work, ATTEMPT)
+
+
 def escalate_body(**overrides) -> dict:
     body = {
         "schema_version": "linemedic.v4",

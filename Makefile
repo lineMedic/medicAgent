@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -77,3 +77,9 @@ verify-negative:
 # host manifest가 있으면 경로와 SHA-256을 run manifest에 남긴다.
 run-new:
 	$(PY) -m linemedic.cli run-new $(if $(wildcard evidence/host-manifest.json),--host-manifest evidence/host-manifest.json,)
+
+# 감지 1회 (W07): run의 S1 MES 컨테이너 로그를 지금까지 한 번 읽어 감지기에 넣는다.
+# 같은 fingerprint가 60초 안 3회면 사건 NEW. 상시 감시(docker logs --follow)는 W13의 make start가 한다.
+detect-once:
+	@test -n "$(RUN_ID)" || { echo "사용법: make detect-once RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
+	$(PY) -m linemedic.cli detect-once --run-id "$(RUN_ID)"

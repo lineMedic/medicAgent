@@ -26,6 +26,7 @@ from linemedic.tests.helpers.api import (
     escalate_body,
     make_api,
     seed_pr_opened,
+    seed_running,
 )
 from linemedic.tests.helpers.db_rows import count, insert_incident, insert_run, row
 
@@ -148,11 +149,11 @@ def test_operator_without_role_is_403(store, conn):
 
 
 def test_t_auth_02_agent_scope_hides_other_run_and_incident(api, store):
-    own = seed_pr_opened(api)["incident"]
+    principal = seed_running(api)
+    own = principal.incident_id
     same_run_other = insert_incident(api.conn, RUN, "NEW")
     insert_run(api.conn, OTHER_RUN, active=0)
     other_run = insert_incident(api.conn, OTHER_RUN, "NEW")
-    principal = principal_for(api, own)
     with store.read() as tx:
         assert load_visible_incident(tx, principal, own)["id"] == own
         errors = []
@@ -162,6 +163,24 @@ def test_t_auth_02_agent_scope_hides_other_run_and_incident(api, store):
             errors.append((caught.value.code, caught.value.details))
     # 범위 밖·없음·형식 오류가 같은 응답이라 존재 여부를 알 수 없다.
     assert errors == [("RESOURCE_NOT_FOUND", {})] * 4
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "UPDATE work_items SET status = 'WAITING_REVIEW' WHERE id = :work",
+        "UPDATE work_items SET attempt_id = 'ATT-00000000000B' WHERE id = :work",
+        "UPDATE incidents SET attempt_id = 'ATT-00000000000B' WHERE id = :incident",
+    ],
+    ids=["work_not_running", "work_other_attempt", "incident_other_attempt"],
+)
+def test_agent_scope_requires_current_running_attempt(api, store, change):
+    """폐기되지 않은 token이라도 attempt가 끝났거나 바뀌었으면 조회할 수 없다."""
+    principal = seed_running(api)
+    api.conn.execute(change, {"work": principal.work_id, "incident": principal.incident_id})
+    with store.read() as tx, pytest.raises(ApiError) as caught:
+        load_visible_incident(tx, principal, principal.incident_id)
+    assert (caught.value.code, caught.value.details) == ("RESOURCE_NOT_FOUND", {})
 
 
 def test_can_access_incident_rules():

@@ -45,6 +45,8 @@ class DockerPort(Protocol):
 
     def logs_follow(self, name: str, since: str | None = None) -> LogStream: ...
 
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]: ...
+
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str: ...
 
     def exec(self, name: str, command: list[str], timeout: float = 30.0) -> CommandResult: ...
@@ -144,6 +146,16 @@ class CliDocker:
             argv += ["--since", since]
         return _CliLogStream([*argv, name])
 
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]:
+        """컨테이너 stdout 로그를 지금까지 한 번 읽는다(stderr는 읽지 않는다).
+
+        `timestamps`면 각 줄 앞에 Docker daemon 수신 시각(RFC3339Nano)이 붙는다.
+        """
+        result = self._run(["logs", *(["--timestamps"] if timestamps else []), name])
+        if result.returncode != 0:
+            raise DockerError(f"docker logs 실패: {result.stderr.strip()[:300]}")
+        return result.stdout.splitlines()
+
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str:
         result = self._run(["run", "--detach", *options, image, *(command or [])])
         if result.returncode != 0:
@@ -217,6 +229,7 @@ class FakeDocker:
         self.images: dict[str, str] = {}
         self.streams: dict[str, FakeLogStream] = {}
         self.networks: set[str] = set()
+        self.log_history: dict[str, list[str]] = {}
         self.exec_handler = exec_handler
         self.calls: list[tuple[str, Any]] = []
         self._counter = 0
@@ -232,6 +245,13 @@ class FakeDocker:
     def logs_follow(self, name: str, since: str | None = None) -> LogStream:
         self.calls.append(("logs_follow", name, since))
         return self.streams.setdefault(name, FakeLogStream())
+
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]:
+        """log_history를 그대로 돌려준다. timestamps 시험에는 시각이 붙은 줄을 넣어 둔다."""
+        self.calls.append(("logs_once", name, timestamps))
+        if name not in self.containers:
+            raise DockerError(f"docker logs 실패: No such container: {name}")
+        return list(self.log_history.get(name, []))
 
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str:
         self._counter += 1

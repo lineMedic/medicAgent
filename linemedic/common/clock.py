@@ -62,3 +62,11 @@ def to_rfc3339(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("naive datetime is not allowed; use a timezone-aware UTC datetime")
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+RFC3339_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
+
+
+def from_rfc3339(value: str) -> datetime:
+    """`to_rfc3339` 형식(`...ffffffZ`)만 받아 UTC datetime으로 바꾼다. 다른 형식은 ValueError."""
+    return datetime.strptime(value, RFC3339_FORMAT).replace(tzinfo=UTC)

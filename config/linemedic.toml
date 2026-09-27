@@ -11,6 +11,7 @@ schema_version = "linemedic.v4"
 [services.mes-api]
 contract_id = "defect-summary-v1"
 log_source = "stdout_jsonl"  # D57: detector와 verifier가 같은 stdout JSON Lines 스트림을 읽는다
+line_id = "L3"  # incident.line_id (W07, D72)
 
 [repository]
 # id·full_name은 G2 확인 전 미확정이라 생략한다. env GITHUB_REPOSITORY_ID·GITHUB_REPOSITORY로 채운다.

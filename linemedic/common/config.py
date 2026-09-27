@@ -69,6 +69,7 @@ class _Model(BaseModel):
 class ServiceConfig(_Model):
     contract_id: str
     log_source: Literal["stdout_jsonl"]
+    line_id: Annotated[str, Field(min_length=1, max_length=32)]
 
 
 class RepositoryConfig(_Model):

@@ -140,11 +140,34 @@ def can_access_incident(principal: Principal, incident: Any) -> bool:
     return (incident["run_id"], incident["id"]) == (principal.run_id, principal.incident_id)
 
 
+def agent_attempt_is_current(tx: Tx, principal: AgentPrincipal, incident: Any) -> bool:
+    """agent token의 attempt가 지금 사건의 attempt이고, 그 work가 RUNNING인가.
+
+    폐기되지 않은 token이 남아 있어도 attempt가 끝났으면(work가 RUNNING이 아니면) 조회할 수 없다.
+    """
+    if incident["attempt_id"] != principal.attempt_id:
+        return False
+    work = tx.one(
+        "SELECT id, attempt_id, status FROM work_items WHERE run_id = ? AND incident_id = ?",
+        (principal.run_id, principal.incident_id),
+    )
+    return (
+        work is not None
+        and work["id"] == principal.work_id
+        and work["attempt_id"] == principal.attempt_id
+        and work["status"] == "RUNNING"
+    )
+
+
 def load_visible_incident(tx: Tx, principal: Principal, incident_id: str) -> Any:
     """principal이 볼 수 있는 사건만 읽는다. 형식 오류·없음·범위 밖은 모두 같은 404다."""
     if not is_valid_entity_id(incident_id, "INC"):
         raise ApiError("RESOURCE_NOT_FOUND")
     incident = tx.one("SELECT * FROM incidents WHERE id = ?", (incident_id,))
     if incident is None or not can_access_incident(principal, incident):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    if isinstance(principal, AgentPrincipal) and not agent_attempt_is_current(
+        tx, principal, incident
+    ):
         raise ApiError("RESOURCE_NOT_FOUND")
     return incident
