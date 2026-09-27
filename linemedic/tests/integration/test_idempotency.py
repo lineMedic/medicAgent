@@ -45,7 +45,7 @@ def test_t_idem_01_same_key_same_body_replays_without_rerun(api):
     after_first = effects(api)
     second = escalate(api, seeded["incident"], escalate_body())
     assert second.status_code == 200
-    assert second.json() == first.json()  # 같은 request_id를 포함한 저장 응답
+    assert second.content == first.content  # 같은 request_id를 포함한 저장 응답을 바이트 그대로
     assert effects(api) == after_first == (2, 1, 1)
     assert row(api.conn, "incidents", seeded["incident"])["version"] == 1
     stored = api.conn.execute("SELECT status, response_json FROM api_requests").fetchone()
