@@ -33,6 +33,7 @@ from linemedic.common.config import LineMedicConfig
 from linemedic.common.ids import new_id
 from linemedic.control_plane import audit, checkpoints, evidence
 from linemedic.control_plane.log_store import LogRecord, LogStore
+from linemedic.control_plane.metrics_store import MetricSample
 from linemedic.control_plane.redaction import clean_text
 from linemedic.control_plane.store import Store, Tx
 from linemedic.integrations.docker import DockerPort
@@ -130,6 +131,59 @@ def problem_fingerprint(sig: Signature, version: str = FINGERPRINT_VERSION) -> s
 
 
 @dataclass(frozen=True)
+class MetricRule:
+    brightness_drop_ratio: float
+    confidence_min: float
+    consecutive_samples: int
+
+
+@dataclass(frozen=True)
+class MetricAnomaly:
+    kind: str  # "brightness_drop" | "confidence_drop"
+    samples: tuple[MetricSample, ...]
+
+
+def _sample_flags(sample: MetricSample, rule: MetricRule) -> tuple[bool, bool]:
+    drop = (sample.baseline_brightness - sample.brightness) / sample.baseline_brightness
+    return drop >= rule.brightness_drop_ratio - 1e-9, sample.confidence < rule.confidence_min
+
+
+def metric_anomaly(samples: list[MetricSample], rule: MetricRule) -> MetricAnomaly | None:
+    """규칙을 넘는 sample이 연속 N개 이상인 가장 최근 구간. 밝기 조건이 있으면 brightness_drop."""
+    streaks: list[list[tuple[MetricSample, bool]]] = [[]]
+    for sample in samples:
+        low_brightness, low_confidence = _sample_flags(sample, rule)
+        if low_brightness or low_confidence:
+            streaks[-1].append((sample, low_brightness))
+        elif streaks[-1]:
+            streaks.append([])
+    qualifying = [streak for streak in streaks if len(streak) >= rule.consecutive_samples]
+    if not qualifying:
+        return None
+    streak = qualifying[-1]
+    kind = "brightness_drop" if any(low for _, low in streak) else "confidence_drop"
+    return MetricAnomaly(kind, tuple(sample for sample, _ in streak))
+
+
+def metric_signature(service: str, equipment_id: str, kind: str) -> Signature:
+    """설비 지표 사건의 signature. endpoint_or_metric = `metric:<equipment_id>:<kind>`(D59)."""
+    return Signature(
+        service=service,
+        error_type=kind,
+        top_frame=f"equipment:{equipment_id}",
+        endpoint=f"metric:{equipment_id}:{kind}",
+    )
+
+
+def metric_rule(config: LineMedicConfig) -> MetricRule:
+    return MetricRule(
+        brightness_drop_ratio=config.detector.metric_brightness_drop_ratio,
+        confidence_min=config.detector.metric_confidence_min,
+        consecutive_samples=config.detector.metric_consecutive_samples,
+    )
+
+
+@dataclass(frozen=True)
 class DetectorSettings:
     run_id: str
     routing_scope: str
@@ -200,7 +254,7 @@ class Detector:
         store: Store,
         settings: DetectorSettings,
         clock: Clock,
-        log_store: LogStore,
+        log_store: LogStore | None,
         eval_terms: Iterable[str] = (),
     ) -> None:
         self.store = store
@@ -225,11 +279,12 @@ class Detector:
         else:
             now = to_rfc3339(at)
             monotonic = at.timestamp()
-        self.log_store.append(
-            settings.run_id,
-            settings.service,
-            LogRecord(now, source_identity, clean_text(line, self.eval_terms, MAX_LOG_CHARS)),
-        )
+        if self.log_store is not None:  # 설비 지표만 보는 감지기는 로그 보관소가 없다
+            self.log_store.append(
+                settings.run_id,
+                settings.service,
+                LogRecord(now, source_identity, clean_text(line, self.eval_terms, MAX_LOG_CHARS)),
+            )
         event = parse_line(line)
         sig = signature(event, settings.service) if event is not None else None
         if sig is None:
@@ -299,18 +354,26 @@ class Detector:
         )
         self._add_evidence(tx, incident["id"], occurrences)
 
-    def _create(
-        self, tx: Tx, sig: Signature, fingerprint: str, occurrences: list[Occurrence]
+    def _insert_incident(
+        self,
+        tx: Tx,
+        sig: Signature,
+        fingerprint: str,
+        count: int,
+        first_seen: str,
+        last_seen: str,
+        extra_details: dict[str, Any] | None = None,
     ) -> str:
         settings = self.settings
         incident_id = new_id("INC")
-        details = {
+        details: dict[str, Any] = {
             "signature": {
                 "service": sig.service,
                 "error_type": clean_text(sig.error_type, self.eval_terms, MAX_KEY_CHARS),
                 "top_frame": clean_text(sig.top_frame, self.eval_terms, MAX_KEY_CHARS),
                 "endpoint": clean_text(sig.endpoint, self.eval_terms, MAX_KEY_CHARS),
-            }
+            },
+            **(extra_details or {}),
         }
         tx.execute(
             "INSERT INTO incidents(id, run_id, routing_scope, repository_id, fingerprint,"
@@ -325,13 +388,12 @@ class Detector:
                 settings.fingerprint_version,
                 settings.service,
                 settings.line_id,
-                len(occurrences),
-                occurrences[0].observed_at,
-                occurrences[-1].observed_at,
+                count,
+                first_seen,
+                last_seen,
                 canonical_dumps(details),
             ),
         )
-        self._add_evidence(tx, incident_id, occurrences)
         audit.append(
             tx,
             settings.run_id,
@@ -341,12 +403,108 @@ class Detector:
             {
                 "fingerprint": fingerprint,
                 "fingerprint_version": settings.fingerprint_version,
-                "count": len(occurrences),
+                "count": count,
                 "window_seconds": settings.window_seconds,
                 "min_occurrences": settings.min_occurrences,
             },
         )
         return incident_id
+
+    def _create(
+        self, tx: Tx, sig: Signature, fingerprint: str, occurrences: list[Occurrence]
+    ) -> str:
+        incident_id = self._insert_incident(
+            tx,
+            sig,
+            fingerprint,
+            len(occurrences),
+            occurrences[0].observed_at,
+            occurrences[-1].observed_at,
+        )
+        self._add_evidence(tx, incident_id, occurrences)
+        return incident_id
+
+    # ── 설비 지표 (W08) ──────────────────────────────────────
+
+    def observe_metrics(
+        self,
+        equipment_id: str,
+        samples: list[MetricSample],
+        rule: MetricRule,
+        comparison: Mapping[str, list[MetricSample]] | None = None,
+    ) -> LineOutcome:
+        """한 설비의 시계열에 이상 규칙을 적용한다. 이상 구간이 있으면 사건을 만들거나 늘린다.
+
+        `comparison`의 같은 시간대 다른 설비 지표도 증거로 남긴다(원인 판단은 하지 않는다).
+        """
+        anomaly = metric_anomaly(samples, rule)
+        if anomaly is None:
+            return LineOutcome(error=False)
+        sig = metric_signature(self.settings.service, equipment_id, anomaly.kind)
+        fingerprint = problem_fingerprint(sig, self.settings.fingerprint_version)
+        first, last = anomaly.samples[0].ts, anomaly.samples[-1].ts
+        with self.store.tx() as tx:
+            incident = self._latest_incident(tx, fingerprint)
+            if incident is not None:
+                tx.execute(
+                    "UPDATE incidents SET count = count + ?, last_seen = MAX(last_seen, ?)"
+                    " WHERE id = ?",
+                    (len(anomaly.samples), last, incident["id"]),
+                )
+                return LineOutcome(True, "updated", incident["id"])
+            incident_id = self._insert_incident(
+                tx,
+                sig,
+                fingerprint,
+                len(anomaly.samples),
+                first,
+                last,
+                {
+                    "metric": {
+                        "equipment_id": equipment_id,
+                        "anomaly": anomaly.kind,
+                        "rule": {
+                            "brightness_drop_ratio": rule.brightness_drop_ratio,
+                            "confidence_min": rule.confidence_min,
+                            "consecutive_samples": rule.consecutive_samples,
+                        },
+                    }
+                },
+            )
+            self._add_metric_evidence(tx, incident_id, equipment_id, anomaly.samples, first, last)
+            for other_id, other in sorted((comparison or {}).items()):
+                window = tuple(sample for sample in other if first <= sample.ts <= last)
+                if other_id != equipment_id and window:
+                    self._add_metric_evidence(tx, incident_id, other_id, window, first, last)
+            return LineOutcome(True, "created", incident_id)
+
+    def _add_metric_evidence(
+        self,
+        tx: Tx,
+        incident_id: str,
+        equipment_id: str,
+        samples: tuple[MetricSample, ...],
+        first: str,
+        last: str,
+    ) -> None:
+        evidence.add_evidence(
+            tx,
+            run_id=self.settings.run_id,
+            incident_id=incident_id,
+            kind="equipment_metric",
+            observed_at=last,
+            source_identity=f"metrics:{equipment_id}",
+            payload={
+                "equipment_id": equipment_id,
+                "window": {"from": first, "to": last},
+                "baseline_brightness": samples[0].baseline_brightness,
+                "samples": [
+                    {"ts": s.ts, "brightness": s.brightness, "confidence": s.confidence}
+                    for s in samples
+                ],
+            },
+            terms=self.eval_terms,
+        )
 
 
 def run_detect_once(

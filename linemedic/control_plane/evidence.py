@@ -13,7 +13,7 @@ from linemedic.common.ids import new_id
 from linemedic.control_plane.redaction import clean_value
 from linemedic.control_plane.store import Tx
 
-KINDS = frozenset({"log_error"})  # W08·W27에서 종류를 더한다
+KINDS = frozenset({"log_error", "equipment_metric"})  # W27에서 종류를 더한다
 MAX_STRING_CHARS = 2048
 MAX_PAYLOAD_BYTES = 16384
 MAX_LOG_EVIDENCE_PER_INCIDENT = 20  # 도구 응답·제안 근거 상한(20)과 같게 둔다

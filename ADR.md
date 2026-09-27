@@ -113,13 +113,14 @@
 | D70 | escalate body, operator는 PR_OPENED에서만 중단, 결합 전이의 WORK_BLOCKED/RECOVERY_NOT_VERIFIED intent를 outbox `enqueue`로 같은 트랜잭션에 기록(발송은 W26) | 알림 | 유효 (spec 03 §5 구체화) |
 | D71 | `persist_result`로 결과 저장·verifier 전용 전이·RECOVERY_* intent를 한 트랜잭션에, 판정 중 오류는 INCONCLUSIVE, S1b 시험 사건은 demo 도우미로 준비하고 활성 run에 기록 | 배포 | 유효 (spec 08 §7·§9 구체화) |
 | D72 | fingerprint 배열 인코딩·source 기준 service, 관찰 시계 60초 3회, terminal 사건 흡수, 정제 로그 JSONL 보관, `/tools`는 RUNNING attempt만, search_logs 제한 | 입력 | 유효 (spec 15 §3.1·03 §2 구체화) |
+| D73 | S2-lite: vision-inspection·설비 catalog, 합성 지표 30분·60 sample, 연속 3 sample 이상 규칙, 설비 범위 조회 도구, 같은 라인 배포 기록·deployed_at | 입력 | 유효 (spec 09 §3·03 §2 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
-| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 |
+| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 |
 | 알림 | D33 D34 D39 D70 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |

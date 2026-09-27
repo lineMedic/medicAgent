@@ -67,9 +67,23 @@ class _Model(BaseModel):
 
 
 class ServiceConfig(_Model):
-    contract_id: str
-    log_source: Literal["stdout_jsonl"]
+    # 업무 계약이 없는 서비스(설비 지표만 있는 vision-inspection)는 contract_id를 생략한다.
+    contract_id: str | None = None
+    log_source: Literal["stdout_jsonl", "equipment_metrics"]
     line_id: Annotated[str, Field(min_length=1, max_length=32)]
+    # 코드 수정 대상 경로. 빈 목록이면 코드 경로가 없는 서비스다(D59). 생략하면 미정.
+    code_paths: list[str] | None = None
+
+
+EquipmentId = Annotated[str, Field(pattern=r"^[A-Z0-9][A-Z0-9-]{0,31}$")]
+
+
+class EquipmentConfig(_Model):
+    service: str
+    line_id: Annotated[str, Field(min_length=1, max_length=32)]
+    kind: Literal["camera"]
+    metrics: list[Literal["brightness", "confidence"]]
+    manual_ref_ids: list[str]
 
 
 class RepositoryConfig(_Model):
@@ -191,6 +205,10 @@ class MemoryConfig(_Model):
 class DetectorConfig(_Model):
     dedupe_window_seconds: PositiveInt
     dedupe_min_occurrences: PositiveInt
+    # 설비 지표 이상 규칙(W08): baseline 대비 밝기 하락 비율 이상 또는 신뢰도 미만이 연속 N sample
+    metric_brightness_drop_ratio: Annotated[float, Field(gt=0, lt=1)]
+    metric_confidence_min: Annotated[float, Field(gt=0, lt=1)]
+    metric_consecutive_samples: PositiveInt
 
 
 class LineMedicConfig(_Model):
@@ -207,9 +225,16 @@ class LineMedicConfig(_Model):
     verifier: VerifierConfig
     memory: MemoryConfig
     detector: DetectorConfig
+    equipment: dict[EquipmentId, EquipmentConfig] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check_cross_references(self) -> "LineMedicConfig":
+        for equipment_id, item in self.equipment.items():
+            service = self.services.get(item.service)
+            if service is None:
+                raise ValueError(f"equipment {equipment_id!r}: unknown service {item.service!r}")
+            if service.line_id != item.line_id:
+                raise ValueError(f"equipment {equipment_id!r}: line differs from its service")
         route_id = self.notifications.required_start_route_id
         route = self.notifications.routes.get(route_id)
         if route is None or not route.enabled:

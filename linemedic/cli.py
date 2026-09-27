@@ -61,6 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="배포 관찰을 기록할 제어 DB (기본: <RUNS_DIR 또는 runs>/linemedic.db)",
     )
 
+    s2_parser = sub.add_parser(
+        "scenario-s2-lite",
+        help="L3 카메라 합성 지표를 run에 쓰고 설비 이상을 감지 (W08, 이상은 L3-CAM-2)",
+    )
+    s2_parser.add_argument("--run-id", required=True, help="make run-new가 만든 활성 run")
+    s2_parser.add_argument(
+        "--recent-deploy", action="store_true", help="이상 시작 전 mes-api 배포 기록을 더한다"
+    )
+    s2_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+    s2_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    s2_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
     detect_parser = sub.add_parser(
         "detect-once",
         help="run의 S1 MES 컨테이너 로그를 한 번 읽어 감지기에 넣는다 (W07, 상시 감시는 W13)",
@@ -120,6 +132,34 @@ def _run_store(db_path: Path, run_id: str) -> Store | None:
     store = Store(db_path, SystemClock())
     store.migrate()
     return store if _run_manifest(store, run_id) is not None else None
+
+
+def _scenario_s2_lite(args: argparse.Namespace) -> int:
+    env = process_env(args.env_file)
+    db_path = args.db or runs.default_db_path(env)
+    store = _run_store(db_path, args.run_id)
+    if store is None:
+        print(
+            f"scenario-s2-lite 실패: 제어 DB에 활성 run이 없다: {args.run_id} (먼저 make run-new)",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        settings = load_settings(args.config, env)
+        result = scenarios.inject_s2_lite(
+            args.run_id,
+            runs_dir=Path(env.get("RUNS_DIR") or "runs"),
+            store=store,
+            config=settings.config,
+            recent_deploy=args.recent_deploy,
+            base_sha=env.get("BASELINE_COMMIT") or None,
+            mes_image_id=env.get("MES_BASE_IMAGE_ID") or None,
+        )
+    except (scenarios.ScenarioError, ConfigError, StoreError, ValueError) as exc:
+        print(f"scenario-s2-lite 실패: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
 
 
 def _detect_once(args: argparse.Namespace) -> int:
@@ -186,6 +226,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "detect-once":
         return _detect_once(args)
+    if args.command == "scenario-s2-lite":
+        return _scenario_s2_lite(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

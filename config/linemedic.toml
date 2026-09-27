@@ -13,6 +13,33 @@ contract_id = "defect-summary-v1"
 log_source = "stdout_jsonl"  # D57: detector와 verifier가 같은 stdout JSON Lines 스트림을 읽는다
 line_id = "L3"  # incident.line_id (W07, D72)
 
+[services.vision-inspection]
+# S2-lite 설비 사건용 서비스(D59). 업무 계약·코드 경로가 없고 Issue는 mes-api와 같은 repo로 추적한다.
+log_source = "equipment_metrics"
+line_id = "L3"
+code_paths = []
+
+[equipment.L3-CAM-1]
+service = "vision-inspection"
+line_id = "L3"
+kind = "camera"
+metrics = ["brightness", "confidence"]
+manual_ref_ids = ["MANUAL-L3-VISION-4.2"]
+
+[equipment.L3-CAM-2]
+service = "vision-inspection"
+line_id = "L3"
+kind = "camera"
+metrics = ["brightness", "confidence"]
+manual_ref_ids = ["MANUAL-L3-VISION-4.2"]
+
+[equipment.L3-CAM-3]
+service = "vision-inspection"
+line_id = "L3"
+kind = "camera"
+metrics = ["brightness", "confidence"]
+manual_ref_ids = ["MANUAL-L3-VISION-4.2"]
+
 [repository]
 # id·full_name은 G2 확인 전 미확정이라 생략한다. env GITHUB_REPOSITORY_ID·GITHUB_REPOSITORY로 채운다.
 
@@ -125,3 +152,6 @@ query_max_tokens = 16
 [detector]
 dedupe_window_seconds = 60
 dedupe_min_occurrences = 3  # 같은 fingerprint 60초 안 3회
+metric_brightness_drop_ratio = 0.3  # baseline 대비 30% 이상 하락(W08)
+metric_confidence_min = 0.7  # 판정 신뢰도 0.7 미만
+metric_consecutive_samples = 3  # 연속 3 sample

@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -83,3 +83,9 @@ run-new:
 detect-once:
 	@test -n "$(RUN_ID)" || { echo "사용법: make detect-once RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
 	$(PY) -m linemedic.cli detect-once --run-id "$(RUN_ID)"
+
+# S2-lite (W08): L3 카메라 합성 지표를 run에 쓰고 설비 이상을 감지한다(이상은 L3-CAM-2).
+# RECENT_DEPLOY=1이면 이상 시작 전 mes-api 배포 기록을 더한다(혼동 사례).
+scenario-s2-lite:
+	@test -n "$(RUN_ID)" || { echo "사용법: make scenario-s2-lite RUN_ID=<활성 run> [RECENT_DEPLOY=1]"; exit 2; }
+	$(PY) -m linemedic.cli scenario-s2-lite --run-id "$(RUN_ID)" $(if $(RECENT_DEPLOY),--recent-deploy,)
