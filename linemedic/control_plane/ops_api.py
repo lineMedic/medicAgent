@@ -6,6 +6,9 @@
   알림 intent를 같은 트랜잭션에서 기록한다. `RESOLVED` 전이는 없다.
 - POST `/ops/integrations/github/sync`: 등록 repo Issue 조회 1회 (역할 `integration`, W23).
   repo·URL은 지정할 수 없다
+- GET `/ops/issues/candidates/{incident_id}`: binding 후보·match 근거·조회 완전성 (역할 `read`, W24)
+- POST `/ops/incidents/{id}/issue-binding`: 등록 repo의 Issue 번호를 명시적으로 연결
+  (역할 `triage`, basis OPERATOR, W24)
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -44,6 +47,14 @@ class _Body(BaseModel):
 class GitHubSyncRequest(_Body):
     schema_version: Literal["linemedic.v4"]
     run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+
+
+class IssueBindingRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+    issue_number: Annotated[int, Field(ge=1)]
+    expected_incident_version: Annotated[int, Field(ge=0)]
+    decision_note: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class EscalateRequest(_Body):
@@ -301,5 +312,99 @@ async def github_sync(
     body = await read_json_body(request, GitHubSyncRequest)
     status_code, payload = await run_in_threadpool(
         _github_sync, context(request), operator, key, body, request_id(request)
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+@router.get("/ops/issues/candidates/{incident_id}")
+async def issue_candidates(
+    incident_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+) -> JSONResponse:
+    ctx = context(request)
+    if ctx.issue_router is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    router_ = ctx.issue_router
+
+    def load() -> dict:
+        with ctx.store.read() as tx:
+            load_visible_incident(tx, operator, incident_id)  # 형식·범위 밖은 404
+        return router_.candidates(incident_id)
+
+    data = await run_in_threadpool(load)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _issue_binding(
+    ctx: AppContext,
+    operator: OperatorPrincipal,
+    incident_id: str,
+    path: str,
+    key: str,
+    body: IssueBindingRequest,
+    rid: str,
+) -> tuple[int, dict]:
+    """운영자 연결. GitHub 재조회는 트랜잭션 밖에서 하고, 거절되면 멱등 기록을 지운다."""
+    if ctx.issue_router is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    with ctx.store.read() as tx:
+        incident = load_visible_incident(tx, operator, incident_id)
+    if incident["run_id"] != body.run_id:
+        raise ApiError("RESOURCE_NOT_FOUND")
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": path,
+        "run_id": body.run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    try:
+        data = ctx.issue_router.operator_bind(
+            incident_id,
+            body.issue_number,
+            body.expected_incident_version,
+            body.decision_note,
+            operator.scope,
+        )
+    except ApiError:
+        # 연결이 기록되지 않았다: 같은 키로 다시 시도할 수 있게 멱등 기록을 지운다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise
+    response = success_body(rid, data)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post("/ops/incidents/{incident_id}/issue-binding")
+async def issue_binding(
+    incident_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("triage"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, IssueBindingRequest)
+    status_code, payload = await run_in_threadpool(
+        _issue_binding,
+        context(request),
+        operator,
+        incident_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
     )
     return JSONResponse(status_code=status_code, content=payload)

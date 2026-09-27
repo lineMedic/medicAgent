@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W24** ([tasks/W24-issue-matching.md](tasks/W24-issue-matching.md), 로그 → 기존 Issue 연결/신규 Issue 생성 — 선행 W07·W23 fake 부분 UNIT_TESTED. FakeGitHub로 UNIT_TESTED까지, S4 live는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W25** ([tasks/W25-work-lifecycle.md](tasks/W25-work-lifecycle.md), work 상태·단일 claim·409·approve/retry/cancel — 선행 W06·W22(fake 부분) 충족, 게이트 없이 목표 상태 UNIT_TESTED까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -32,7 +32,7 @@
 | 12 | W09 | UNIT_TESTED | UNIT_TESTED | 독립 리뷰 반영 뒤 `make test` → 862 passed(처음 843, W09 테스트 143개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘, 리뷰 지적 4건 수정(B00·W06·W09 브랜치) | | 2026-09-27T09:17Z |
 | 13 | W22 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 963 passed(W22 테스트 101개 포함: 포트 계약·Fake·HttpGitHub MockTransport 78, catalog·설정 18, doctor 5), `make lint` → PASS, `make test-live` → github smoke 2 skipped(NOT_CONFIGURED G2), 변이 21개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`GITHUB_REPOSITORY(_ID)` / 확인: `make test-live`(github 읽기 계약). G10 + 사용자 허락 — config `github.write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 Issue·댓글 smoke 1회, receipt `evidence/N11-github-smoke.md`, N11로 `github.api_version` 확정 | 2026-09-27T09:33Z |
 | 14 | W23 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2) | `make test` → 1003 passed(W23 테스트 40개: polling 통합 39, 포트 1), `make lint` → PASS, `make test-live` → S5-new 1 skipped(`LINEMEDIC_LIVE_S5` 표시 없음)·github smoke 2 skipped(G2), 변이 30개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`ISSUE_TRUSTED_AUTHOR_IDS` / 확인: `LINEMEDIC_LIVE_S5=1 make test-live` 중 승인된 작성자가 새 Issue 1개 생성 → `evidence/S5-new-issue-detect.md`(감지·생성 시각) | 2026-09-27T10:04Z |
-| 15 | W24 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
+| 15 | W24 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1036 passed(W24 테스트 33개), `make lint` → PASS, `make test-live` → S4 2 skipped(쓰기 허락·후보 준비 표시 없음), 변이 27개 모두 테스트 실패로 잡힘(W23 변이 30개도 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 S4-new·existing 1회, 사람이 후보 Issue 2개를 만든 뒤 `LINEMEDIC_LIVE_S4_AMBIGUOUS=1`로 S4-ambiguous 1회 → `evidence/S4-issue-live.md`. issue form을 데모 repo에 복사 | 2026-09-27T10:33Z |
 | 16 | W25 | UNIT_TESTED | NOT_CHECKED | | | |
 | 17 | W26 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 (G12 선택) | |
 | 18 | W10 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,43 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W24 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T10:33Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). FakeGitHub와 실제 SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/control_plane/issue_router.py`:
+    - `IssueRouter.route`(mirror 갱신 뒤 lookup 1~5), `lookup`, 신규 생성(intent → POST → 결과 기록), `route_pending`
+    - `reconcile_create_issue`, `operator_bind`, `candidates`
+    - Issue 제목·본문 템플릿과 marker, issue form 파서
+  - `linemedic/contracts/github/linemedic-issue-form.yml`: 승인 issue form(G2에서 데모 repo에 복사, 시드는 바꾸지 않음)
+  - `linemedic/control_plane/ops_api.py`: `GET /ops/issues/candidates/{incident_id}`, `POST /ops/incidents/{id}/issue-binding`(basis OPERATOR). `AppContext.issue_router`
+  - `linemedic/cli.py`·`Makefile`: `make issue-bind INCIDENT_ID= ISSUE_NUMBER=`(D48: operator token으로 Control API 호출), `config [control_api]`(127.0.0.1:8080)
+  - `linemedic/control_plane/detector.py`: `on_new_incident` hook(새 사건만, 트랜잭션 뒤). `issue_sync.py`: `upsert_mirror` 공개·`poll_once(wait_seconds)`. `notifications/blocker.py`: work 없는 보고
+  - 테스트: `integration/test_issue_matching.py`(33), `live/test_issue_live.py` S4 2개(live_github)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 1036 passed, 10 deselected / `make lint` → PASS
+  - `make test-live` → S4 2개 skipped(쓰기 허락·후보 준비 표시 없음), S5·github smoke skipped
+  - 변이 확인 27개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - lookup: binding 재조회 생략, 유사 후보 무시, 토큰 1개로 후보, mirror 완전성 무시, 갱신 실패 무시, 불명 intent 뒤 재생성, form 작성자 승인 무시, 다른 scope 봇 Issue 포함, receipt 검증 제거
+    - 생성: 결과 불명을 실패로, shadow에서도 intent, rate limit을 에스컬레이션, FAILED 재시도에 새 intent, 생성 뒤 binding 안 함, 제목·본문 정제 제거
+    - 조정: 작성자·marker·시각 범위 확인 제거, 0개를 채택처럼
+    - 연결·API: 연결 Issue closed 무시, Issue 기반 사건도 route, 운영자 연결 version 검사 제거·PR 허용, 거절 뒤 멱등 기록 유지, 병합에도 hook, work 없는 차단 알림 제거
+    - W23 refactor 뒤 W23 변이 30개도 다시 모두 잡혔다
+- 수용 기준:
+  - T-ISS-01: 기존 binding → 같은 번호 재사용·새 Issue 0개. 완전 조회·후보 없음 → Issue 1개·binding(CREATED)·work 1개: PASS
+  - T-ISS-02: 제목만 비슷한 후보 2개 → AMBIGUOUS(생성·패치 0). 페이지 조회 실패 → LOOKUP_INCOMPLETE(생성 0). PR 항목은 후보가 아님: PASS
+  - T-ISS-03: 생성 뒤 timeout → UNKNOWN, 두 번째 POST 0회, reconcile로 1개 채택. 다른 작성자가 같은 marker를 쓴 Issue → 채택하지 않음: PASS
+  - 로그 본문 안의 `#번호`·HTML marker로 연결되지 않음: PASS
+  - shadow 모드(`write_enabled=false`)에서 만들 Issue 계획만 출력: PASS
+  - live S4-new·existing·ambiguous 각 1회 기록: NOT_RUN (G2·G10)
+- 판단: D77(lookup 세부·form 형식·후보 규칙, closed 연결, attached, 생성 결과 매핑, 템플릿·marker, 조정 규칙, 운영자 연결 API, control_api 주소)
+- 증거: 커밋은 이 보고를 포함한 W24 커밋. `evidence/S4-issue-live.md`는 실제 실행 전이라 없다
+- 남은 일·위험:
+  - G2·G10이 열리면 issue form을 데모 repo에 복사하고 live S4 3종을 실행한다(쓰기는 사용자 허락 뒤)
+  - attached 로그 incident의 증거 연결과 retry(W25), CREATE_ISSUE 조정 CLI(W11), router·poll 루프 기동(W13)
+  - 토큰 휴리스틱은 중복을 놓치거나 과하게 모호로 볼 수 있다(D77 대가)
+- 다음 카드: W25
 
 ### W23 중단 보고 — live 부분 G2 대기 (2026-09-27T10:04Z)
 

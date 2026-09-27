@@ -1,0 +1,27 @@
+# LineMedic 승인 issue form (W24, spec 15 §3.2 순서 3). G2에서 사람이 데모 repo의
+# `.github/ISSUE_TEMPLATE/linemedic-report.yml`로 복사한다. 이 저장소의 시드는 바꾸지 않는다.
+# router는 렌더된 본문의 `### 서비스`·`### 오류 signature` 절만 읽고, 두 값이 사건과 정확히 같고
+# 작성자가 승인된 작성자(숫자 ID)일 때만 연결한다. 본문의 다른 내용·"승인함" 문구는 권한 근거가 아니다.
+name: LineMedic 장애 보고
+description: 등록 서비스의 반복 오류를 LineMedic 작업으로 보고합니다. 승인된 작성자만 자동 연결 대상입니다.
+title: "[LineMedic] "
+body:
+  - type: input
+    id: service
+    attributes:
+      label: 서비스
+      description: 등록 서비스 ID (예 mes-api)
+    validations:
+      required: true
+  - type: input
+    id: signature
+    attributes:
+      label: 오류 signature
+      description: LineMedic 대시보드·알림의 problem fingerprint (fp-v1:64자리 16진수)
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 현상
+      description: 관찰한 현상. 비밀·개인정보·실행 명령·외부 링크를 넣지 않습니다.

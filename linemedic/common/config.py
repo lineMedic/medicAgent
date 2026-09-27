@@ -135,6 +135,13 @@ class IssueIntakeConfig(_Model):
     auto_start: AutoStartConfig
 
 
+class ControlApiConfig(_Model):
+    """Control API 주소(W24 CLI가 부르고 W13 `make start`가 연다). 데모 전용 격리 네트워크에만."""
+
+    host: Annotated[str, Field(pattern=r"^[A-Za-z0-9.:-]{1,253}$")]
+    port: Annotated[int, Field(ge=1, le=65535)]
+
+
 class NotificationRoute(_Model):
     """route catalog 항목(spec 16 §1). 실제 수신자는 host 설정만 정한다(모델·Issue·로그 아님)."""
 
@@ -250,6 +257,7 @@ class LineMedicConfig(_Model):
     services: dict[str, ServiceConfig]
     repository: RepositoryConfig
     github: GitHubConfig
+    control_api: ControlApiConfig
     issue_intake: IssueIntakeConfig
     notifications: NotificationsConfig
     agent: AgentConfig

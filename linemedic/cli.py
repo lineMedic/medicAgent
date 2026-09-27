@@ -9,6 +9,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import httpx
+
 from linemedic import __version__
 from linemedic.common.clock import SystemClock
 from linemedic.common.config import (
@@ -84,6 +86,19 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--db", type=Path, help="제어 DB 경로")
     sync_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     sync_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    bind_parser = sub.add_parser(
+        "issue-bind",
+        help="운영자가 incident를 등록 repo의 Issue 번호에 명시적으로 연결 (W24, Control API 호출)",
+    )
+    bind_parser.add_argument("--incident-id", required=True)
+    bind_parser.add_argument("--issue-number", required=True, type=int)
+    bind_parser.add_argument(
+        "--expected-version", type=int, help="확인한 incident version (생략하면 지금 값을 읽는다)"
+    )
+    bind_parser.add_argument("--note", default="운영자 CLI 연결", help="연결 판단 메모")
+    bind_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    bind_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
     detect_parser = sub.add_parser(
         "detect-once",
@@ -218,6 +233,56 @@ def _issue_sync(args: argparse.Namespace) -> int:
     return 0 if result.error is None and result.mode not in ("busy", "backoff") else 1
 
 
+def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
+    """D48: `/ops/*`에 대응하는 명령은 operator token으로 Control API를 HTTP로 부른다."""
+    env = process_env(args.env_file)
+    try:
+        settings = load_settings(args.config, env)
+    except ConfigError as exc:
+        print(f"issue-bind 실패: {exc}", file=sys.stderr)
+        return 2
+    token = settings.secrets.get("CONTROL_OPERATOR_TOKEN")
+    if not token:
+        print("issue-bind: NOT_CONFIGURED: CONTROL_OPERATOR_TOKEN", file=sys.stderr)
+        return 2
+    api = settings.config.control_api
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        with httpx.Client(
+            base_url=f"http://{api.host}:{api.port}", timeout=15.0, transport=transport
+        ) as client:
+            current = client.get(f"/ops/incidents/{args.incident_id}", headers=headers)
+            if current.status_code != 200:
+                print(json.dumps(current.json(), ensure_ascii=False, indent=2), file=sys.stderr)
+                return 1
+            incident = current.json()["data"]["incident"]
+            version = (
+                incident["version"] if args.expected_version is None else args.expected_version
+            )
+            body = {
+                "schema_version": "linemedic.v4",
+                "run_id": incident["run_id"],
+                "issue_number": args.issue_number,
+                "expected_incident_version": version,
+                "decision_note": args.note,
+            }
+            key = (
+                f"issue-bind:{args.incident_id}:{args.issue_number}:{version}"  # 같은 명령은 재전송
+            )
+            response = client.post(
+                f"/ops/incidents/{args.incident_id}/issue-binding",
+                json=body,
+                headers={**headers, "Idempotency-Key": key},
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"issue-bind 실패: Control API에 연결하지 못했다({type(exc).__name__})", file=sys.stderr
+        )
+        return 2
+    print(json.dumps(response.json(), ensure_ascii=False, indent=2))
+    return 0 if response.status_code == 200 else 1
+
+
 def _detect_once(args: argparse.Namespace) -> int:
     env = process_env(args.env_file)
     db_path = args.db or runs.default_db_path(env)
@@ -286,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         return _scenario_s2_lite(args)
     if args.command == "issue-sync":
         return _issue_sync(args)
+    if args.command == "issue-bind":
+        return _issue_bind(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)
