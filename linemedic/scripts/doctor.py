@@ -13,9 +13,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
-
-import httpx
+from typing import Literal
 
 from linemedic.common.config import (
     DEFAULT_CONFIG_PATH,
@@ -24,7 +22,14 @@ from linemedic.common.config import (
     load_settings,
     process_env,
 )
-from linemedic.scripts.github_setup_check import REPO_FULL_NAME_RE, default_get
+from linemedic.integrations.github import (
+    DEFAULT_BASE_URL,
+    DEFAULT_TIMEOUT_SECONDS,
+    GitHubError,
+    GitHubPort,
+    HttpGitHub,
+)
+from linemedic.scripts.github_setup_check import REPO_FULL_NAME_RE
 from linemedic.scripts.host_manifest import fts5_available, run_version_command
 
 Status = Literal["OK", "MISSING", "FAIL", "NOT_CONFIGURED"]
@@ -68,8 +73,8 @@ class DoctorContext:
     env: Mapping[str, str] = field(default_factory=dict)
     which: Callable[[str], str | None] = shutil.which
     run: Callable[[list[str]], str | None] = run_version_command
-    # GitHub GET (path, token) → (HTTP 상태, JSON). None이면 실제 GitHub API를 부른다.
-    github_get: Callable[[str, str], tuple[int, Any]] | None = None
+    # (repository_id, full_name, credential) → GitHubPort. None이면 config `github` 절로 HttpGitHub
+    github_port: Callable[[int, str, str], GitHubPort] | None = None
 
 
 CheckFn = Callable[[DoctorContext], tuple[Status, str]]
@@ -130,25 +135,53 @@ def check_env(ctx: DoctorContext) -> tuple[Status, str]:
 GITHUB_DOCTOR_ENV = ("GITHUB_REPOSITORY", "GITHUB_REPOSITORY_ID", "GITHUB_BROKER_CREDENTIAL")
 
 
+def _default_github_port(ctx: DoctorContext) -> Callable[[int, str, str], GitHubPort]:
+    try:
+        github = load_settings(ctx.config_path, env=ctx.env).config.github
+        base_url, api_version, timeout = github.base_url, github.api_version, github.timeout_seconds
+    except ConfigError:  # config 오류는 config 항목이 따로 알린다
+        base_url, api_version, timeout = DEFAULT_BASE_URL, None, DEFAULT_TIMEOUT_SECONDS
+
+    def build(repository_id: int, full_name: str, credential: str) -> GitHubPort:
+        return HttpGitHub(
+            repository_id,
+            full_name,
+            credential,
+            base_url=base_url,
+            api_version=api_version,
+            timeout_seconds=timeout,
+        )
+
+    return build
+
+
 @register("github", required=True)
 def check_github(ctx: DoctorContext) -> tuple[Status, str]:
-    """봇 credential이 있고, 그 credential로 조회한 repo 숫자 ID가 설정과 같은지 확인한다(W03)."""
+    """봇 credential로 등록 repo의 숫자 ID가 설정과 같은지, 봇 identity를 확인한다(W03·W22)."""
     missing = [name for name in GITHUB_DOCTOR_ENV if not ctx.env.get(name)]
     if missing:
         return "NOT_CONFIGURED", "미설정 변수: " + ", ".join(missing)
     full_name, expected_id = ctx.env["GITHUB_REPOSITORY"], ctx.env["GITHUB_REPOSITORY_ID"]
     if not REPO_FULL_NAME_RE.fullmatch(full_name) or not expected_id.isdigit():
         return "FAIL", "GITHUB_REPOSITORY(owner/name) 또는 GITHUB_REPOSITORY_ID(숫자) 형식 오류"
-    get = ctx.github_get or default_get
+    build = ctx.github_port or _default_github_port(ctx)
     try:
-        status, body = get(f"/repos/{full_name}", ctx.env["GITHUB_BROKER_CREDENTIAL"])
-    except httpx.HTTPError as exc:
-        return "FAIL", f"GitHub 조회 실패: {type(exc).__name__}"
-    if status != 200 or not isinstance(body, dict):
-        return "FAIL", f"봇 credential로 {full_name} 조회 실패 (HTTP {status})"
-    if str(body.get("id")) != expected_id:
-        return "FAIL", f"repo ID 불일치: 설정 {expected_id}, 실제 {body.get('id')}"
-    return "OK", f"{body.get('full_name')} (ID {expected_id}) 봇 credential로 조회됨"
+        port = build(int(expected_id), full_name, ctx.env["GITHUB_BROKER_CREDENTIAL"])
+        repo = port.get_repo().data
+        identity = port.get_identity().data
+    except ValueError:
+        return "FAIL", "GitHub 등록 repo 설정 형식 오류"
+    except GitHubError as exc:
+        return "FAIL", f"봇 credential로 {full_name}·identity 조회 실패: {type(exc).__name__}"
+    if not isinstance(repo, dict) or repo.get("id") != int(expected_id):
+        actual = repo.get("id") if isinstance(repo, dict) else None
+        return "FAIL", f"repo ID 불일치: 설정 {expected_id}, 실제 {actual}"
+    if not isinstance(identity, dict) or not identity.get("login"):
+        return "FAIL", "봇 identity(login)를 확인하지 못했다"
+    return "OK", (
+        f"{repo.get('full_name')} (ID {expected_id}) 조회됨, "
+        f"봇 {identity['login']} (ID {identity.get('id')})"
+    )
 
 
 def run_checks(ctx: DoctorContext) -> list[CheckResult]:

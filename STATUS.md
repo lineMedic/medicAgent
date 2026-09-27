@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W22** ([tasks/W22-github-registration.md](tasks/W22-github-registration.md), GitHubPort·FakeGitHub·repo/author/route catalog — 선행 W06 충족. 포트·fake·설정 부분은 게이트 없이 UNIT_TESTED까지, live smoke는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W23** ([tasks/W23-issue-polling.md](tasks/W23-issue-polling.md), Issue mirror·bounded polling·checkpoint — 선행 W22 fake 부분 UNIT_TESTED. FakeGitHub로 UNIT_TESTED까지, live 감지 1회는 G2 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22 live는 G2·G10 대기다.
 
 ## 작업표
 
@@ -30,7 +30,7 @@
 | 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함, 전체 검증 수정 뒤 665), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
 | 11 | W08 | UNIT_TESTED | UNIT_TESTED | `make test` → 706 passed(W08 테스트 41개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`(vision-inspection NEW, count 10, 증거 3, 배포 없음), `RECENT_DEPLOY=1 RUN_ID=r-20260927-072410-712e` → `INC-793CE4A26CC2`(이상 10분 전 mes-api 배포 기록), 지표 파일 `runs/<run>/metrics/`(git 제외) | | 2026-09-27T07:25Z |
 | 12 | W09 | UNIT_TESTED | UNIT_TESTED | 독립 리뷰 반영 뒤 `make test` → 862 passed(처음 843, W09 테스트 143개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘, 리뷰 지적 4건 수정(B00·W06·W09 브랜치) | | 2026-09-27T09:17Z |
-| 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
+| 13 | W22 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 963 passed(W22 테스트 101개 포함: 포트 계약·Fake·HttpGitHub MockTransport 78, catalog·설정 18, doctor 5), `make lint` → PASS, `make test-live` → github smoke 2 skipped(NOT_CONFIGURED G2), 변이 21개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`GITHUB_REPOSITORY(_ID)` / 확인: `make test-live`(github 읽기 계약). G10 + 사용자 허락 — config `github.write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 Issue·댓글 smoke 1회, receipt `evidence/N11-github-smoke.md`, N11로 `github.api_version` 확정 | 2026-09-27T09:33Z |
 | 14 | W23 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 15 | W24 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 16 | W25 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,35 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W22 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T09:33Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). 포트·fake·설정·catalog·doctor까지 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/integrations/github.py`:
+    - `GitHubPort`, `GitHubBase`(등록 repo 고정 경로, 번호·branch·필터·since·label 검증, `write_enabled=false`면 `WritePlan`)
+    - `HttpGitHub`(httpx. API 버전 헤더는 N11 전에는 보내지 않음), 오류 `RateLimited`·`Forbidden`·`NotFound`·`Conflict`·`Unknown(request_sent)`
+    - `FakeGitHub`(페이지네이션·PR 섞인 목록·ETag 304·장애 주입 `fail_next`), `github_from_settings`
+  - `config/linemedic.toml`·`common/config.py`: `[repository] service_id`, `[github]`(base_url·`write_enabled = false`·timeout, api_version 생략), route ID·adapter별 필드 검증, repo 이름의 `.`·`..` 조각 거부
+  - `linemedic/control_plane/catalog.py`: 등록 repo·route·자동 처리 작성자(숫자 ID)·deny label. 모르는 repo·route와 꺼진 route 거부
+  - `linemedic/scripts/doctor.py`: github 항목을 포트로 — repo 숫자 ID 일치 + 봇 identity(login·ID). W03 `default_get` 제거
+  - 테스트: `unit/test_github_port.py`(78), `unit/test_catalog.py`(18), `unit/test_github_setup.py` doctor 5개 추가·수정, `helpers/github_contract.py`(unit·live 공통 계약), `live/test_github_smoke.py`(live_github)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 963 passed, 7 deselected / `make lint` → PASS
+  - `make test-live` → github smoke 2개 skipped(NOT_CONFIGURED G2: GITHUB_REPOSITORY_ID, GITHUB_REPOSITORY, GITHUB_BROKER_CREDENTIAL)
+  - 변이 확인 21개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - 포트: 쓰기 차단 무시, 403 rate limit를 Forbidden으로, ReadTimeout의 `request_sent`, fake 부작용 뒤 실패 무시, 번호에 bool 허용, branch 중간 `..` 허용, Link next 무시, API 버전 헤더 항상 전송, 예외 원인 연결, 오류 메시지 비마스킹, since 검증 제거, PR 항목 표시 제거
+    - catalog·설정: 꺼진 route 허용, 작성자 문자열 허용, repo ID 불일치 허용, smtp 수신 env 검사 제거, repo 이름 `.` 조각 허용, repo·intake 서비스 교차 검사 제거, `write_enabled` 기본값 true
+    - doctor: repo ID 비교 제거, 봇 identity 확인 제거
+- 수용 기준:
+  - fake: 3페이지 목록·PR 항목 포함·두 번째 페이지 403(`Forbidden`)·생성 뒤 timeout(부작용 있음, `Unknown`)이 각각 정확한 오류 타입: PASS
+  - 등록 repo 밖을 가리키는 요청을 만들 수 없음(메서드에 repo 인자 없음, 모든 요청 경로가 `/repos/<등록 repo>` 또는 `/user`): PASS
+  - `write_enabled=false`에서 쓰기 호출 0회(Fake·HttpGitHub 모두): PASS
+  - live: 전용 repo에서 조회·생성·댓글 각 1회 receipt: NOT_RUN (G2·G10)
+- 판단: D75(HTTP 상태·전송 예외 매핑, shadow 계획, 설정·route 검증, catalog, doctor identity, live smoke 쓰기 이중 허락)
+- 증거: 커밋은 이 보고를 포함한 W22 커밋. `evidence/N11-github-smoke.md`는 실제 실행 전이라 없다
+- 남은 일·재개 조건: G2가 열리면 `make test-live`로 읽기 계약 확인 → G10과 사용자 허락 뒤 Issue·댓글 smoke 1회 → N11로 `github.api_version` 확정. GitHub App token을 쓰면 doctor identity(`/user`)가 FAIL로 나오므로 D46대로 봇 계정 credential을 쓴다
+- 다음 카드: W23 (fake 부분)
 
 ### W09 독립 리뷰 반영 (카드 밖, 2026-09-27T09:17Z)
 

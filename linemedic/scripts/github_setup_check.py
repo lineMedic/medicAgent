@@ -109,12 +109,6 @@ class GitHubReader:
         return self.request("POST", "/graphql", token, {"query": query, "variables": variables})
 
 
-def default_get(path: str, token: str) -> tuple[int, Any]:
-    """doctor 등에서 쓰는 단건 GET."""
-    with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as client:
-        return GitHubReader(client).get(path, token)
-
-
 # ── 판정 함수 (응답 dict만 받는 순수 함수) ────────────────────
 
 
