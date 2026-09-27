@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linemedic"
+version = "0.1.0"
+description = "LineMedic v4 control plane for the Korea Agentic AI Hackathon (synthetic L3 line)"
+readme = "README.md"
+requires-python = ">=3.12"
+# 허용 의존성 목록: docs/01-tech-stack.md §1. 그 밖의 의존성은 DECISIONS.md에 이유를 적은 뒤 추가한다.
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "httpx",
+    "jinja2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["linemedic*"]
+
+[tool.pytest.ini_options]
+testpaths = ["linemedic/tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "docker: 로컬 Docker가 필요한 테스트 (make test-docker)",
+    "live_github: 실제 GitHub가 필요한 테스트 (G2·G10 이후)",
+    "live_model: 실제 NVIDIA 추론이 필요한 테스트 (G3 이후)",
+    "live_sandbox: 실제 OpenShell sandbox가 필요한 테스트 (G5 이후)",
+    "live_smtp: 실제 SMTP가 필요한 테스트 (G12 선택 시)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Python 파일만 대상으로 한다. 포맷터가 spec/·docs/·tasks/ 문서를 건드리지 않게 한다(spec 수정 금지).
+include = ["*.py", "*.pyi", "**/pyproject.toml"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

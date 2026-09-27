@@ -8,7 +8,7 @@
 
 | 카드 | 시작 시각 | 진행 메모 |
 |---|---|---|
-| (없음) | | |
+| B00 | 2026-09-27T02:10Z | 사람 게이트 G1·G2·G3·G5·G6·G11 요청 기록 후 착수. 작업 위치: fork `minjcho/medicAgent` clone (upstream `lineMedic/medicAgent`) |
 
 ## 다음 작업
 
@@ -58,17 +58,17 @@
 
 | ID | 내용 | 상태 (OPEN / REQUESTED / DONE / DECLINED) | 요청 내용·요청 시각 | 사람이 알려 준 값 (비밀 제외) | 완료 시각 |
 |---|---|---|---|---|---|
-| G1 | 데모 호스트 확정 | OPEN | | | |
-| G2 | GitHub 조직·repo·봇·리뷰어·보호 규칙·trusted author ID | OPEN | | | |
-| G3 | NVIDIA 키·모델 | OPEN | | | |
+| G1 | 데모 호스트 확정 | REQUESTED | 2026-09-27T02:10Z — 평가·영상용 호스트 1대(OS·arch·메모리·디스크) 결정, OpenShell Support Matrix와 대조. 현재 개발 Mac은 OpenShell 미설치 | | |
+| G2 | GitHub 조직·repo·봇·리뷰어·보호 규칙·trusted author ID | REQUESTED | 2026-09-27T02:10Z — ① 조직에 `l3-mes-api` 생성 ② 봇 계정/App(해당 repo만 metadata·Issues·PR·contents) ③ 봇 아닌 리뷰어 ④ `baseline/*` 보호(리뷰 1, 최신 변경 승인, 봇 직접 push 금지) ⑤ squash만 ⑥ 자동 처리 작성자 숫자 ID. 조직 관리자 필요 | | |
+| G3 | NVIDIA 키·모델 | REQUESTED | 2026-09-27T02:10Z — build.nvidia.com 키 발급 후 `.env`에 `NVIDIA_API_KEY` 직접 입력, `NVIDIA_BASE_URL`·`NVIDIA_MODEL_ID` 후보 알려 주기 | | |
 | G4 | runtime 선택 (OpenClaw/NemoClaw vs NAT) | OPEN | | | |
-| G5 | OpenShell 설치·정책 | OPEN | | | |
-| G6 | 대회 조건 R1~R5 문의 | OPEN | | | |
+| G5 | OpenShell 설치·정책 | REQUESTED | 2026-09-27T02:10Z — G1 호스트에 OpenShell 설치·버전 고정, effective policy 확인 방법과 정책 schema 문서 위치 알려 주기 | | |
+| G6 | 대회 조건 R1~R5 문의 | REQUESTED | 2026-09-27T02:10Z — spec 12 §2 문안을 주최 측에 발송, 답변 원문(확인일·질문·답변·출처·확인자) 전달 | | |
 | G7 | PR 리뷰·머지 (run마다) | OPEN | | | |
 | G8 | 배포 승인 실행 (run마다) | OPEN | | | |
 | G9 | memory snapshot 선택 | OPEN | | | |
 | G10 | GitHub 쓰기 활성화 (shadow 해제) | OPEN | | | |
-| G11 | 체크포인트 KST 시각 | OPEN | | | |
+| G11 | 체크포인트 KST 시각 | REQUESTED | 2026-09-27T02:10Z — V4-CP0~CP5 목표 KST, 코드 동결·평가 시작·내부 제출 시각 결정 | | |
 | G12 | 메일 채널 선택 여부 | OPEN | | | |
 
 ## 체크포인트
