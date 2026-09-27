@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W05 (1부)** ([tasks/W05-verifier.md](tasks/W05-verifier.md), 독립 업무 verifier와 S1b — 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W06** ([tasks/W06-store-auth.md](tasks/W06-store-auth.md), DB·상태 전이·감사·인증·멱등성 — 선행 B00, 게이트 없이 목표 상태까지 가능). W05 2부(결과 저장·incident 전이)는 W06 뒤에 한다. W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -24,7 +24,7 @@
 | 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
 | 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`. 시드 push는 W04 이후 | 2026-09-27T04:02Z |
 | 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
-| 7 | W05 (1부) | UNIT_TESTED | NOT_CHECKED | | | |
+| 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | NOT_CHECKED | | | |
 | 9 | W05 (2부) | UNIT_TESTED | NOT_CHECKED | | | |
 | 10 | W07 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,42 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W05 (1부) 완료 보고 (2026-09-27T05:07Z)
+
+- 상태: UNIT_TESTED (1부 목표 도달). docker 마커 시험과 `make verify-negative`도 로컬 Docker에서 통과했다. 2부(DB 저장·verifier 전용 incident 전이)는 W06 뒤에 한다
+- 변경 파일:
+  - `linemedic/contracts/defect-summary-v1.toml`: spec 08 §4 YAML과 같은 필드·값(D60). holdout 기대값은 두지 않고 `fixture_ref`로 `linemedic/eval/`에서 읽는다
+  - `linemedic/control_plane/verifier.py`: 엄격한 계약 모델(`require_*`는 `true`만), `resolve_cases`, assertion 5종 + 상태 코드 검사(JSON 정수만, bool·음수·문자열 숫자·실수·중복 key 거부), `FixtureGuard`, `VerificationRun`/`verify`(t=0·10·20·30 표본, t=60 이전 PASS 없음, 반증 시 조기 FAIL), `ProberHttp`(신뢰 prober 컨테이너에서 stdlib urllib 고정 코드 실행), 결과에 spec 08 §8 필드 전부
+  - `linemedic/control_plane/observer.py`: `ContainerObserver`(t0부터 `docker logs --follow --since`, 끊기면 gap, poll마다 host inspect로 container·image ID 비교, `RecurrenceSignature` 재발 계수)
+  - `linemedic/integrations/docker.py`: `DockerPort`, `CliDocker`(고정 argv·timeout, 정확한 이름만 삭제), `FakeDocker`·`FakeLogStream`
+  - `linemedic/factory_sim/negative/`: `wrong_200_defects.py`(검사자 없는 record가 있으면 200 + `total_defects: 0`), `s1b.Dockerfile`(MES 이미지 위에 그 파일 하나만 덮음), `harness.py`(`run_verify_negative`: S1b 빌드 → run 전용 internal network에 S1b MES·prober 기동 → 관찰 시작 → verifier → 결과 JSON 저장 → 정확한 이름만 정리, origin `human_injected_negative`)
+  - `linemedic/cli.py`(`verify-negative`, FAIL/content_mismatch일 때만 종료 코드 0), `Makefile`(`verify-negative`), `linemedic/common/config.py`(계약 로더용 공개 `read_toml`·`validate_model`)
+  - `linemedic/factory_sim/scenarios.py`: MES 격리 옵션을 `mes_container_options`로 분리해 S1·S1b가 같이 쓴다. 데이터 mount 경로를 절대 경로로 바꿨다(아래 판단)
+  - DECISIONS.md(D67), ADR.md(D67 행, 주제별 보기에 빠져 있던 D65·D66·D67 추가)
+  - 테스트: `linemedic/tests/unit/test_verifier.py`(74개), `linemedic/tests/unit/test_mes_seed.py`(상대 `RUNS_DIR` mount 회귀 1개), `linemedic/tests/integration/test_verifier_docker.py`(docker 2개)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 154 passed, 4 deselected / `make lint` → PASS
+  - `make test-docker` → 3 passed (실제 Docker 28.1.1)
+  - `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0. `VER-588F634C683A`, FAIL/content_mismatch, samples 1/4, observation_complete=false, resolved_written=false, 경과 0.774초. 실패 assertion: missing-inspector와 variant-held-out의 `exact_total_defects`·`exact_by_inspector_mapping`·`sum_groups_equals_total`(normal-regression은 통과). S1b image `sha256:88793414cb41d118545011a18bfb53da9520989e0d2a09232e47fa705fd7c4f1`, MES image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, prober image `sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`. 실행 뒤 이 run ID의 컨테이너·network 0개
+  - 판정 테스트 변이 확인: PASS 1초 앞당김, bool·실수 허용, 스트림 끊김 무시를 각각 넣으면 테스트가 실패했다(4·2·1개). 확인 뒤 원래 코드로 되돌렸다
+- 테스트 ID별 결과:
+  - T-VERIFY-01 PASS: t=0~59 판정 없음, t=60에 PASS·observation_complete=true, 표본 호출 시각 0·10·20·30초 × 3 case
+  - T-VERIFY-02 PASS: total 0 / 다른 lot_id / 추가 key(`status: resolved`) / `"7"` / `true` / `-1` / `7.0` / 검사자 수 `true` / key 누락 / 미지정 누락 / 그룹 합 초과 / 중복 key / JSON 아님 / 배열 / holdout total 0 → 모두 FAIL/content_mismatch, 표본 1, observation_complete=false
+  - T-VERIFY-04 PASS: 표본 4회 통과 후 t=45 같은 signature 로그 → FAIL/error_recurred. 줄 번호·로트 ID만 다른 줄도 재발, 다른 오류·경로·비JSON 줄은 재발 아님
+  - T-VERIFY-05 PASS: t=25 image ID 변경 → INCONCLUSIVE/identity_changed. container 교체·사라짐도 INCONCLUSIVE. fixture 변경·삭제 → INCONCLUSIVE/fixture_changed. 대상이 바뀐 step의 틀린 응답은 반증으로 쓰지 않음
+  - core observer PASS: t=40 로그 스트림 종료 → INCONCLUSIVE/observer_gap(재발 0이어도 PASS 아님). 표본 timeout·연결 실패 → INCONCLUSIVE/sample_unanswered
+  - docker PASS: 실제 S1b → FAIL/content_mismatch, 실제 버그 base의 118 요청 KeyError 로그 → 재발 1회
+- 판단:
+  - D67: reason 코드와 판정 순서를 정했다. 기대와 다른 HTTP 상태 코드는 `business_error`로 `content_mismatch`와 구분한다. verifier는 host port 없이 같은 internal network의 신뢰 prober 컨테이너로 원래 경로를 호출한다. S1b는 MES 태그 위에 빌드한다(BuildKit이 `FROM <image ID>`를 받지 않음을 확인했다)
+  - W04 버그 수정: 실제 `make verify-negative` 첫 실행에서 기본 `RUNS_DIR=runs`(상대 경로)가 `--volume`에서 named volume 이름으로 해석되어 `docker run`이 실패했다. W04의 `scenario-s1`도 같은 문제가 있었다(docker 테스트는 절대 경로 tmp를 써서 놓쳤다). `mes_container_options`에서 절대 경로로 바꾸고 회귀 테스트를 더했다
+  - 1부 결과는 DB 없이 `runs/<run_id>/verifications/`에 저장하고 `resolved_written`은 항상 false다
+- 증거: 커밋은 이 보고를 포함한 W05 커밋. 결과 JSON은 git에서 제외된 `runs/` 아래에 있다
+- 남은 일·위험:
+  - 2부: `persist_result`, verifier 전용 `VERIFYING → RESOLVED/ESCALATED` 전이, `linemedic/tests/helpers/demo_states.py`, `make verify-negative`의 DB 기록(W06 뒤)
+  - `docker logs --since`는 host 시각을 쓴다. Docker VM 시계가 어긋나면 t0 경계의 줄을 놓치거나 더 읽을 수 있다. heartbeat·cursor 연속성은 H03 hardening 범위다
+  - observer는 컨테이너 stdout만 읽는다(MES JSON 로그는 stdout). S1b image ID는 빌드마다 바뀌므로 결과에 쓰인 ID를 기록한다. prober image는 태그로 부르고 ID를 결과에 남긴다. 데모 호스트(G1)에서는 digest 고정을 검토한다
+- 다음 카드: W06
 
 ### W04 완료 보고 (2026-09-27T04:19Z)
 

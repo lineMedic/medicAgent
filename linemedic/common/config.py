@@ -401,6 +401,19 @@ def _validate(model: type[BaseModel], data: dict[str, Any], label: str) -> Any:
         raise ConfigError(f"invalid {label}: {_format_validation_error(exc)}") from None
 
 
+def read_toml(path: Path, max_bytes: int = MAX_CONFIG_BYTES) -> dict[str, Any]:
+    """TOML 파일을 크기 상한·UTF-8·날짜/시각 타입 거부 규칙으로 읽는다(D60).
+
+    설정 외의 계약·정책 파일 로더도 같은 규칙으로 읽기 위해 공개한다.
+    """
+    return _read_toml(path, max_bytes)
+
+
+def validate_model(model: type[BaseModel], data: dict[str, Any], label: str) -> Any:
+    """pydantic 모델 검증 실패를 입력 값 없이 요약한 `ConfigError`로 바꾼다."""
+    return _validate(model, data, label)
+
+
 def read_env_file(path: Path) -> dict[str, str]:
     """`.env` 형식(`NAME=value`)을 읽는다. 없으면 빈 dict. 값은 어디에도 출력하지 않는다."""
     if not path.exists():

@@ -83,6 +83,41 @@ def _request(run: RunFn, container: str, path: str) -> int:
         return 0
 
 
+def mes_container_options(name: str, run_id: str, network: str, data_dir: Path) -> list[str]:
+    """MES 컨테이너 격리 옵션(`docker run`의 image 앞 인자). S1 주입과 S1b harness가 같이 쓴다.
+
+    데이터 경로는 절대 경로로 바꾼다.
+    상대 경로(`RUNS_DIR=runs`)는 docker가 named volume 이름으로 해석한다.
+    """
+    return [
+        "--name",
+        name,
+        "--label",
+        f"linemedic.run_id={run_id}",
+        "--label",
+        "linemedic.role=mes",
+        "--network",
+        network,
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,size=16m",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--user",
+        "10001:10001",
+        "--pids-limit",
+        "64",
+        "--memory",
+        "256m",
+        "--cpus",
+        "1",
+        "--volume",
+        f"{data_dir.resolve()}:/data:ro",
+    ]
+
+
 def prepare_s1_data(runs_dir: Path, run_id: str) -> Path:
     """run별 MES 데이터 디렉터리에 공개 로트 입력만 복사한다. holdout·기대값은 넣지 않는다."""
     data_dir = runs_dir / run_id / "mes-data"
@@ -123,31 +158,7 @@ def inject_s1(
             "docker",
             "run",
             "--detach",
-            "--name",
-            names["container"],
-            "--label",
-            label,
-            "--label",
-            "linemedic.role=mes",
-            "--network",
-            names["network"],
-            "--read-only",
-            "--tmpfs",
-            "/tmp:rw,size=16m",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--user",
-            "10001:10001",
-            "--pids-limit",
-            "64",
-            "--memory",
-            "256m",
-            "--cpus",
-            "1",
-            "--volume",
-            f"{data_dir}:/data:ro",
+            *mes_container_options(names["container"], run_id, names["network"], data_dir),
             image_id.stdout.strip(),
         ],
         "MES 컨테이너 기동",

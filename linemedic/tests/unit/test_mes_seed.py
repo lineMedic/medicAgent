@@ -301,6 +301,18 @@ def test_inject_s1_runs_isolated_container_and_sends_requests(tmp_path):
     assert lots == ["L3-0927-101.json", "L3-0927-118.json"]  # holdout은 넣지 않는다
 
 
+def test_inject_s1_mounts_absolute_data_dir_for_relative_runs_dir(tmp_path, monkeypatch):
+    """기본 `RUNS_DIR=runs`(상대 경로)도 host 경로로 mount한다. 상대 경로는 named volume이 된다."""
+    monkeypatch.chdir(tmp_path)
+    fake = FakeDocker()
+    scenarios.inject_s1(
+        RUN_ID, runs_dir=Path("runs"), run=fake, clock=FakeClock(), sleep=lambda s: None
+    )
+    run = next(c for c in fake.calls if c[:2] == ["docker", "run"])
+    data_dir = (tmp_path / "runs" / RUN_ID / "mes-data").resolve()
+    assert run[run.index("--volume") + 1] == f"{data_dir}:/data:ro"
+
+
 def test_inject_s1_rejects_bad_run_id_and_missing_image(tmp_path):
     with pytest.raises(scenarios.ScenarioError):
         scenarios.inject_s1("r-2026/09/27", runs_dir=tmp_path, run=FakeDocker())

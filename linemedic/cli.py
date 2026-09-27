@@ -10,7 +10,10 @@ from pathlib import Path
 
 from linemedic import __version__
 from linemedic.common.config import DEFAULT_CONFIG_PATH, DEFAULT_ENV_FILE, process_env
+from linemedic.control_plane.observer import ObserverError
 from linemedic.factory_sim import scenarios
+from linemedic.factory_sim.negative import harness
+from linemedic.integrations.docker import DockerError
 from linemedic.scripts import doctor, host_manifest
 
 
@@ -40,6 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"MES 이미지 (기본: env MES_BASE_IMAGE_ID 또는 {scenarios.DEFAULT_MES_IMAGE})",
     )
     s1_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    negative_parser = sub.add_parser(
+        "verify-negative",
+        help="S1b 거짓 정상 이미지에 verifier 실행, FAIL/content_mismatch면 종료 코드 0 (W05)",
+    )
+    negative_parser.add_argument("--run-id", required=True, help="r-YYYYMMDD-HHMMSS-xxxx")
+    negative_parser.add_argument(
+        "--mes-image",
+        default=scenarios.DEFAULT_MES_IMAGE,
+        help="S1b를 덮을 MES 이미지 태그 (env MES_BASE_IMAGE_ID가 있으면 ID 일치를 확인)",
+    )
+    negative_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     return parser
 
 
@@ -68,6 +83,23 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "verify-negative":
+        env = process_env(args.env_file)
+        try:
+            outcome = harness.run_verify_negative(
+                args.run_id,
+                runs_dir=Path(env.get("RUNS_DIR") or "runs"),
+                mes_image=args.mes_image,
+                expected_mes_image_id=env.get("MES_BASE_IMAGE_ID") or None,
+            )
+        except (harness.HarnessError, DockerError, ObserverError) as exc:
+            print(f"verify-negative 실패: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(outcome, ensure_ascii=False, indent=2))
+        if harness.expected_outcome(outcome["result"]):
+            return 0
+        print("verify-negative: verifier가 S1b를 기대대로 거절하지 않았다", file=sys.stderr)
+        return 1
     raise AssertionError(f"unhandled command: {args.command}")
 
 
