@@ -31,6 +31,7 @@ from linemedic.common.canonical_json import canonical_dumps, sha256_hex
 from linemedic.common.ids import new_id
 from linemedic.common.sanitize import sanitize_text
 from linemedic.control_plane import audit
+from linemedic.control_plane.attempts import ORIGIN_AGENT, ORIGIN_MANUAL
 from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.state import Actor, coupled_transition
@@ -260,7 +261,10 @@ class PrOpener:
         candidate: dict[str, Any],
         observed: str | None,
         evidence_ids: list[str],
+        *,
+        origin: str = ORIGIN_AGENT,
     ) -> PrPlan:
+        """PR 계획. `origin`이 manual_integration이면 사람 제안임을 본문에 밝힌다(W13)."""
         head, base = branches(row["run_id"], row["incident_id"], row["id"])
         repo = self.port.full_name
         action = proposal.action
@@ -273,15 +277,23 @@ class PrOpener:
             sanitize_text(f"LineMedic 수정 제안 — {incident['service']} {row['incident_id']}", repo)
         )[:TITLE_MAX]
         issue = work["issue_number"]
+        manual = origin == ORIGIN_MANUAL
+        author = "사람이 미리 작성한 제안" if manual else "에이전트 판단"
+        source = (
+            ("- 제안 출처: 사람이 미리 작성한 제안(manual_integration). 모델 산출물이 아닙니다",)
+            if manual
+            else ()
+        )
         lines = (
             f"## LineMedic 수정 제안 — {row['incident_id']}",
             "",
             f"- 관련 Issue: Related to #{issue}",
             f"- 작업: {work['id']} / generation {work['generation']} / {row['run_id']}",
+            *source,
             f"- 대상: {repo} / {base}",
             f"- 기준 코드: {candidate['base_sha']}",
             f"- 검사한 candidate: {candidate['candidate_sha']} / {candidate['candidate_tree']}",
-            f"- 원인 가설(에이전트 판단, 검증되지 않음): {hypothesis[:HYPOTHESIS_MAX]}",
+            f"- 원인 가설({author}, 검증되지 않음): {hypothesis[:HYPOTHESIS_MAX]}",
             f"- 근거: {', '.join(evidence_ids) or '없음'}"
             f" — 관찰: {_untrusted(observed or '관찰 요약 없음')}",
             f"- 변경 파일: {changed or '기록 없음'}",

@@ -123,13 +123,14 @@
 | D80 | 패치 게이트: 정책 파일 단일 원본·segment glob, 좁은 diff 문법·거부 규칙, 기준 base 3자 일치, 작업 트리 없는 candidate·적용 뒤 tree 재확인·결정적 commit, runner 고정 image ID·실행 프로필·inspect 재확인·결과 mount 안전 읽기, R0/R1/R2 세부 판정, 게이트는 트랜잭션 밖·고칠 수 없는 결과는 즉시 멈춤·W11 전 통과는 멈춤, 에이전트 보기 축소, runner-image·doctor | PR·릴리스·검증 | 유효 (spec 06 §2~§5 구체화) |
 | D81 | 봇 PR: 결정은 broker·실행은 PrOpener·세 트랜잭션, 생성 직전 재조회(scope·사람 작업·baseline·브랜치 점유), 재사용 기준, git push(force·hook·credential 노출 없음, porcelain 분류), 결과별 전이·blocker·side effect, 본문 템플릿(R1 실패 요약 포함)·에이전트 문장의 Issue 참조·URL 무력화와 closing keyword 검사·marker, 조정 규칙(무변경=PR·브랜치 없음), 실행 조회·조정 API·CLI 키 | PR·릴리스·검증 | 유효 (spec 06 §6·§8·§10, spec 15 §7 구체화) |
 | D82 | exact SHA 배포: 사전 검사 순서·코드(논리 키 우선, merged·merge SHA·head·사람 리뷰·tree·image), 최신 변경 승인 기록, INTENDED·run lock, merge commit만 fetch·mirror tree 재확인·R0~R2 재실행·신뢰 레시피·image ID 기동·inspect, local image ID, 실패별 이관·환경 확인·복원 절차, UNKNOWN·DEPLOY 조정·재시작, releases API·approve-release 체크리스트 | PR·릴리스·검증 | 유효 (spec 08 §1~§3·§9, spec 11 §5 구체화) |
+| D83 | 사람 제안 통합: adapter 계약(credential 키워드)·ScriptedAdapter, 게이트 뒤 workspace·context·token, adapter thread·deadline 강제·결과별 attempt 종료·만료·재시작 이관, attempt origin(PR 본문·배포 검증), make start 조립(기능별 끄기)·루프·기동 복구·신호·pid 파일·make stop | 입력 | 유효 (spec 05 §1·§10, spec 11 §4 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
-| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 |
+| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 D83 |
 | 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
