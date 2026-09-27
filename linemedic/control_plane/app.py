@@ -30,6 +30,7 @@ from linemedic.control_plane.auth import (
     bearer_token,
 )
 from linemedic.control_plane.errors import ApiError, error_response
+from linemedic.control_plane.log_store import LogStore
 from linemedic.control_plane.state import TransitionDenied
 from linemedic.control_plane.store import StateConflict, Store, StoreBusy
 
@@ -44,6 +45,10 @@ class AppContext:
     clock: Clock
     notification_route_id: str
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
+    log_store: LogStore | None = None
+    logs_window_minutes: int = 30  # docs/07 tools.logs.window_minutes
+    logs_max_bytes: int = 65536  # docs/07 tools.logs.max_bytes
+    deploys_window_hours: int = 24  # docs/07 tools.deploys.window_hours
 
 
 def _under(path: str, prefix: str) -> bool:
@@ -110,6 +115,13 @@ def require_operator_role(role: str):
         return current
 
     return dependency
+
+
+def reject_unknown_query(request: Request, allowed: frozenset[str] = frozenset()) -> None:
+    """정의하지 않은 query parameter는 무시하지 않고 거부한다."""
+    unknown = set(request.query_params) - allowed
+    if unknown:
+        raise ApiError("INVALID_REQUEST", {"unknown_query": sorted(name[:64] for name in unknown)})
 
 
 def idempotency_key(request: Request) -> str:
@@ -203,7 +215,7 @@ async def _unexpected(request: Request, exc: Exception):
 
 
 def create_app(ctx: AppContext) -> FastAPI:
-    from linemedic.control_plane import ops_api
+    from linemedic.control_plane import ops_api, tools_api
 
     app = FastAPI(title="LineMedic Control API", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ctx = ctx
@@ -216,4 +228,5 @@ def create_app(ctx: AppContext) -> FastAPI:
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(Exception, _unexpected)
     app.include_router(ops_api.router)
+    app.include_router(tools_api.router)
     return app

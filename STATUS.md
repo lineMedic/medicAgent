@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W07** ([tasks/W07-detector-evidence.md](tasks/W07-detector-evidence.md), 로그 감지·evidence·`/tools` 조회 — 선행 W04·W06 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W08** ([tasks/W08-s2-lite-fixtures.md](tasks/W08-s2-lite-fixtures.md), S2-lite 카메라 지표·설비·매뉴얼 — 선행 W06·W07 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -27,7 +27,7 @@
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
 | 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
-| 10 | W07 | UNIT_TESTED | NOT_CHECKED | | | |
+| 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
 | 11 | W08 | UNIT_TESTED | NOT_CHECKED | | | |
 | 12 | W09 | UNIT_TESTED | NOT_CHECKED | | | |
 | 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
@@ -99,6 +99,37 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W07 완료 보고 (2026-09-27T06:22Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). docker 시험과 실제 CLI 흐름(`scenario-s1` → `detect-once`)도 로컬에서 통과했다
+- 변경 파일:
+  - `linemedic/control_plane/detector.py`: `parse_line`(엄격한 JSON 객체만), `signature`(오류 줄만, service는 source 기준), `problem_fingerprint`(fp-v1), 60초 3회 창, 사건 생성·병합·terminal 흡수, `settings_for_run`
+  - `linemedic/control_plane/evidence.py`(정제·크기 상한·run·incident 범위 조회), `log_store.py`(정제 로그 JSONL 보관, `MemoryLogStore`), `redaction.py`(비밀·평가 전용 식별자 가림), `deploys.py`(`DEPLOY_OBSERVED` 기록·배포 기록 조회)
+  - `linemedic/control_plane/tools_api.py`: `GET /tools/incidents/{id}`, `/logs`, `/deploys`. `auth.py`는 agent 범위에 현재 attempt·RUNNING work 조건을 더했다. `app.py`는 tools 라우터·로그 설정·모르는 query 거부
+  - `linemedic/factory_sim/scenarios.py`: `inject_s1`이 제어 DB에 `DEPLOY_OBSERVED`를 남긴다. `linemedic/integrations/docker.py`: `logs_once`
+  - `linemedic/cli.py`(`detect-once`, `scenario-s1 --db`), `Makefile`(`detect-once`), `config/linemedic.toml`·`common/config.py`(`[services.mes-api].line_id`), `common/clock.py`(`from_rfc3339`), DECISIONS.md·ADR.md(D72)
+  - 테스트: `unit/test_fingerprint.py`(37), `integration/test_detector.py`(16), `integration/test_tools_api.py`(18), `integration/test_detector_docker.py`(docker 1), `unit/test_auth.py`(attempt·work 조건 4개 추가·T-AUTH-02 준비 갱신), 도우미 `seed_running`
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 641 passed, 5 deselected / `make lint` → PASS / `make test-docker` → 4 passed
+  - `make scenario-s1 RUN_ID=r-20260927-054424-94f9` → 요청 500×3·200×1, `DEPLOY_OBSERVED`(image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base SHA null — `BASELINE_COMMIT` 미설정)
+  - `make detect-once RUN_ID=r-20260927-054424-94f9` → 5줄·오류 3줄, 사건 `INC-885B28A026C0` NEW(source LOG, count 3, 증거 3, line L3, repository_id 0, fp-v1). 감사 `INCIDENT_DETECTED`(detector). `foreign_key_check` 빈 결과. 확인 뒤 이 run의 S1 컨테이너·network를 정확한 이름으로 지웠다
+  - 변이 확인: error_field 제외, 창 경계 배타, terminal 사건 무시, 정규식 검색, 평가 식별자 가림 제거, work 상태 조건 제거, 64 KiB 상한 제거를 각각 넣으면 테스트가 실패했다. 확인 뒤 원래 코드로 되돌렸다
+- 수용 기준:
+  - request_id·lot_id·timestamp(·줄 번호·쿼리)만 다른 로그 → 같은 fingerprint, error_field가 다르면 다른 fingerprint: PASS
+  - 60초 안 2회 → 사건 없음, 3회 → 사건 1개, 4~10회 → 같은 사건 count 증가: PASS(60초 경계 포함·창 밖 오류 제외도 확인)
+  - `search_logs`: limit=21 → 422, `.*`는 문자 그대로 검색, 응답 64 KiB 이하: PASS
+  - 다른 사건의 agent token으로 조회 → 없는 사건과 같은 404(T-AUTH-02, 세 도구 모두): PASS
+  - 도구 응답에 `S1`·`expected_category`·holdout 값이 없음: PASS(holdout 요청 로그 줄은 `[REDACTED:eval]`)
+- 판단:
+  - D72: fingerprint 배열 인코딩, source 기준 service, 관찰 시계 창, terminal 사건 흡수, 로그 JSONL 보관, 평가 전용 식별자 수집 시점 가림, `/tools`는 RUNNING attempt만, search_logs 세부
+  - W06의 T-AUTH-02 시험은 PR_OPENED 사건을 agent가 읽는 준비였는데, attempt 조건을 더하면서 RUNNING work 준비(`seed_running`)로 바꿨다
+- 증거: 커밋은 이 보고를 포함한 W07 커밋. DB·로그 파일은 git 제외 경로 `runs/` 아래에 있다
+- 남은 일·위험:
+  - `detect-once`는 커서가 없어 같은 컨테이너에 두 번 돌리면 같은 줄을 다시 센다. 상시 감시(`docker logs --follow`)는 W13
+  - repository_id는 G2 전이라 0이다. Issue 연결(W24)에는 실제 ID가 필요하다
+  - get_incident의 memory 필드는 W28, 설비 사건(S2-lite) 감지는 W08
+- 다음 카드: W08
 
 ### W05 (2부) 완료 보고 (2026-09-27T05:59Z)
 

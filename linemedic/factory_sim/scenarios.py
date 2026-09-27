@@ -1,4 +1,4 @@
-"""합성 장애 주입 (W04: S1). 감지 연결은 W07, S2-lite 주입은 W08에서 추가한다.
+"""합성 장애 주입 (W04: S1, W07: 배포 관찰 기록). S2-lite 주입은 W08에서 추가한다.
 
 `inject_s1(run_id)`는 버그 base MES 이미지로 컨테이너를 띄우고, 로트 118 요청 3회(60초 안)와
 로트 101 요청 1회를 보낸다.
@@ -8,6 +8,8 @@
 - 요청은 컨테이너 안에서 자기 자신(127.0.0.1)에 보낸다. 내부 network라 호스트 port를 열지 않는다
 - Docker는 고정 argv 리스트로만 호출한다(shell=False, D47)
 - 정리는 run ID가 붙은 정확한 컨테이너·network 이름만 대상으로 한다
+- 제어 DB(`store`)를 주면 MES가 준비된 뒤 `DEPLOY_OBSERVED`(base SHA·image ID·컨테이너)를
+  기록한다(D59)
 """
 
 import json
@@ -21,10 +23,14 @@ from typing import Any
 
 from linemedic.common.clock import Clock, SystemClock, to_rfc3339
 from linemedic.common.ids import is_valid_run_id
+from linemedic.control_plane.deploys import record_deploy_observed
+from linemedic.control_plane.store import Store
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SEED_LOTS_DIR = REPO_ROOT / "l3-mes-api-seed" / "data" / "lots"
 DEFAULT_MES_IMAGE = "linemedic-mes:base"
+MES_SERVICE = "mes-api"
+HARNESS_ACTOR = "trusted_harness"
 BUG_LOT = "L3-0927-118"
 NORMAL_LOT = "L3-0927-101"
 BUG_REQUESTS = 3
@@ -135,6 +141,8 @@ def inject_s1(
     run: RunFn = run_command,
     clock: Clock | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    store: Store | None = None,
+    base_sha: str | None = None,
 ) -> dict[str, Any]:
     if not is_valid_run_id(run_id):
         raise ScenarioError(f"run_id 형식이 아니다: {run_id!r}")
@@ -172,6 +180,19 @@ def inject_s1(
             )
         sleep(HEALTH_POLL_SECONDS)
 
+    if store is not None:
+        with store.tx() as tx:
+            record_deploy_observed(
+                tx,
+                run_id=run_id,
+                service=MES_SERVICE,
+                base_sha=base_sha,
+                image_id=image_id.stdout.strip(),
+                container=names["container"],
+                container_id=started.stdout.strip(),
+                actor=HARNESS_ACTOR,
+            )
+
     requests = []
     for lot_id in [BUG_LOT] * BUG_REQUESTS + [NORMAL_LOT]:
         status = _request(run, names["container"], f"/defects/summary?lot_id={lot_id}")
@@ -187,7 +208,7 @@ def inject_s1(
         "network": names["network"],
         "data_dir": str(data_dir),
         "requests": requests,
-        "note": "감지 연결(W07)이 docker logs로 이 컨테이너의 JSON 로그를 읽는다",
+        "deploy_recorded": store is not None,
     }
 
 
