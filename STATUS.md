@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W23** ([tasks/W23-issue-polling.md](tasks/W23-issue-polling.md), Issue mirror·bounded polling·checkpoint — 선행 W22 fake 부분 UNIT_TESTED. FakeGitHub로 UNIT_TESTED까지, live 감지 1회는 G2 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22 live는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W24** ([tasks/W24-issue-matching.md](tasks/W24-issue-matching.md), 로그 → 기존 Issue 연결/신규 Issue 생성 — 선행 W07·W23 fake 부분 UNIT_TESTED. FakeGitHub로 UNIT_TESTED까지, S4 live는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -31,7 +31,7 @@
 | 11 | W08 | UNIT_TESTED | UNIT_TESTED | `make test` → 706 passed(W08 테스트 41개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`(vision-inspection NEW, count 10, 증거 3, 배포 없음), `RECENT_DEPLOY=1 RUN_ID=r-20260927-072410-712e` → `INC-793CE4A26CC2`(이상 10분 전 mes-api 배포 기록), 지표 파일 `runs/<run>/metrics/`(git 제외) | | 2026-09-27T07:25Z |
 | 12 | W09 | UNIT_TESTED | UNIT_TESTED | 독립 리뷰 반영 뒤 `make test` → 862 passed(처음 843, W09 테스트 143개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘, 리뷰 지적 4건 수정(B00·W06·W09 브랜치) | | 2026-09-27T09:17Z |
 | 13 | W22 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 963 passed(W22 테스트 101개 포함: 포트 계약·Fake·HttpGitHub MockTransport 78, catalog·설정 18, doctor 5), `make lint` → PASS, `make test-live` → github smoke 2 skipped(NOT_CONFIGURED G2), 변이 21개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`GITHUB_REPOSITORY(_ID)` / 확인: `make test-live`(github 읽기 계약). G10 + 사용자 허락 — config `github.write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 Issue·댓글 smoke 1회, receipt `evidence/N11-github-smoke.md`, N11로 `github.api_version` 확정 | 2026-09-27T09:33Z |
-| 14 | W23 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
+| 14 | W23 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2) | `make test` → 1003 passed(W23 테스트 40개: polling 통합 39, 포트 1), `make lint` → PASS, `make test-live` → S5-new 1 skipped(`LINEMEDIC_LIVE_S5` 표시 없음)·github smoke 2 skipped(G2), 변이 30개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`ISSUE_TRUSTED_AUTHOR_IDS` / 확인: `LINEMEDIC_LIVE_S5=1 make test-live` 중 승인된 작성자가 새 Issue 1개 생성 → `evidence/S5-new-issue-detect.md`(감지·생성 시각) | 2026-09-27T10:04Z |
 | 15 | W24 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 16 | W25 | UNIT_TESTED | NOT_CHECKED | | | |
 | 17 | W26 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 (G12 선택) | |
@@ -99,6 +99,44 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W23 중단 보고 — live 부분 G2 대기 (2026-09-27T10:04Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2). FakeGitHub와 실제 SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/control_plane/issue_sync.py`:
+    - `IssueSync`(initial import·delta·전체 조회, 서버 시각 경계 checkpoint, ETag 304, rate limit backoff, `run` 루프)
+    - `snapshot_sha256`(docs/03 §7)
+    - 새 Issue → incident·work, 사람 작업·closed·권한 회수·삭제 처리, shadow `planned`
+  - `linemedic/control_plane/supervisor.py`: `ensure_work`(generation·unique 재확인)·`check_human_work`(W25 카드 함수를 먼저 구현)
+  - `linemedic/control_plane/ops_api.py`: `POST /ops/integrations/github/sync`(repo 지정 불가, 200·503 `LOOKUP_INCOMPLETE`·429·busy 409). `idempotency.abandon`, `AppContext.issue_sync`
+  - `linemedic/cli.py`·`Makefile`: `make issue-sync RUN_ID=`(G2 env 없으면 NOT_CONFIGURED 종료 코드 2)
+  - `linemedic/integrations/github.py`: 응답 `server_time`(Date 헤더), `list_pulls` 100개 페이지, Fake `update_issue`·`remove_issue`·`add_pull`·assignee ID·`repository_url`·요청 헤더 기록
+  - 테스트: `integration/test_issue_polling.py`(39), `unit/test_github_port.py` Date 헤더 1개, `live/test_issue_live.py`(S5-new, live_github)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 1003 passed, 8 deselected / `make lint` → PASS
+  - `make test-live` → S5-new skipped(이번 실행 표시 없음), github smoke 2 skipped(NOT_CONFIGURED G2)
+  - 변이 확인 30개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - 새 Issue 판정: 활성화 전 backlog 허용, 이미 닫힌 새 Issue 허용, 봇 Issue에 work, intake 꺼져도 work, 모든 작성자 신뢰, deny label 자동 승인
+    - mirror·중복: PR 항목 mirror, 다른 repo 허용, poll_event_key 중복 제거 제거, snapshot에 updated_at 포함
+    - 사람 작업: 사람 assignee 무시, 다른 사람 PR 무시, 봇 PR도 사람 작업, 다른 번호 참조 매칭
+    - 변경 처리: closed 무시, 권한 회수 무시, 시작한 work도 차단 시도, cancel 요청 version 미증가, scope 재검사 제거, 삭제 감지 제거
+    - checkpoint·조회: 실패 뒤 checkpoint 이동, 서버 경계 대신 읽은 최대 시각, cap delta를 서버 경계로, scope별 checkpoint 공유, 전체 조회 안 함, ETag 안 보냄, rate limit 대기 무시
+    - 기타: 자동 승인 실패로 polling 중단, busy 멱등 기록 미삭제, sync run 불일치 허용
+- 수용 기준:
+  - T-ISS-05: 초기 backlog 50개 → 자동 work 0개, 미승인 작성자 새 Issue → `WAITING_APPROVAL`(자동 수정 0건), 다른 repo 데이터 없음: PASS
+  - T-ISS-06(일부): closed Issue·사람 assignee·다른 사람 PR → 자동 작업 없음, 충돌 보고(`WORK_BLOCKED` intent, stage intake): PASS
+  - PR 항목은 mirror에 없음, 10페이지(테스트는 3페이지) cap에서 잔여 페이지가 있으면 `complete=false`: PASS
+  - 두 번째 페이지 조회 중 실패 → checkpoint 그대로, 재시작 뒤 이어 읽어도 work 중복 없음: PASS
+  - bot 시작 댓글로 `updated_at`만 바뀌면 snapshot hash가 같고 새 work 없음: PASS
+  - live S5-new(승인된 작성자의 새 Issue 1개를 polling으로 감지, 감지·생성 시각 기록): NOT_RUN (G2)
+- 판단: D76(scope별 활성화, checkpoint 경계, 새 Issue 판정 시점, 사람 작업 판별, closed·권한 회수·삭제 처리, ETag·전체 조회·backoff, shadow, sync API)
+- 증거: 커밋은 이 보고를 포함한 W23 커밋. `evidence/S5-new-issue-detect.md`는 실제 실행 전이라 없다
+- 남은 일·위험:
+  - G2가 열리면 `LINEMEDIC_LIVE_S5=1 make test-live`로 새 Issue 감지 1회를 실행한다(사람이 새 Issue를 만든다)
+  - 자동 승인 전이·scope 재검사(W25), poll 루프 기동(W13), router가 만든 Issue의 mirror·work 선기록(W24)은 뒤 카드
+  - overlap 안에 per_page×max_pages보다 많은 Issue가 한꺼번에 바뀌면 delta가 앞으로 가지 못한다(D76 대가)
+- 다음 카드: W24 (fake 부분)
 
 ### W22 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T09:33Z)
 

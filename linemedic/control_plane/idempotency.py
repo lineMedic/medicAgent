@@ -111,6 +111,14 @@ def complete(
         raise StoreError("완료할 RECEIVED 요청이 없다")
 
 
+def abandon(tx: Tx, *, principal_scope: str, method: str, path: str, run_id: str, key: str) -> None:
+    """부작용 없이 끝난 RECEIVED 요청을 지운다. 같은 키로 다시 시도할 수 있다(W23 sync busy 등)."""
+    tx.execute(
+        f"DELETE FROM api_requests WHERE {_where()} AND status = 'RECEIVED'",
+        (principal_scope, method, path, run_id, key),
+    )
+
+
 def mark_unknown(tx: Tx) -> int:
     """재시작 때 끝나지 않은 RECEIVED 요청을 UNKNOWN으로 바꾼다. 재전송은 재실행하지 않는다."""
     return tx.execute(

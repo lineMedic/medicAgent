@@ -4,6 +4,8 @@
 - POST `/ops/incidents/{id}/escalate`: 운영자 중단 기록 (역할 `operate`). 허용 표상 operator는
   `PR_OPENED → ESCALATED`만 할 수 있고, work가 있으면 `WAITING_REVIEW → BLOCKED`와 `WORK_BLOCKED`
   알림 intent를 같은 트랜잭션에서 기록한다. `RESOLVED` 전이는 없다.
+- POST `/ops/integrations/github/sync`: 등록 repo Issue 조회 1회 (역할 `integration`, W23).
+  repo·URL은 지정할 수 없다
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -27,7 +29,7 @@ from linemedic.control_plane.app import (
 )
 from linemedic.control_plane.auth import OperatorPrincipal, load_visible_incident
 from linemedic.control_plane.codes import RUN_ID_PATTERN, BlockerCode
-from linemedic.control_plane.errors import ApiError, success_body
+from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
@@ -37,6 +39,11 @@ router = APIRouter()
 
 class _Body(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+
+class GitHubSyncRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
 
 
 class EscalateRequest(_Body):
@@ -231,5 +238,68 @@ async def escalate_incident(
         key,
         body,
         request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+GITHUB_SYNC_PATH = "/ops/integrations/github/sync"
+
+
+def _github_sync(
+    ctx: AppContext, operator: OperatorPrincipal, key: str, body: GitHubSyncRequest, rid: str
+) -> tuple[int, dict]:
+    """등록 repo Issue 조회 1회(W23). repo·URL은 요청으로 정하지 않는다.
+
+    외부 조회는 트랜잭션 밖에서 한다.
+    """
+    sync = ctx.issue_sync
+    if sync is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    if body.run_id != sync.run_id:
+        raise ApiError("STATE_CONFLICT", {"reason": "run_mismatch"})
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": GITHUB_SYNC_PATH,
+        "run_id": body.run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    result = sync.poll_once()
+    if result.mode == "busy":  # 아무것도 하지 않았다: 같은 키로 다시 시도할 수 있게 지운다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise ApiError("STATE_CONFLICT", {"reason": "sync_in_progress"})
+    if result.mode == "backoff" or result.error == "RateLimited":
+        status, response = 429, error_body(rid, "RATE_LIMITED", {"retry_after": result.retry_after})
+    elif result.error:
+        details = {"error": result.error, "pages": result.pages, "mode": result.mode}
+        status, response = 503, error_body(rid, "LOOKUP_INCOMPLETE", details)
+    else:
+        status, response = 200, success_body(rid, result.as_dict())
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=status, body=response)
+    return status, response
+
+
+@router.post(GITHUB_SYNC_PATH)
+async def github_sync(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("integration"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, GitHubSyncRequest)
+    status_code, payload = await run_in_threadpool(
+        _github_sync, context(request), operator, key, body, request_id(request)
     )
     return JSONResponse(status_code=status_code, content=payload)

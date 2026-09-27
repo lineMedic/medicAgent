@@ -425,4 +425,13 @@ def test_http_pull_head_filter_goes_to_query_not_path():
     assert dict(request.url.params) == {
         "head": "demo-team:autofix/r-1/INC-1/PROP-1",
         "state": "all",
+        "per_page": "100",
+        "page": "1",
     }
+
+
+def test_http_server_time_comes_from_date_header():
+    port, _ = http(lambda r: ok({}, date="Sun, 27 Sep 2026 01:02:03 GMT"))
+    assert port.get_repo().server_time == "2026-09-27T01:02:03Z"
+    missing, _ = http(lambda r: ok({}, date="not a date"))
+    assert missing.get_repo().server_time is None
