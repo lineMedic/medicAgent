@@ -22,7 +22,7 @@ import pytest
 from linemedic import cli
 from linemedic.common.config import load_settings
 from linemedic.common.ids import new_id
-from linemedic.control_plane import run_export, runs
+from linemedic.control_plane import release, run_export, runs
 from linemedic.control_plane.auth import OperatorPrincipal, TokenRegistry
 from linemedic.control_plane.broker.intake import Broker
 from linemedic.control_plane.catalog import Catalog
@@ -297,6 +297,83 @@ def test_unknown_run_cannot_be_archived(seed):
             clock=seed.clock,
             principal="op",
         )
+
+
+# ── 배포·검증 lock (spec 08 §2, PR #57 리뷰) ──────────────────
+
+HOLDER = "EXE-0000000000EE"
+
+
+def _hold_release(seed) -> None:
+    with seed.store.tx() as tx:
+        release._hold(tx, seed.run_id, HOLDER)  # W12: 승인 배포·업무 검증 중
+
+
+def _unhold_release(seed) -> None:
+    with seed.store.tx() as tx:
+        release._unhold(tx, seed.run_id, HOLDER)
+
+
+def test_reset_is_refused_while_a_deploy_holds_the_run_lock(seed):
+    _hold_release(seed)
+    docker = labeled_docker(seed)
+    before = sorted(docker.containers)
+
+    def reset():
+        return runs.reset(
+            seed.store,
+            seed.run_id,
+            runs_dir=seed.runs_dir,
+            clock=seed.clock,
+            principal="op",
+            docker=docker,
+        )
+
+    with pytest.raises(runs.RunError) as raised:
+        reset()
+    assert (raised.value.code, raised.value.details) == (
+        "release_locked",
+        {"holder_execution_id": HOLDER},
+    )
+    assert sorted(docker.containers) == before  # 검증 대상 MES를 지우지 않는다
+    assert "remove_container" not in [call[0] for call in docker.calls]
+    active = seed.conn.execute(
+        "SELECT active FROM demo_runs WHERE id = ?", (seed.run_id,)
+    ).fetchone()[0]
+    assert active == 1  # 정지도 하지 않는다
+    assert not (seed.runs_dir / seed.run_id / "export").exists()
+    assert (seed.runs_dir / seed.run_id / "workspaces").is_dir()
+    _unhold_release(seed)
+    result = reset()  # lock이 풀리면 진행한다
+    assert f"linemedic-mes-{seed.run_id}" in [c["name"] for c in result["cleanup"]["containers"]]
+
+
+def test_ops_archive_is_refused_while_a_deploy_holds_the_run_lock(seed):
+    _hold_release(seed)
+    api = run_api(seed)
+    path, body = f"/ops/runs/{seed.run_id}/archive", {"schema_version": "linemedic.v4"}
+    refused = post(api, path, body)
+    error = refused.json()["error"]
+    assert (refused.status_code, error["code"]) == (409, "STATE_CONFLICT")
+    assert error["details"] == {"reason": "release_locked", "holder_execution_id": HOLDER}
+    active = seed.conn.execute(
+        "SELECT active FROM demo_runs WHERE id = ?", (seed.run_id,)
+    ).fetchone()[0]
+    assert active == 1 and not (seed.runs_dir / seed.run_id / "export").exists()
+    _unhold_release(seed)
+    retried = post(api, path, body)  # 거부는 부작용이 없어 같은 키로 다시 보낼 수 있다
+    assert retried.status_code == 200, retried.text
+
+
+def test_cli_reset_reports_the_lock_and_unknown_run_without_a_traceback(seed, monkeypatch, capsys):
+    monkeypatch.setenv("RUNS_DIR", str(seed.runs_dir))
+    _hold_release(seed)
+    common = {"run_id": seed.run_id, "db": seed.store.path, "env_file": seed.runs_dir / "none.env"}
+    assert cli._reset(argparse.Namespace(**common), docker=labeled_docker(seed)) == 2
+    err = capsys.readouterr().err
+    assert HOLDER in err and f"make reconcile RUN_ID={seed.run_id}" in err
+    missing = argparse.Namespace(**{**common, "run_id": "r-20990101-000000-dead"})
+    assert cli._reset(missing, docker=FakeDocker()) == 2
 
 
 # ── 정지·과거 run 작업 비처리 ─────────────────────────────────

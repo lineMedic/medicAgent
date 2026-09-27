@@ -18,7 +18,7 @@
 
 - `linemedic/control_plane/runs.py` 확장
   - `run_new()`: 새 run_id(D50), 이전 run `active=0`, run manifest(`config_hash`, host manifest 경로·hash, model·runtime·policy·prompt·contract hash, memory mode·snapshot), `routing_scope=eval:<run_id>`, setup credential로 `baseline/<run_id>`를 `BASELINE_COMMIT`에 생성(G2)
-  - `archive(run_id)`: 새 intake·dispatch 정지 플래그 → execution UNKNOWN·notification SENDING/UNKNOWN 목록 확인(reconcile 안내 또는 미해결로 export에 포함) → export → 해당 run 라벨의 container·workspace만 정리
+  - `archive(run_id)`: 승인 배포·업무 검증 lock(W12 `release.lock_holder`)이 있으면 아무것도 하지 않고 거부(spec 08 §2) → 새 intake·dispatch 정지 플래그 → execution UNKNOWN·notification SENDING/UNKNOWN 목록 확인(reconcile 안내 또는 미해결로 export에 포함) → export → 해당 run 라벨의 container·workspace만 정리
   - `export(run_id)`: `runs/<run_id>/export/`에 audit_events JSONL, manifest, 정제된 evidence·proposal·검사·verification·notification·case, run-record. 원본을 덮어쓰지 않는다. 공유본과 비공개 원본 구분
   - `reset(run_id)`: archive 후 `run_new` 안내(DB 삭제 없음)
 - `ops_api.py` — `POST /ops/runs`, `POST /ops/runs/{id}/archive`
