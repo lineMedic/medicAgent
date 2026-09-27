@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -65,3 +65,9 @@ mes-image:
 scenario-s1:
 	@test -n "$(RUN_ID)" || { echo "사용법: make scenario-s1 RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
 	$(PY) -m linemedic.cli scenario-s1 --run-id "$(RUN_ID)"
+
+# S1b 거짓 정상 시험 (W05, trusted harness 전용). S1b 이미지를 만들어 verifier를 돌리고
+# 결과를 runs/<RUN_ID>/verifications/에 저장한다. FAIL/content_mismatch일 때만 종료 코드 0.
+verify-negative:
+	@test -n "$(RUN_ID)" || { echo "사용법: make verify-negative RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
+	$(PY) -m linemedic.cli verify-negative --run-id "$(RUN_ID)" --mes-image "$(MES_IMAGE)"

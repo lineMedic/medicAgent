@@ -1,0 +1,58 @@
+# 업무 계약 defect-summary-v1 (spec 08 §4 YAML과 같은 필드·값, D60)
+# LineMedic이 구현할 사용자 정의 계약이다. NVIDIA 설정 스키마가 아니다.
+# 보호 파일: runtime 에이전트·MES가 수정할 수 없는 경로에 둔다. contract_sha256 = 이 파일 바이트의 SHA-256.
+# holdout case의 기대값은 linemedic/eval/holdout-defects-v1.json에서 읽는다(이 파일에 두지 않는다).
+
+contract_id = "defect-summary-v1"
+entry_service = "mes-api"
+assertions = [
+    "strict_response_schema",
+    "exact_lot_id",
+    "exact_total_defects",
+    "exact_by_inspector_mapping",
+    "sum_groups_equals_total",
+]
+
+[[cases]]
+id = "missing-inspector"
+
+[cases.request]
+method = "GET"
+path = "/defects/summary"
+query = { lot_id = "L3-0927-118" }
+
+[cases.expect]
+status = 200
+
+[cases.expect.body]
+lot_id = "L3-0927-118"
+total_defects = 7
+by_inspector = { "I-01" = 3, "I-02" = 2, "미지정" = 2 }
+
+[[cases]]
+id = "normal-regression"
+
+[cases.request]
+method = "GET"
+path = "/defects/summary"
+query = { lot_id = "L3-0927-101" }
+
+[cases.expect]
+status = 200
+
+[cases.expect.body]
+lot_id = "L3-0927-101"
+total_defects = 3
+by_inspector = { "I-01" = 2, "I-02" = 1 }
+
+[[cases]]
+id = "variant-held-out"
+fixture_ref = "holdout-defects-v1"
+
+[observation]
+samples = 4
+interval_seconds = 10
+recurrence_window_seconds = 60
+require_all_samples = true
+require_log_observer_healthy = true
+require_runtime_identity_unchanged = true

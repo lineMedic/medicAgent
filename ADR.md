@@ -107,18 +107,19 @@
 | D64 | GitHub 게시 대상은 사용자 지정 `lineMedic/medicAgent`. 로컬 루트·제품·패키지·데모 대상 이름은 유지 | 기반 | 유효 (D63의 GitHub 게시 대상 대체) |
 | D65 | `config_hash`는 설정 파일 + 설정 키에 대응하는 env만 포함. 호스트·run 식별 env는 `RuntimeEnv`로 분리해 해시에서 제외 | 기반 | 유효 (D52 구체화) |
 | D66 | MES 로그에 `top_frame_line` 추가(`top_frame`은 줄 번호 없음), 로트 파일 형식 `{lot_id, records}` | 입력 | 유효 (D57 확장) |
+| D67 | verifier reason 코드·판정 순서, 신뢰 prober 컨테이너로 internal network의 MES 호출, S1b는 MES 태그 위에 한 파일만 덮음 | 배포 | 유효 (spec 08 §5 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
-| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 |
+| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 |
 | 알림 | D33 D34 D39 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 |
-| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 |
-| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 |
+| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 |
+| 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 |
 
 ## 4. 게이트 대기 결정
 
