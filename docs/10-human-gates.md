@@ -32,7 +32,7 @@
 | G7 | PR 리뷰·머지 | 봇 PR을 사람이 diff·근거·허용 파일 범위를 보고 리뷰, squash 머지 | PR 번호, 머지 여부 | PR 본문·검사 기록 준비 | GitHub `merged=true`, reviewer ≠ bot | W12, W13, W15 |
 | G8 | 배포 승인 | [spec 11 §5](../spec/docs/11-runbook.md) 체크리스트 확인 후 `make approve-release ...` **사람이 직접 실행** | — | 체크리스트 출력, 명령 인자 준비 | release execution 기록의 operator principal | W12, W13, W15 |
 | G9 | memory snapshot 선택 | memory_assisted 평가에 넣을 과거 note(성공·실패·차단)를 골라 승인 | snapshot에 넣을 note ID 목록 | `make memory-snapshot` 구현, 후보 목록 출력 | `eval/snapshots/MEM-*.json` manifest | W27, W29 |
-| G10 | 쓰기 활성화 | shadow 모드에서 match/work 계획을 검토한 뒤 GitHub 쓰기(Issue 생성·댓글·PR)를 켬 | `ISSUE_INTAKE_ENABLED=true`, write 플래그 | shadow 모드 출력(생성할 Issue·댓글 계획) | STATUS.md의 G10 완료 시각·승인 범위 기록 | W22~W26, W11 |
+| G10 | 쓰기 활성화 | shadow 모드에서 match/work 계획을 검토한 뒤 GitHub 쓰기(Issue 생성·댓글·PR)를 켬. G10 전 리허설에서는 게이트를 통과한 `create_pr`가 모두 `PERMISSION_REQUIRED`로 ESCALATED되는 것이 예상 결과다 | `ISSUE_INTAKE_ENABLED=true`, write 플래그 | shadow 모드 출력(생성할 Issue·댓글 계획) | STATUS.md의 G10 완료 시각·승인 범위 기록 | W22~W26, W11 |
 | G11 | 일정 | V4-CP0~CP5 목표 KST, 코드 동결·평가 시작·내부 제출 시각 결정 | 각 시각 | — | STATUS.md 체크포인트 표의 목표 KST | 전체 |
 | G12 | 메일 채널 (선택) | 메일이 필수인지 결정. 필수면 SMTP 서버·팀 소유 수신자 확정 | 선택 여부 / 비밀: `SMTP_CREDENTIAL`, `LINEMEDIC_OPS_RECIPIENT` | 결정 전에는 `github_comment`만 | SMTP 선택 시 서버 접수 receipt 1회 (사람 inbox 도착과 구분) | W26 |
 
