@@ -29,7 +29,7 @@
 | 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
 | 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함, 전체 검증 수정 뒤 665), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
 | 11 | W08 | UNIT_TESTED | UNIT_TESTED | `make test` → 706 passed(W08 테스트 41개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`(vision-inspection NEW, count 10, 증거 3, 배포 없음), `RECENT_DEPLOY=1 RUN_ID=r-20260927-072410-712e` → `INC-793CE4A26CC2`(이상 10분 전 mes-api 배포 기록), 지표 파일 `runs/<run>/metrics/`(git 제외) | | 2026-09-27T07:25Z |
-| 12 | W09 | UNIT_TESTED | UNIT_TESTED | `make test` → 843 passed(W09 테스트 137개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘 | | 2026-09-27T08:52Z |
+| 12 | W09 | UNIT_TESTED | UNIT_TESTED | 독립 리뷰 반영 뒤 `make test` → 862 passed(처음 843, W09 테스트 143개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘, 리뷰 지적 4건 수정(B00·W06·W09 브랜치) | | 2026-09-27T09:17Z |
 | 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 14 | W23 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 15 | W24 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
@@ -99,6 +99,19 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W09 독립 리뷰 반영 (카드 밖, 2026-09-27T09:17Z)
+
+- 계기: W09 커밋(`dc50ee5`, PR #43) 뒤 독립 리뷰어가 브로커 변경분을 spec과 대조했다. 높은 심각도는 없었고, 실패 probe로 재현한 지적 4건을 고쳤다
+- 수정 (코드를 소유한 브랜치에 커밋하고 뒤 브랜치로 병합, force push 없음):
+  1. 중간 — B05 URL 검사 우회: `절차는https://…`처럼 한글 뒤에 붙은 URL, `www.`, `ftp://`가 통과해 초안에 남았다. W09 `_URL`을 단어 경계 없는 모든 scheme·`www.` 검사로 바꿨다. 같은 빈틈이 있던 W06 `sanitize.disable_urls`도 고쳤다(외부 출력용)
+  2. 중하 — 수정 예산을 다 쓴 최종 거절(B03)의 WORK_BLOCKED 보고에 확인하지 않은 증거 ID가 들어갔다 → 이 run·사건에서 확인한 ID만 넣는다
+  3. 낮음 — 이관 보고의 `symptom_impact`에 에이전트 요약이 들어갔다 → 사건 details의 관찰 사실을 넣고, 모델 요약은 `agent_summary`, host 사유 설명은 `reason_detail`로 따로 둔다(D74 ⑧ 보충)
+  4. 낮음 — 본문에 아주 큰 정수가 있으면 422 대신 500이었다(B00 `loads_strict`) → StrictJSONError. 같은 부류로 1e999처럼 무한대가 되는 수도 거부한다
+  - 추가: 제안 422 응답은 멱등 저장본(api_requests)에도 남으므로, 검증 오류 위치(key 이름)의 비밀 형태를 가린다. 한 제안 오류 뒤 다음 제안도 처리되는지 루프 테스트를 두 제안으로 보강했다
+- 커밋: B00 `d87e076`, W06 `613533e`, W09 리뷰 반영 커밋, 사이 브랜치는 `앞 PR의 리뷰 수정 반영(병합)`
+- 실행: W09 끝 `make test` → 862 passed / `make lint` → PASS, 리뷰어 probe 7개 모두 통과. 수정 전 새 테스트가 실패하는 것을 먼저 확인했다
+- 판단: D74 ④(B05 URL 범위)·⑧(보고의 증상·요약·증거) 문구 보충
 
 ### W09 완료 보고 (2026-09-27T08:52Z)
 

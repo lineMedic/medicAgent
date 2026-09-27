@@ -3,6 +3,10 @@
 host가 관찰 사실로 필드를 채운다. 모델 API가 죽어도 만들 수 있어야 한다.
 본문 문장·발송은 W26 템플릿이 맡는다.
 실제로 하지 않은 일을 한 것처럼 적지 않는다(attempted_actions는 host가 확인한 동작만).
+
+- `symptom_impact`: 사건 details의 관찰 사실(모델 요약이 아님)
+- `reason_detail`: host가 쓴 진행 불가 사유 설명(`blocker_code`의 보충)
+- `agent_summary`: 에이전트가 이관하며 쓴 요약. 관찰 사실이 아닌 모델의 판단이며 없을 수 있다
 """
 
 from collections.abc import Iterable, Mapping
@@ -29,6 +33,8 @@ def blocker_report(
     missing_requirements: Iterable[str] = (),
     operator_next_step: Iterable[str] = (),
     retry_condition: str | None = None,
+    reason_detail: str | None = None,
+    agent_summary: str | None = None,
 ) -> dict[str, Any]:
     if blocker_code not in BLOCKER_CODES:
         raise ValueError(f"알 수 없는 blocker_code: {blocker_code!r}")
@@ -50,6 +56,8 @@ def blocker_report(
         "stage": stage,
         "observed_at": observed_at,
         "symptom_impact": symptom_impact,
+        "reason_detail": reason_detail,
+        "agent_summary": agent_summary,
         "attempted_actions": list(attempted_actions),
         "evidence_ids": list(evidence_ids),
         "side_effect_state": {

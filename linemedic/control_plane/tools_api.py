@@ -37,6 +37,7 @@ from linemedic.control_plane.broker import intake
 from linemedic.control_plane.broker.proposals import ProposalStatus
 from linemedic.control_plane.deploys import deploy_records
 from linemedic.control_plane.errors import ApiError, success_body
+from linemedic.control_plane.symptoms import observed_symptom
 
 router = APIRouter()
 LOG_QUERY_MAX_CHARS = 200
@@ -59,24 +60,6 @@ def _related_services(ctx: AppContext, service: str) -> frozenset[str]:
 
 def _shift(value: str, **delta: float) -> str:
     return to_rfc3339(from_rfc3339(value) + timedelta(**delta))
-
-
-METRIC_SYMPTOMS = {
-    "brightness_drop": "{equipment} 밝기가 기준보다 낮게 관찰됨",
-    "confidence_drop": "{equipment} 판정 신뢰도가 기준보다 낮게 관찰됨",
-}
-
-
-def _symptom(details: dict[str, Any]) -> str | None:
-    """관찰 사실만 적는다. 원인을 추정하는 문장을 만들지 않는다."""
-    metric = details.get("metric")
-    if isinstance(metric, dict) and metric.get("anomaly") in METRIC_SYMPTOMS:
-        return METRIC_SYMPTOMS[metric["anomaly"]].format(equipment=metric.get("equipment_id"))
-    sig = details.get("signature")
-    if not isinstance(sig, dict) or not sig.get("endpoint") or not sig.get("error_type"):
-        return None
-    error_type = str(sig["error_type"]).split(":", 1)[0]
-    return f"{sig['endpoint']} 요청에서 {error_type} 오류 반복 관찰"
 
 
 def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> tuple[dict, list]:
@@ -107,7 +90,7 @@ def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> 
         "service": service,
         "line_id": incident["line_id"],
         "category": incident["category"],
-        "symptom": _symptom(details),
+        "symptom": observed_symptom(details),  # 관찰 사실만, 원인 추정 없음
         "features": {
             "recent_deploy": any(recent_from <= d["observed_at"] <= first_seen for d in history),
             "scope": "equipment" if "metric" in details else "service",

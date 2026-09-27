@@ -48,10 +48,12 @@ from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.notifications.blocker import blocker_report
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
 from linemedic.control_plane.store import Store, Tx
+from linemedic.control_plane.symptoms import observed_symptom
 
 PROPOSALS_PATH = "/tools/proposals"
 RETRY_AFTER_APPROVAL = "운영자가 새 generation을 승인한 뒤"
-_URL = re.compile(r"(?i)\bhttps?://|\bwww\.")
+# 단어 경계를 두지 않는다(한글 등 앞 글자에 붙은 URL도 잡는다). scheme은 http·ftp·file 등 모두.
+_URL = re.compile(r"(?i)[a-z][a-z0-9+.-]*://|www\.")
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 Failure = tuple[str, dict[str, Any]]  # (검사 코드, 세부)
@@ -148,15 +150,21 @@ def _block(
     *,
     reason: str,
     stage: str,
-    symptom: str,
+    reason_detail: str,
     evidence_ids: list[str],
     details: dict[str, Any],
     attempted: list[str],
+    agent_summary: str | None = None,
     missing: list[str] | None = None,
     next_steps: list[str] | None = None,
     retry_condition: str | None = None,
 ) -> None:
-    """incident ESCALATED·work BLOCKED와 WORK_BLOCKED 알림 intent를 같은 트랜잭션에 기록한다."""
+    """incident ESCALATED·work BLOCKED와 WORK_BLOCKED 알림 intent를 같은 트랜잭션에 기록한다.
+
+    `symptom_impact`는 사건 details의 관찰 사실로 host가 채운다(모델 요약은 `agent_summary`로 따로).
+    `evidence_ids`는 호출자가 이 run·사건에서 확인한 ID만 넘긴다.
+    """
+    observed = observed_symptom(json.loads(incident["details_json"] or "{}"))
     result = coupled_transition(
         tx,
         incident_id=incident["id"],
@@ -174,7 +182,7 @@ def _block(
         stage=stage,
         incident=incident,
         work=work,
-        symptom_impact=symptom,
+        symptom_impact=observed or f"{incident['service']} 사건(관찰 요약을 만들 수 없음)",
         evidence_ids=evidence_ids,
         owner_route_id=route_id,
         observed_at=tx.now,
@@ -182,6 +190,8 @@ def _block(
         missing_requirements=missing or [],
         operator_next_step=next_steps or [],
         retry_condition=retry_condition or RETRY_AFTER_APPROVAL,
+        reason_detail=reason_detail,
+        agent_summary=agent_summary,
     )
     assert result.outbox_event == "WORK_BLOCKED"
     outbox.enqueue(tx, work, result.outbox_event, report, route_id)
@@ -207,7 +217,7 @@ def _invalid(
             work,
             reason="VALIDATION_FAILED",
             stage="validation",
-            symptom="제안이 형식·정책 검사를 통과하지 못했고 제출 예산을 모두 썼다",
+            reason_detail="제안이 형식·정책 검사를 통과하지 못했고 제출 예산을 모두 썼다",
             evidence_ids=[],
             details={"reason": "submission_budget_exhausted"},
             attempted=[f"submit_proposal → INVALID_PROPOSAL({problem['reason']})"],
@@ -362,6 +372,19 @@ class _Case:
         )
 
 
+def _scoped_evidence(tx: Tx, case: _Case) -> list[str]:
+    """제안이 인용한 증거 중 이 run·사건에 실제로 있는 ID만(인용 순서 유지)."""
+    return [
+        evidence_id
+        for evidence_id in case.proposal.evidence_ids
+        if tx.one(
+            "SELECT 1 FROM evidence WHERE id = ? AND run_id = ? AND incident_id = ?",
+            (evidence_id, case.row["run_id"], case.row["incident_id"]),
+        )
+        is not None
+    ]
+
+
 @dataclass
 class Broker:
     store: Store
@@ -475,12 +498,9 @@ class Broker:
     # B03~B06: 통과하면 None, 실패하면 (검사 코드, 세부)
 
     def _b03_evidence_scope(self, tx: Tx, case: _Case) -> Failure | None:
+        found = set(_scoped_evidence(tx, case))
         for evidence_id in case.proposal.evidence_ids:
-            found = tx.one(
-                "SELECT 1 FROM evidence WHERE id = ? AND run_id = ? AND incident_id = ?",
-                (evidence_id, case.row["run_id"], case.row["incident_id"]),
-            )
-            if found is None:
+            if evidence_id not in found:
                 return "EVIDENCE_SCOPE_MISMATCH", {"evidence_id": evidence_id}
         return None
 
@@ -556,8 +576,8 @@ class Broker:
             case.work,
             reason="VALIDATION_FAILED",
             stage="validation",
-            symptom=f"제안이 브로커 검사({code})를 통과하지 못했고 제출 예산을 모두 썼다",
-            evidence_ids=list(case.proposal.evidence_ids),
+            reason_detail=f"제안이 브로커 검사({code})를 통과하지 못했고 제출 예산을 모두 썼다",
+            evidence_ids=_scoped_evidence(tx, case),
             details={"proposal_id": case.row["id"], "rejected": code},
             attempted=[f"submit_proposal {case.row['id']} → REJECTED({code})"],
             next_steps=["거절 사유와 원본 제안을 검토한 뒤 새 작업 승인 여부를 판단"],
@@ -637,8 +657,9 @@ class Broker:
             case.work,
             reason=action.reason,
             stage="agent",
-            symptom=case.proposal.summary,
-            evidence_ids=list(case.proposal.evidence_ids),
+            reason_detail="에이전트가 이관을 제안했고 브로커 검사를 통과했다",
+            agent_summary=case.proposal.summary,
+            evidence_ids=_scoped_evidence(tx, case),
             details={"proposal_id": case.row["id"]},
             attempted=[f"submit_proposal {case.row['id']} → escalate({action.reason})"],
             missing=list(action.missing_requirements or []),

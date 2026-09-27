@@ -40,6 +40,14 @@ ATTEMPT = "ATT-00000000000A"
 ISSUE = 9
 SNAPSHOT = "0" * 64  # insert_issue의 snapshot
 DEADLINE = "2026-09-27T00:20:00.000000Z"
+DETAILS = {
+    "vision-inspection": {"metric": {"anomaly": "brightness_drop", "equipment_id": "L3-CAM-2"}},
+    "mes-api": {"signature": {"endpoint": "/lots/{lot_id}/summary", "error_type": "KeyError:x"}},
+}
+OBSERVED = {
+    "vision-inspection": "L3-CAM-2 밝기가 기준보다 낮게 관찰됨",
+    "mes-api": "/lots/{lot_id}/summary 요청에서 KeyError 오류 반복 관찰",
+}
 SECRET = "ghp_" + "A1b2C3d4" * 5  # 테스트 전용 가짜 token 형태
 
 
@@ -57,7 +65,9 @@ class World:
             attempt_id=ATTEMPT,
             service=service,
             attempt_deadline=DEADLINE,
+            details_json=json.dumps(DETAILS[service]),
         )
+        self.service = service
         self.work = insert_work(
             conn,
             RUN,
@@ -266,7 +276,9 @@ def test_escalate_without_evidence_blocks_with_blocker_report(world):
     assert report["blocker_code"] == "INSUFFICIENT_EVIDENCE"
     assert report["stage"] == "agent"
     assert report["evidence_ids"] == []
-    assert report["symptom_impact"] == "증거가 부족하여 조치를 고를 수 없음"
+    assert report["symptom_impact"] == OBSERVED["vision-inspection"]  # host가 관찰한 현상
+    assert report["agent_summary"] == "증거가 부족하여 조치를 고를 수 없음"  # 모델 문장은 따로
+    assert report["reason_detail"]
     assert report["missing_requirements"] == ["현재 의존 서비스의 상태를 확인할 자료"]
     assert report["operator_next_step"] == ["현재 의존 서비스 상태를 확인하지 못함"]
     assert report["retry_condition"] == "담당자가 자료를 제공하고 새 generation을 승인한 뒤"
@@ -442,11 +454,22 @@ def test_draft_free_procedure_or_recipient_field_is_422(world, field):
 
 def test_validation_error_details_do_not_echo_input(world):
     body = world.body(schema_version="linemedic.v2", summary=f"값 {SECRET}")
+    body[SECRET] = "x"  # 비밀 형태의 key 이름도 오류 위치에 그대로 싣지 않는다
     response = world.submit(body)
     assert response.status_code == 422
     assert SECRET not in response.text
     audit = world.conn.execute("SELECT payload_json FROM audit_events").fetchall()
     assert all(SECRET not in r["payload_json"] for r in audit)
+    stored = world.conn.execute("SELECT response_json FROM api_requests").fetchall()
+    assert all(SECRET not in r["response_json"] for r in stored)
+
+
+def test_huge_number_in_body_is_422_and_counts(world):
+    raw = json.dumps(world.body()).encode()[:-1] + b', "n": ' + b"9" * 5000 + b"}"
+    response = world.submit_raw(raw)
+    assert response.status_code == 422  # 500이 아니다
+    assert error(response)["details"]["reason"] == "invalid_json"
+    assert world.incident_row()["submissions"] == 1
 
 
 @pytest.mark.parametrize(
@@ -549,6 +572,33 @@ def test_evidence_of_another_incident_is_rejected_then_revision_is_allowed(world
     assert count(world.conn, "executions") == 0
 
 
+def test_final_rejection_report_lists_only_evidence_found_in_this_incident(world):
+    other = insert_incident(world.conn, RUN, "NEW")
+    with world.store.tx() as tx:
+        foreign = add_evidence(
+            tx,
+            run_id=RUN,
+            incident_id=other,
+            kind="log_error",
+            observed_at=NOW,
+            source_identity="test:other",
+            payload={},
+        )
+    proposal_id_of(world.submit(world.body(evidence_ids=[foreign]), key="e1"))
+    world.broker.process_pending()
+    assert world.incident_row()["status"] == "INVESTIGATING"
+    cited = [world.evidence[0], foreign, "EV-0000000000FF"]
+    proposal_id_of(world.submit(world.body(evidence_ids=cited), key="e2"))
+    world.broker.process_pending()
+    assert world.incident_row()["status"] == "ESCALATED"
+    (blocked,) = world.notifications("WORK_BLOCKED")
+    report = json.loads(blocked["payload_json"])
+    assert report["evidence_ids"] == [world.evidence[0]]  # 확인하지 않은 ID를 근거로 싣지 않는다
+    assert report["symptom_impact"] == OBSERVED["vision-inspection"]
+    assert "EVIDENCE_SCOPE_MISMATCH" in report["reason_detail"]
+    assert report["agent_summary"] is None
+
+
 def test_unknown_evidence_id_is_rejected(world):
     pid = proposal_id_of(world.submit(world.body(evidence_ids=["EV-0000000000FF"])))
     world.broker.process_pending()
@@ -563,8 +613,22 @@ def test_unknown_evidence_id_is_rejected(world):
         ("create_work_order_draft", "probable_cause", "operator@example.invalid 에게 확인"),
         ("escalate", "retry_condition", "www.example.invalid 확인 뒤"),
         ("create_pr", "diff", f"+TOKEN = '{SECRET}'\n"),
+        ("create_work_order_draft", "open_questions", ["점검 절차는https://evil.example/p"]),
+        ("create_work_order_draft", "symptom", "절차는www.evil.example 참고"),
+        ("create_work_order_draft", "probable_cause", "ftp://evil.example/manual 참고"),
+        ("escalate", "retry_condition", "자료는file:///etc/passwd 참고"),
     ],
-    ids=["secret", "url", "email", "escalate_url", "pr_secret"],
+    ids=[
+        "secret",
+        "url",
+        "email",
+        "escalate_url",
+        "pr_secret",
+        "korean_glued_https",
+        "korean_glued_www",
+        "ftp",
+        "file_scheme",
+    ],
 )
 def test_sensitive_values_or_channels_are_rejected(store, conn, action_type, field, text):
     w = World(store, conn, service="mes-api" if action_type == "create_pr" else "vision-inspection")
@@ -707,20 +771,44 @@ def test_worker_loop_recovers_checking_then_processes(world):
 
 def test_worker_loop_keeps_going_when_one_proposal_fails(world, monkeypatch):
     pid = proposal_id_of(world.submit(world.body()))
+    # 다른 사건의 두 번째 제안(그 work는 RUNNING이 아니라 B06에서 거절된다)
+    other = insert_incident(world.conn, RUN, "ESCALATED", attempt_id="ATT-0000000000FF")
+    insert_issue(world.conn, 10)
+    other_work = insert_work(world.conn, RUN, other, 10, "BLOCKED", attempt_id="ATT-0000000000FF")
+    other_body = dict(world.body("escalate", evidence_ids=[]), incident_id=other)
+    other_body.update(work_id=other_work, attempt_id="ATT-0000000000FF")
+    world.conn.execute(
+        "INSERT INTO proposals(id, run_id, incident_id, work_id, attempt_id, idempotency_key,"
+        " body_sha256, decision, received_at, payload_json, checks_json) VALUES"
+        " ('PROP-0000000000EE', ?, ?, ?, 'ATT-0000000000FF', 'k', ?, 'RECEIVED', ?, ?, ?)",
+        (
+            RUN,
+            other,
+            other_work,
+            "0" * 64,
+            "2026-09-27T00:00:01.000000Z",
+            json.dumps(other_body),
+            json.dumps({"intake_incident_version": 0, "checks": []}),
+        ),
+    )
+    original = Broker._process
 
-    def boom(self, row):
-        raise RuntimeError(f"처리 실패 {SECRET}")
+    def flaky(self, row):
+        if row["id"] == pid:
+            raise RuntimeError(f"처리 실패 {SECRET}")
+        return original(self, row)
 
-    monkeypatch.setattr(Broker, "_process", boom)
+    monkeypatch.setattr(Broker, "_process", flaky)
     with pytest.raises(RuntimeError):
         world.broker.process_pending()  # 기본값은 오류를 숨기지 않는다
-    world.conn.execute("UPDATE proposals SET decision = 'RECEIVED'")
+    world.conn.execute("UPDATE proposals SET decision = 'RECEIVED' WHERE id = ?", (pid,))
 
     stop = threading.Event()
     stop.set()
     world.broker.run(stop, interval_seconds=0)
     assert row(world.conn, "proposals", pid)["decision"] == "CHECKING"
     assert world.incident_row()["status"] == "VALIDATING"
+    assert row(world.conn, "proposals", "PROP-0000000000EE")["decision"] == "REJECTED"  # 계속 처리
     (audit,) = world.conn.execute(
         "SELECT payload_json FROM audit_events WHERE event_type = 'PROPOSAL_CHECK_ERROR'"
     ).fetchall()

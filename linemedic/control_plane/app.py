@@ -21,6 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from linemedic.common.canonical_json import StrictJSONError, loads_strict
 from linemedic.common.clock import Clock
 from linemedic.common.ids import new_id
+from linemedic.common.sanitize import mask_secrets
 from linemedic.control_plane import idempotency
 from linemedic.control_plane.auth import (
     AgentPrincipal,
@@ -142,10 +143,10 @@ def idempotency_key(request: Request) -> str:
 
 
 def safe_validation_errors(exc: ValidationError) -> list[dict[str, Any]]:
-    """검증 오류의 위치·종류만 돌려준다. 입력 값은 넣지 않는다."""
+    """검증 오류의 위치·종류만 돌려준다. 입력 값은 넣지 않고 위치(key 이름)의 비밀 형태는 가린다."""
     items = []
     for error in exc.errors(include_url=False, include_context=False, include_input=False):
-        location = [str(part)[:64] for part in error["loc"]]
+        location = [mask_secrets(str(part)[:64]) for part in error["loc"]]
         items.append({"loc": location, "type": error["type"]})
     return items[:MAX_ERROR_ITEMS]
 

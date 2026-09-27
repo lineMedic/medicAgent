@@ -402,6 +402,11 @@ def test_blocker_report_has_spec_16_fields():
     } <= set(report)
     assert report["event_type"] == "WORK_BLOCKED"
     assert report["side_effect_state"] == {"state": "NONE", "identities": []}
+    # 사유 설명(host)과 에이전트 요약(모델 판단)은 증상과 따로, 없으면 None
+    assert (report["reason_detail"], report["agent_summary"]) == (None, None)
+    labeled = _report(reason_detail="host 설명", agent_summary="모델 요약")
+    assert (labeled["reason_detail"], labeled["agent_summary"]) == ("host 설명", "모델 요약")
+    assert labeled["symptom_impact"] == "관찰한 현상"
 
 
 @pytest.mark.parametrize(
