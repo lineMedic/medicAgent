@@ -204,6 +204,7 @@ make run-new → 새 run_id, demo_runs(active=1, 이전 run active=0), config ha
 make reset RUN_ID=... → 새 intake·dispatch 정지 → UNKNOWN·SENDING 확인(reconcile 또는 미해결 기록)
                → make export-run → run ID 라벨이 붙은 container·workspace만 정리 → run-new
 보존: 원격 baseline/autofix 브랜치, Issue, PR, case note, 이전 run DB 기록
+정지(W19 D86): run active=0 → 그 run의 make start 루프가 새 일·외부 쓰기를 멈춘다. 새 run 프로세스는 자기 run 행만 처리한다
 금지: DB 삭제, force push, 원격 main 되돌리기, docker prune, 과거 알림을 다른 Issue로 재전송
 ```
 

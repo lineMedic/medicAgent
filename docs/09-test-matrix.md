@@ -88,6 +88,8 @@ W27 사례 기억: `integration/test_case_memory.py`가 실제 SQLite(FTS5)로 T
 
 W18 화면: `unit/test_dashboard_escape.py`가 Issue 제목·로그 근거·case 본문·운영자 메모의 `<script>`·`<img onerror>`·`javascript:` 링크가 문자열로만 보이는지(T-UI-01), 읽기 전용 연결·127.0.0.1 bind·GET만·script 차단 CSP를 본다. `unit/test_dashboard_readmodel.py`는 docs/11 §5 문구 매핑·금지 표현·미확인/N/A 구분·RESOLVED와 알림 FAILED 동시 표시·타임라인 순서·`GET /ops/dashboard`를, `integration/test_dashboard_process.py`는 실제 `python -m linemedic.dashboard` 프로세스가 답하고 DB 파일을 바꾸지 않는지를 본다. fake E2E는 전체 경로 뒤의 화면(모든 단계 완료·결과 노트·알림 상태)도 확인한다.
 
+W19 run 수명 주기: `integration/test_reset_archive.py`가 reset 뒤 이전 run의 DB 행·근거·case note와 FakeGitHub 브랜치·PR·Issue가 그대로인지(T-RESET-01), 새 run의 cold_start 검색이 과거 사례를 주지 않는지, archive된 run의 루프가 새 일·외부 쓰기를 멈추고 새 run 프로세스가 과거 run의 알림·제안·work를 이어받지 않는지, 정리가 이 run 라벨 컨테이너·network와 workspace만 정확한 ID·경로로 지우는지(symlink 거부·prune 없음), export의 private 원본(0700)·shared 정제본·hash·run-record, 기준 브랜치 준비(repo ID 확인·이동 없음·실패 시 run 없음), 운영 API·CLI를 본다. `integration/test_reset_docker.py`는 실제 Docker에서 라벨 정리를 확인한다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.

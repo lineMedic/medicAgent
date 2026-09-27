@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard export-run reset
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -83,10 +83,11 @@ verify-negative:
 	@test -n "$(RUN_ID)" || { echo "사용법: make verify-negative RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
 	$(PY) -m linemedic.cli verify-negative --run-id "$(RUN_ID)" --mes-image "$(MES_IMAGE)"
 
-# 새 run (W06: 제어 DB migration과 demo_runs 활성 전환·manifest 기록. baseline 브랜치 등은 W19).
-# host manifest가 있으면 경로와 SHA-256을 run manifest에 남긴다.
+# 새 run (W06·W19): 제어 DB migration, demo_runs 활성 전환, manifest(config·모델·runtime·정책·prompt·계약 hash,
+# memory mode·snapshot, host manifest 경로·SHA-256). CREATE_BASELINE=1이면 먼저 setup credential로
+# baseline/<run_id> 브랜치를 BASELINE_COMMIT에 만든다(G2·G10 뒤. 등록 repo ID 확인, 다른 SHA면 옮기지 않고 멈춤).
 run-new:
-	$(PY) -m linemedic.cli run-new $(if $(wildcard evidence/host-manifest.json),--host-manifest evidence/host-manifest.json,)
+	$(PY) -m linemedic.cli run-new $(if $(wildcard evidence/host-manifest.json),--host-manifest evidence/host-manifest.json,) $(if $(CREATE_BASELINE),--create-baseline,)
 
 # 감지 1회 (W07): run의 S1 MES 컨테이너 로그를 지금까지 한 번 읽어 감지기에 넣는다.
 # 같은 fingerprint가 60초 안 3회면 사건 NEW. 상시 감시(docker logs --follow)는 W13의 make start가 한다.
@@ -185,3 +186,16 @@ memory-snapshot:
 # 모르는 값은 "미확인", 해당 없는 값은 "N/A". 같은 읽기 모델을 GET /ops/dashboard(operator read)로도 본다.
 dashboard:
 	$(PY) -m linemedic.dashboard $(if $(RUN_ID),--run-id "$(RUN_ID)",) $(if $(PORT),--port "$(PORT)",)
+
+# run 증거 export (W19): runs/<RUN_ID>/export/<UTC 시각>/에 새로 쓴다(덮어쓰지 않음).
+# private/는 DB 행 원본(0700), shared/는 비밀·평가 식별자·로컬 경로를 가린 공유본과 run-record.md.
+export-run:
+	@test -n "$(RUN_ID)" || { echo "사용법: make export-run RUN_ID=<run>"; exit 2; }
+	$(PY) -m linemedic.cli export-run --run-id "$(RUN_ID)"
+
+# run 초기화 (W19): 새 intake·dispatch 정지(run 비활성) → 미해결 외부 실행·알림 확인 → export →
+# 이 run 라벨(linemedic.run_id·linemedic.run)이 붙은 컨테이너·network와 runs/<RUN_ID>/workspaces만 정확한 ID·경로로 정리.
+# DB 기록·원격 브랜치·Issue·PR·case note는 그대로 둔다. prune·wildcard 삭제·force push 없음. 새 run은 make run-new.
+reset:
+	@test -n "$(RUN_ID)" || { echo "사용법: make reset RUN_ID=<run>"; exit 2; }
+	$(PY) -m linemedic.cli reset --run-id "$(RUN_ID)"

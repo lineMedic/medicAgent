@@ -9,6 +9,7 @@
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
@@ -42,6 +43,7 @@ from linemedic.control_plane.state import TransitionDenied
 from linemedic.control_plane.store import StateConflict, Store, StoreBusy
 
 if TYPE_CHECKING:  # broker.reconcile·release → intake → app 순환을 피한다
+    from linemedic.common.config import Settings
     from linemedic.control_plane.broker.reconcile import ExecutionReconciler
     from linemedic.control_plane.memory.search import CaseSearch
     from linemedic.control_plane.release import ReleaseExecutor
@@ -73,6 +75,8 @@ class AppContext:
     execution_reconciler: "ExecutionReconciler | None" = None  # 결과 불명 execution 조정(W11)
     release_executor: "ReleaseExecutor | None" = None  # 승인한 exact SHA 배포(W12)
     case_search: "CaseSearch | None" = None  # 사례 검색(W27). cold_start면 DISABLED를 기록한다
+    settings: "Settings | None" = None  # run 생성 manifest(W19 POST /ops/runs)
+    runs_dir: Path | None = None  # run export 경로(W19 archive)
 
 
 def _under(path: str, prefix: str) -> bool:

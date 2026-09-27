@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W19** ([tasks/W19-reset-export.md](tasks/W19-reset-export.md), run 생성·reset·archive·증거 export — 자율성 C(G2): 로컬 부분은 A, baseline 브랜치 생성은 G2 후. 선행 W06·W11 충족, 목표 LIVE_VERIFIED). 순서상 앞선 W14는 선행 W02의 G4 결정(runtime 선택)이 아직 없고, W15·W16·W28·W17은 W14·W15를 선행으로 둔다(W14의 tool client·prompt·예산·trace 등 A 부분은 G4 결정을 기다리지 않고 할 수 있어, 팀 판단으로 먼저 고를 수 있다). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14는 선행 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 게이트 없이 할 수 있는 부분이 남은 것은 **W14의 A 부분**(tool client·prompt·예산·trace·workspace — runtime과 무관)이며, G4 결정 전에 시작할지는 팀이 정한다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -46,7 +46,7 @@
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
-| 29 | W19 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
+| 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1632 passed(W19 테스트 26개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T18:11Z |
 | 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
 | 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
 | 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
@@ -99,6 +99,43 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W19 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T18:11Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). GitHub에는 읽지도 쓰지도 않았다(기준 브랜치 생성은 코드·fake·MockTransport까지)
+- 변경 파일:
+  - `linemedic/control_plane/runs.py`: manifest에 identity(모델·runtime·정책·수동 템플릿·prompt·계약 hash)·memory·baseline, `new_run(baseline=)`(브랜치를 먼저 준비, 실패하면 run 없음), `stop_intake`, `unresolved`, `cleanup`, `archive`, `reset`
+  - `linemedic/control_plane/run_export.py`(새): `runs/<run>/export/<시각>/` private 원본(0700)·shared 정제본·run-record·unresolved·export-manifest(hash)
+  - `linemedic/integrations/github_baseline.py`(새): `HttpBaseline`(repo ID 확인 → 같은 SHA면 EXISTS·없으면 생성·다른 SHA면 멈춤), `FakeBaseline`
+  - `linemedic/integrations/docker.py`: `list_containers`·`remove_container`·`list_networks`(CliDocker·FakeDocker), FakeDocker `inspect`가 ID도 받는다
+  - `linemedic/control_plane/main.py`: 루프마다 run 활성 확인(비활성이면 새 일·외부 쓰기 정지), supervisor·broker·outbox에 run 범위 / `supervisor.py`·`broker/intake.py`·`notifications/worker.py`: `run_id` 필터(기본 None은 기존 동작) / `state.py`: `TERMINAL_INCIDENT_STATUSES`
+  - `ops_api.py`: `POST /ops/runs`, `POST /ops/runs/{id}/archive`(demo) / `app.py`: `settings`·`runs_dir`
+  - `linemedic/cli.py`·`Makefile`: `make run-new [CREATE_BASELINE=1]`, `make export-run RUN_ID=`, `make reset RUN_ID=`
+  - 테스트: `integration/test_reset_archive.py`(25), `integration/test_reset_docker.py`(1, docker)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1632 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - 실제 Docker: 이 run 라벨 컨테이너 2개(`linemedic.run_id`·`linemedic.run`)와 다른 run 컨테이너 1개, 이 run network 1개를 만들고 `runs.cleanup`(CliDocker) → 이 run 것만 전체 ID로 삭제, 다른 run 컨테이너는 그대로, 테스트 뒤 남은 것 없음
+  - 변이 확인 33개 중 31개는 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다). 잡히지 않은 2개는 이렇다
+    - workspace 정리의 symlink 거부와 상위 경로 확인: 서로 겹치는 가드라 하나만 빼면 다른 하나가 막는다. 둘 다 빼는 변이는 테스트가 잡았다
+    - export 파일의 배타 생성(`O_EXCL`): export 폴더를 매번 새로 만들고 이미 있으면 멈추므로 같은 파일이 있을 수 없다. 프로세스 간 경합에 대한 추가 방어라 테스트로 구분할 수 없다
+    - 그 밖(잡힘): 정지 안 함, UNKNOWN 실행 누락, PENDING 알림 재전송 안내, 라벨 재확인·runner 라벨, 조회 실패 숨김, API 정리, 안내 누락, 브랜치 순서·BASELINE_COMMIT, manifest memory, run ID 검증, private 권한, 알림 본문·정제·경로 자리표시·덮어쓰기, repo ID 확인·브랜치 이동, 비활성 run 진행·outbox 정지, supervisor·broker·outbox run 범위, archive 역할·오래된 current_run·API 정리, G10 없이 브랜치, 정리 오류 숨김, label filter 없는 docker ps
+- 수용 기준:
+  - T-RESET-01: reset 뒤 이전 run의 DB 행·evidence·case note가 남고, FakeGitHub의 main·baseline·autofix 브랜치·PR·Issue가 그대로이며 요청이 없다. 새 run의 cold_start 검색은 과거 사례를 반환하지 않는다: PASS
+  - 정리 대상은 run ID 라벨이 붙은 컨테이너·network와 `runs/<run>/workspaces` 경로뿐이다(라벨 목록 + inspect 재확인 + 전체 ID, run ID 검증·symlink 거부·상위 경로 확인). prune·wildcard·glob 결과 삭제 호출이 코드에 없다(정적 검사): PASS
+  - 새 run에서 과거 알림을 다른 Issue로 재전송하지 않는다(archive된 run 루프 정지, 새 run의 outbox는 자기 run 알림만): PASS
+  - live(G2·G10): 실제 `baseline/<run_id>` 생성과 보호 규칙 적용 확인: NOT_RUN
+- 판단: D86(manifest identity·memory·baseline, 기준 브랜치 조건·실패 처리, 정지 방식·run 범위, archive·export 구성, 정리 식별, reset 안내, 운영 API)
+- 증거: 커밋은 이 보고를 포함한 W19 커밋. live 기준 브랜치 기록은 게이트 전이라 없다
+- 작업 중 발견:
+  - supervisor·broker·outbox가 모든 run의 행을 처리하고 있었다. reset 뒤 새 run 프로세스가 과거 run의 제안(→ PR)·READY work·PENDING 알림을 이어받을 수 있어 run 범위를 넣었다(spec 04 §9 "기존 상태를 current run의 미완료 작업으로 가져오지 않는다")
+  - 컨테이너 라벨 키가 두 가지다(MES·배포 `linemedic.run_id`, runner `linemedic.run`). 정리는 둘 다 찾는다
+  - 이 Mac의 containerd 이미지 저장소에서는 `docker image inspect <태그>`가 목록에 있는 이미지도 실패한다(`docker run`은 된다). docker 시험은 `docker images -q`로 확인한다
+  - INV-01 테스트가 `runs.py`의 종료 상태 목록(`RESOLVED` 문자열)을 잡아, 상태 집합을 `state.py`로 옮겼다
+- 남은 일·위험:
+  - live(G2·G10): `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>`를 만들고 `python -m linemedic.scripts.github_setup_check`로 보호 규칙이 적용되는지 확인해 `evidence/W19-baseline-branch.md`에 남긴다(사용자 허락 뒤)
+  - 정지는 루프의 다음 반복부터다(진행 중인 한 번은 끝난다). reset 전에 `make stop RUN_ID=`를 권한다
+  - archive된 run의 미해결 항목(UNKNOWN 실행·SENDING/UNKNOWN 알림)은 목록과 조정 명령으로 남고 자동으로 닫지 않는다
+- 다음 카드: AGENTS §2 조건을 만족하는 카드가 없다. W14의 A 부분(runtime과 무관한 tool client·prompt·예산·trace·workspace)을 G4 결정 전에 시작할지는 팀 결정
 
 ### W18 완료 보고 (2026-09-27T17:38Z)
 

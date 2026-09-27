@@ -76,8 +76,12 @@ class OutboxWorker:
         repo: str,
         clock: Clock,
         backoff_seconds: int = BACKOFF_SECONDS,
+        run_id: str | None = None,
     ) -> None:
         self.store = store
+        self.run_id = (
+            run_id  # 주면 이 run의 알림만 보낸다(W19: 새 run이 과거 run 알림을 보내지 않게)
+        )
         self.adapters = dict(adapters)
         self.routes: Mapping[str, NotificationRoute] = dict(config.notifications.routes)
         self.required_route = config.notifications.required_start_route_id
@@ -170,8 +174,9 @@ class OutboxWorker:
             rows = tx.all(
                 "SELECT * FROM notifications WHERE status = 'PENDING'"
                 " AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
+                " AND (? IS NULL OR run_id = ?)"
                 " ORDER BY created_at, rowid LIMIT 50",
-                (tx.now,),
+                (tx.now, self.run_id, self.run_id),
             )
             for row in rows:
                 if row["event_type"] == "WORK_STARTING":

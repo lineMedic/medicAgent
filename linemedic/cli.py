@@ -21,7 +21,7 @@ from linemedic.common.config import (
     load_settings,
     process_env,
 )
-from linemedic.control_plane import detector, runs
+from linemedic.control_plane import detector, run_export, runs
 from linemedic.control_plane import main as control_main
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.issue_sync import IssueSync
@@ -34,6 +34,7 @@ from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness
 from linemedic.integrations.docker import CliDocker, DockerError
 from linemedic.integrations.github import GitHubNotConfigured, github_from_settings
+from linemedic.integrations.github_baseline import BaselineError, HttpBaseline
 from linemedic.scripts import doctor, host_manifest
 
 
@@ -237,8 +238,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="run manifest에 경로·SHA-256을 남길 host manifest (예: evidence/host-manifest.json)",
     )
+    run_parser.add_argument(
+        "--create-baseline",
+        action="store_true",
+        help="setup credential로 baseline/<run_id> 브랜치를 BASELINE_COMMIT에 만든다(G2·G10 뒤)",
+    )
     run_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     run_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    export_parser = sub.add_parser(
+        "export-run", help="run 증거 export(공유본·비공개 원본, 덮어쓰지 않음) (W19)"
+    )
+    reset_parser = sub.add_parser(
+        "reset",
+        help="run 정지·미해결 확인·export·이 run 라벨 컨테이너·workspace 정리 (W19, DB 삭제 없음)",
+    )
+    for command_parser in (export_parser, reset_parser):
+        command_parser.add_argument("--run-id", required=True)
+        command_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+        command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     return parser
 
 
@@ -754,6 +772,121 @@ def _memory_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def baseline_port(settings: Any) -> tuple[HttpBaseline | None, list[str]]:
+    """기준 브랜치 port. G2(repo·setup credential·BASELINE_COMMIT)와 G10(쓰기 허락)이 모두
+    있어야 한다.
+
+    없으면 (None, 빠진 이름 목록). 값은 출력하지 않는다.
+    """
+    repo = settings.config.repository
+    missing = [
+        name
+        for name, present in (
+            ("GITHUB_REPOSITORY", repo.full_name),
+            ("GITHUB_REPOSITORY_ID", repo.id),
+            ("GITHUB_SETUP_CREDENTIAL", settings.secrets.is_set("GITHUB_SETUP_CREDENTIAL")),
+            ("BASELINE_COMMIT", settings.runtime.baseline_commit),
+            ("github.write_enabled(G10)", settings.config.github.write_enabled),
+        )
+        if not present
+    ]
+    if missing:
+        return None, missing
+    credential = settings.secrets.get("GITHUB_SETUP_CREDENTIAL")
+    port = HttpBaseline(
+        repo.id, repo.full_name, credential, base_url=settings.config.github.base_url
+    )
+    return port, []
+
+
+def _run_new(args: argparse.Namespace, baseline: Any = None) -> int:
+    """`make run-new [CREATE_BASELINE=1]`: DB run·manifest, 요청하면 기준 브랜치(G2·G10)."""
+    env = process_env(args.env_file)
+    if args.host_manifest is not None and not args.host_manifest.is_file():
+        print(f"run-new 실패: host manifest가 없다: {args.host_manifest}", file=sys.stderr)
+        return 2
+    try:
+        settings = load_settings(args.config, env)
+        if args.create_baseline and baseline is None:
+            baseline, missing = baseline_port(settings)
+            if baseline is None:
+                print(f"run-new: NOT_CONFIGURED: {', '.join(missing)}", file=sys.stderr)
+                return 2
+        db_path = args.db or runs.default_db_path(env)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        clock = SystemClock()
+        summary = runs.new_run(
+            Store(db_path, clock), settings, clock, args.host_manifest, baseline=baseline
+        )
+    except BaselineError as exc:
+        print(f"run-new 실패: 기준 브랜치를 준비하지 못했다({exc.reason}). run을 만들지 않았다",
+              file=sys.stderr)  # fmt: skip
+        return 1
+    except (ConfigError, StoreError, runs.RunError) as exc:
+        print(f"run-new 실패: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _local_run(args: argparse.Namespace, command: str) -> tuple[Store, Path] | None:
+    """export-run·reset: 제어 DB에 그 run이 있어야 한다. (store, runs_dir)."""
+    env = process_env(args.env_file)
+    db_path = args.db or runs.default_db_path(env)
+    if not db_path.is_file():
+        print(f"{command} 실패: 제어 DB가 없다: {db_path}", file=sys.stderr)
+        return None
+    store = Store(db_path, SystemClock())
+    store.migrate()
+    with store.read() as tx:
+        if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (args.run_id,)) is None:
+            print(f"{command} 실패: 없는 run이다: {args.run_id}", file=sys.stderr)
+            return None
+    return store, Path(env.get("RUNS_DIR") or db_path.parent)
+
+
+def _export_run(args: argparse.Namespace) -> int:
+    """`make export-run RUN_ID=`: 증거 export만(정지·정리 없음). 이전 export를 덮어쓰지 않는다."""
+    local = _local_run(args, "export-run")
+    if local is None:
+        return 2
+    store, runs_dir = local
+    with store.read() as tx:
+        pending = runs.unresolved(tx, args.run_id)
+    root, manifest = run_export.export_run(
+        store, args.run_id, runs_dir, clock=SystemClock(), unresolved=pending,
+        terms=eval_identifiers(),
+    )  # fmt: skip
+    print(
+        json.dumps(
+            {"export": str(root), "files": len(manifest["files"]), **manifest["unresolved"]},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _reset(args: argparse.Namespace, docker: Any = None) -> int:
+    """`make reset RUN_ID=`: 정지 → 미해결 확인 → export → 이 run 라벨 컨테이너·workspace 정리."""
+    local = _local_run(args, "reset")
+    if local is None:
+        return 2
+    store, runs_dir = local
+    result = runs.reset(
+        store,
+        args.run_id,
+        runs_dir=runs_dir,
+        clock=SystemClock(),
+        principal="operator:host-cli",
+        docker=docker if docker is not None else CliDocker(),
+        terms=eval_identifiers(),
+    )
+    result["unresolved"] = {key: len(items) for key, items in result["unresolved"].items()}
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 1 if result["cleanup"] and result["cleanup"]["errors"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "version":
@@ -845,21 +978,11 @@ def main(argv: list[str] | None = None) -> int:
         print("verify-negative: verifier가 S1b를 기대대로 거절하지 않았다", file=sys.stderr)
         return 1
     if args.command == "run-new":
-        env = process_env(args.env_file)
-        if args.host_manifest is not None and not args.host_manifest.is_file():
-            print(f"run-new 실패: host manifest가 없다: {args.host_manifest}", file=sys.stderr)
-            return 2
-        try:
-            settings = load_settings(args.config, env)
-            db_path = args.db or runs.default_db_path(env)
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            clock = SystemClock()
-            summary = runs.new_run(Store(db_path, clock), settings, clock, args.host_manifest)
-        except (ConfigError, StoreError) as exc:
-            print(f"run-new 실패: {exc}", file=sys.stderr)
-            return 2
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
-        return 0
+        return _run_new(args)
+    if args.command == "export-run":
+        return _export_run(args)
+    if args.command == "reset":
+        return _reset(args)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
