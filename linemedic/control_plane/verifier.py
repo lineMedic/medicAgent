@@ -490,11 +490,16 @@ class VerificationRun:
 
 
 def verify(**kwargs: Any) -> VerificationResult:
-    """`VerificationRun`을 판정이 나올 때까지 진행한다. 시간은 주입한 clock으로 흐른다.
+    """`VerificationRun`을 만들어 판정이 나올 때까지 진행한다(`drive`)."""
+    return drive(VerificationRun(**kwargs))
+
+
+def drive(run: VerificationRun) -> VerificationResult:
+    """판정이 나올 때까지 step을 반복한다. 시간은 주입한 clock으로 흐른다.
 
     판정 중 예상하지 못한 예외는 INCONCLUSIVE/`verifier_error`(detail: 예외 종류)로 기록한다.
+    KeyboardInterrupt 같은 중단은 호출자가 `run.abort()`로 기록한 뒤 다시 올린다.
     """
-    run = VerificationRun(**kwargs)
     while True:
         try:
             result = run.step()
@@ -554,6 +559,12 @@ def persist_result(
         raise ValueError(f"알 수 없는 verification origin: {result.origin!r}")
     if result.verdict not in FINAL_VERDICTS:
         raise ValueError(f"최종 판정이 아니다: {result.verdict!r}")
+    if result.verdict == "PASS" and not (
+        result.observation_complete
+        and result.samples_completed == result.samples_required
+        and not result.failed_assertions
+    ):
+        raise ValueError("PASS는 관찰 완료·모든 표본 통과·실패 없음일 때만 저장한다")
     incident = tx.one("SELECT run_id FROM incidents WHERE id = ?", (incident_id,))
     if incident is None or incident["run_id"] != run_id:
         raise ValueError("run과 incident가 맞지 않는다")

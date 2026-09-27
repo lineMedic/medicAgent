@@ -51,6 +51,7 @@ from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness, wrong_200_defects
 from linemedic.integrations.docker import CliDocker, CommandResult, FakeDocker, _CliLogStream
 from linemedic.tests.helpers.db_rows import count, insert_run, row
+from linemedic.tests.helpers.demo_states import prepare_verifying_incident
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = REPO_ROOT / "linemedic" / "contracts" / "defect-summary-v1.toml"
@@ -1174,6 +1175,39 @@ def test_harness_records_inconclusive_when_verifier_errors(
         "OBSERVATION_INCONCLUSIVE",
     )
     assert not harness.expected_outcome(outcome)
+    assert docker.containers == {} and docker.networks == set()
+
+
+def test_harness_reports_unfinished_test_incident(tmp_runs_dir, fake_clock, run_store, conn):
+    """중단된 이전 실행이 남긴 VERIFYING 시험 사건이 있으면 추적 가능한 오류로 알린다."""
+    with run_store.tx() as tx:
+        stale = prepare_verifying_incident(
+            tx, RUN_ID, purpose=harness.DEMO_PURPOSE, fingerprint=harness.DEMO_FINGERPRINT
+        )
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    with pytest.raises(harness.HarnessError, match=stale):
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
+    assert not [call for call in docker.calls if call[0] in {"build", "run"}]
+
+
+def test_harness_records_inconclusive_when_interrupted(tmp_runs_dir, fake_clock, run_store, conn):
+    """Ctrl-C로 중단돼도 시험 사건을 VERIFYING에 남기지 않고 INCONCLUSIVE로 기록한다."""
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    healthy = docker.exec_handler
+
+    def interrupted(name, command):
+        if "/defects/summary" in command[3]:
+            raise KeyboardInterrupt
+        return healthy(name, command)
+
+    docker.exec_handler = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
+    [incident] = conn.execute("SELECT status, reason_code FROM incidents").fetchall()
+    assert tuple(incident) == ("ESCALATED", "OBSERVATION_INCONCLUSIVE")
+    [stored] = conn.execute("SELECT verdict, result_json FROM verifications").fetchall()
+    assert stored["verdict"] == "INCONCLUSIVE"
+    assert json.loads(stored["result_json"])["detail"] == "interrupted:KeyboardInterrupt"
     assert docker.containers == {} and docker.networks == set()
 
 

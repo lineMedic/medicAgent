@@ -5,6 +5,7 @@
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -139,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
             ObserverError,
             ConfigError,
             StoreError,
+            sqlite3.Error,
         ) as exc:
             print(f"verify-negative 실패: {exc}", file=sys.stderr)
             return 2
