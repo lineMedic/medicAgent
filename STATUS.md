@@ -110,7 +110,7 @@
   - Python 3.12.2: `make test` 1391 passed, 18 deselected
   - `make lint`(ruff check·format --check) PASS, `make api-schema` 변경 없음
   - 새 테스트 `test_cli_notification_reconcile_retries_after_inconclusive`(첫 조정 댓글 조회 timeout → INCONCLUSIVE → 두 번째 호출이 새 키로 FOUND·ACCEPTED, 댓글 1개 유지)가 수정 전 CLI에서 실패하는 것을 먼저 확인했다. `test_ops_get_notification` 추가
-- 판단: D79 ⑨ 추가, ADR 요약·docs/04 API 표 갱신
+- 판단: D79 ⑨ 추가, ADR 요약·docs/04 API 표·tasks/W26 만들 파일 갱신(카드는 AGENTS.md 공개 계약 규칙에 따라 후속 커밋으로)
 - 남은 일: 없음. W26 상태(live G2·G10 대기)는 바꾸지 않는다
 
 ### W11 리뷰 반영 (카드 밖, 2026-09-27T14:01Z)
