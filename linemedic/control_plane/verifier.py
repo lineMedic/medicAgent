@@ -1,10 +1,13 @@
-"""독립 업무 verifier (W05 1부, spec 08 §4~§8).
+"""독립 업무 verifier (W05, spec 08 §4~§9).
 
 원래 사용자 경로 `GET /defects/summary?lot_id=`로 contract의 모든 case를 t=0·10·20·30초에 호출하고,
 t=60초까지 로그 관찰·identity·fixture를 확인한 뒤에만 PASS한다. 실제 반증은 FAIL로 조기 종료한다.
 앱의 자기보고(`status=resolved` 등)를 믿지 않는다.
-2부(W06 이후)에서 결과를 DB에 저장하고 verifier 경로로만 incident를 전이한다.
-1부의 `resolved_written`은 항상 false다.
+
+`persist_result`(2부)는 결과를 `verifications`에 저장하고 verifier 주체로만 incident를 전이한다.
+RESOLVED를 쓰는 제품 경로는 이것 하나다(INV-01).
+판정 엔진이 내는 결과의 `resolved_written`은 false이고, PASS를 RESOLVED로 기록했을 때만
+저장본에서 true가 된다.
 """
 
 import base64
@@ -18,11 +21,15 @@ from urllib.parse import urlencode
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from linemedic.common.canonical_json import StrictJSONError, loads_strict
+from linemedic.common.canonical_json import StrictJSONError, canonical_dumps, loads_strict
 from linemedic.common.clock import Clock, to_rfc3339
 from linemedic.common.config import read_toml, validate_model
 from linemedic.common.ids import new_id
+from linemedic.control_plane import audit
+from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.observer import ObserverStatus
+from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
+from linemedic.control_plane.store import Tx
 from linemedic.integrations.docker import DockerPort
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -338,6 +345,7 @@ class VerificationRun:
     - INCONCLUSIVE `sample_unanswered`: 표본 요청 timeout·연결 실패
     - FAIL `business_error`: 기대와 다른 HTTP 상태 코드(한 case라도)
     - FAIL `content_mismatch`: 상태 코드는 맞지만 본문이 계약과 다름
+    - INCONCLUSIVE `verifier_error`: 판정 중 예상하지 못한 오류(`verify`가 잡아 기록한다)
     - PASS `all_checks_passed`: 모든 표본 통과 후 t=recurrence_window_seconds(60초) 도달
     """
 
@@ -450,6 +458,12 @@ class VerificationRun:
             return self._finish("INCONCLUSIVE", "sample_unanswered", detail)
         return None
 
+    def abort(self, detail: str) -> VerificationResult:
+        """판정 중 예상하지 못한 오류. 관찰을 이어 PASS로 추정하지 않고 INCONCLUSIVE로 끝낸다."""
+        if self.result is not None:
+            return self.result
+        return self._finish("INCONCLUSIVE", "verifier_error", detail)
+
     def _finish(self, verdict: str, reason: str, detail: str | None = None) -> VerificationResult:
         status = self.last_status
         self.result = VerificationResult(
@@ -476,10 +490,191 @@ class VerificationRun:
 
 
 def verify(**kwargs: Any) -> VerificationResult:
-    """`VerificationRun`을 판정이 나올 때까지 진행한다. 시간은 주입한 clock으로 흐른다."""
-    run = VerificationRun(**kwargs)
+    """`VerificationRun`을 만들어 판정이 나올 때까지 진행한다(`drive`)."""
+    return drive(VerificationRun(**kwargs))
+
+
+def drive(run: VerificationRun) -> VerificationResult:
+    """판정이 나올 때까지 step을 반복한다. 시간은 주입한 clock으로 흐른다.
+
+    판정 중 예상하지 못한 예외는 INCONCLUSIVE/`verifier_error`(detail: 예외 종류)로 기록한다.
+    KeyboardInterrupt 같은 중단은 호출자가 `run.abort()`로 기록한 뒤 다시 올린다.
+    """
     while True:
-        result = run.step()
+        try:
+            result = run.step()
+        except Exception as exc:  # 어떤 오류도 PASS로 이어지지 않게 INCONCLUSIVE로 끝낸다
+            return run.abort(type(exc).__name__)
         if result is not None:
             return result
         run.clock.sleep(max(run.seconds_until_next_event(), 0.01))
+
+
+# ── 저장과 전이 (2부) ─────────────────────────────────────────
+
+VERIFICATION_ORIGINS = frozenset({"agent_release", "human_injected_negative", "manual_integration"})
+AGENT_PERFORMANCE_ORIGIN = "agent_release"
+FINAL_VERDICTS = frozenset({"PASS", "FAIL", "INCONCLUSIVE"})
+# FAIL·INCONCLUSIVE로 ESCALATED할 때의 reason 코드(docs/03 §5 blocker_code)
+ESCALATION_REASONS = {"FAIL": "VERIFICATION_FAILED", "INCONCLUSIVE": "OBSERVATION_INCONCLUSIVE"}
+
+
+@dataclass(frozen=True)
+class PersistedVerification:
+    verification_id: str
+    verdict: str
+    incident_status: str
+    incident_version: int
+    work_id: str | None
+    work_status: str | None
+    work_version: int | None
+    notification_id: str | None
+    resolved_written: bool
+    result: dict[str, Any]
+
+
+def persist_result(
+    tx: Tx,
+    result: VerificationResult,
+    *,
+    run_id: str,
+    incident_id: str,
+    expected_incident_version: int,
+    route_id: str,
+    execution_id: str | None = None,
+) -> PersistedVerification:
+    """판정 결과를 저장하고 verifier 주체로만 incident(와 work)를 전이한다.
+
+    호출자의 트랜잭션 안에서 쓴다.
+
+    - PASS → incident RESOLVED, work SUCCEEDED, `RECOVERY_VERIFIED` 알림 intent
+    - FAIL·INCONCLUSIVE → incident ESCALATED, work BLOCKED, `RECOVERY_NOT_VERIFIED` 알림 intent
+    - work가 없는 사건(S1b 시험 사건 등)은 incident만 전이하고 알림 intent를 넣지 않는다
+      (알릴 Issue가 없다)
+
+    incident가 VERIFYING이 아니거나 version이 다르면 예외가 나고,
+    호출자의 트랜잭션이 저장까지 모두 되돌린다.
+    """
+    if result.origin not in VERIFICATION_ORIGINS:
+        raise ValueError(f"알 수 없는 verification origin: {result.origin!r}")
+    if result.verdict not in FINAL_VERDICTS:
+        raise ValueError(f"최종 판정이 아니다: {result.verdict!r}")
+    if result.verdict == "PASS" and not (
+        result.observation_complete
+        and result.samples_completed == result.samples_required
+        and not result.failed_assertions
+    ):
+        raise ValueError("PASS는 관찰 완료·모든 표본 통과·실패 없음일 때만 저장한다")
+    incident = tx.one("SELECT run_id FROM incidents WHERE id = ?", (incident_id,))
+    if incident is None or incident["run_id"] != run_id:
+        raise ValueError("run과 incident가 맞지 않는다")
+
+    resolved = result.verdict == "PASS"
+    stored = {**result.to_dict(), "resolved_written": resolved}
+    tx.execute(
+        "INSERT INTO verifications(id, run_id, incident_id, execution_id, origin, verdict,"
+        " contract_id, contract_sha256, started_at, ended_at, result_json)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            result.verification_id,
+            run_id,
+            incident_id,
+            execution_id,
+            result.origin,
+            result.verdict,
+            result.contract_id,
+            result.contract_sha256,
+            result.started_at,
+            result.ended_at,
+            canonical_dumps(stored),
+        ),
+    )
+    target = "RESOLVED" if resolved else "ESCALATED"
+    reason = None if resolved else ESCALATION_REASONS[result.verdict]
+    details = {
+        "verification_id": result.verification_id,
+        "verdict": result.verdict,
+        "verification_reason": result.reason,
+        "origin": result.origin,
+    }
+    work = tx.one(
+        "SELECT * FROM work_items WHERE run_id = ? AND incident_id = ?", (run_id, incident_id)
+    )
+    work_status = work_version = notification_id = None
+    if work is None:
+        incident_version = transition_incident(
+            tx,
+            incident_id,
+            expected_incident_version,
+            target,
+            Actor.VERIFIER,
+            reason,
+            details=details,
+        )
+    else:
+        work_status = "SUCCEEDED" if resolved else "BLOCKED"
+        coupled = coupled_transition(
+            tx,
+            incident_id=incident_id,
+            expected_incident_version=expected_incident_version,
+            incident_to=target,
+            work_id=work["id"],
+            expected_work_version=work["version"],
+            work_to=work_status,
+            actor=Actor.VERIFIER,
+            reason=reason,
+            details=details,
+        )
+        incident_version, work_version = coupled.incident_version, coupled.work_version
+        assert coupled.outbox_event is not None
+        payload = {
+            "schema_version": "linemedic.v4",
+            "event_type": coupled.outbox_event,
+            "run_id": run_id,
+            "incident_id": incident_id,
+            "work_id": work["id"],
+            "generation": work["generation"],
+            "repository_id": work["repository_id"],
+            "issue_number": work["issue_number"],
+            "verification_id": result.verification_id,
+            "verdict": result.verdict,
+            "reason": result.reason,
+            "origin": result.origin,
+            "contract_id": result.contract_id,
+            "contract_sha256": result.contract_sha256,
+            "target": result.target,
+            "samples_completed": result.samples_completed,
+            "samples_required": result.samples_required,
+            "observation_complete": result.observation_complete,
+            "started_at": result.started_at,
+            "ended_at": result.ended_at,
+        }
+        notification_id = outbox.enqueue(tx, work, coupled.outbox_event, payload, route_id)
+    audit.append(
+        tx,
+        run_id,
+        incident_id,
+        Actor.VERIFIER,
+        "VERIFICATION_RECORDED",
+        {**details, "contract_id": result.contract_id, "resolved_written": resolved},
+    )
+    return PersistedVerification(
+        verification_id=result.verification_id,
+        verdict=result.verdict,
+        incident_status=target,
+        incident_version=incident_version,
+        work_id=work["id"] if work is not None else None,
+        work_status=work_status,
+        work_version=work_version,
+        notification_id=notification_id,
+        resolved_written=resolved,
+        result=stored,
+    )
+
+
+def agent_performance_verifications(tx: Tx, run_id: str) -> list[Any]:
+    """agent 성과 집계 대상(origin=agent_release)만 읽는다. S1b·수동 통합은 뺀다(spec 09 §4)."""
+    return tx.all(
+        "SELECT * FROM verifications WHERE run_id = ? AND origin = ? ORDER BY started_at, id",
+        (run_id, AGENT_PERFORMANCE_ORIGIN),
+    )

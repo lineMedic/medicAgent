@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W05 (2부)** ([tasks/W05-verifier.md](tasks/W05-verifier.md) 2부, verifier 결과 저장과 verifier 전용 incident 전이 — 선행 W06 충족, 게이트 없이 목표 상태까지 가능). 그다음은 W07이다. W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W07** ([tasks/W07-detector-evidence.md](tasks/W07-detector-evidence.md), 로그 감지·evidence·`/tools` 조회 — 선행 W04·W06 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -26,7 +26,7 @@
 | 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
-| 9 | W05 (2부) | UNIT_TESTED | NOT_CHECKED | | | |
+| 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
 | 10 | W07 | UNIT_TESTED | NOT_CHECKED | | | |
 | 11 | W08 | UNIT_TESTED | NOT_CHECKED | | | |
 | 12 | W09 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,30 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W05 (2부) 완료 보고 (2026-09-27T05:59Z)
+
+- 상태: UNIT_TESTED (2부 목표 도달). W05는 1부·2부 모두 목표 상태다. docker 시험과 실제 `make verify-negative`의 DB 기록도 로컬에서 통과했다
+- 변경 파일:
+  - `linemedic/control_plane/verifier.py`: `persist_result`(한 트랜잭션에서 `verifications` INSERT → verifier 주체 전이 → `RECOVERY_VERIFIED`/`RECOVERY_NOT_VERIFIED` 알림 intent → 감사), `agent_performance_verifications`(origin=agent_release만), `verify`가 판정 중 예상하지 못한 예외를 INCONCLUSIVE/`verifier_error`로 끝냄(`VerificationRun.abort`)
+  - `linemedic/tests/helpers/demo_states.py`: 테스트·demo 전용 VERIFYING 시험 사건 준비(감사 actor `trusted_harness`). 운영 API에서 쓰지 않음을 정적 검사
+  - `linemedic/factory_sim/negative/harness.py`: 제어 DB의 활성 run 확인 → MES 준비 후 시험 사건 준비 → verifier → `persist_result` → 결과 파일. `expected_outcome`이 사건 ESCALATED까지 확인
+  - `linemedic/cli.py`(`verify-negative --db --config`, 제어 DB 없으면 `make run-new` 안내), `Makefile`(`verify-negative` 안내 문구), DECISIONS.md·ADR.md(D71)
+  - 테스트: `integration/test_verifier_persist.py`(15), `unit/test_verifier.py`(harness DB 기록·활성 run·verifier_error·CLI 4개 추가·갱신), `integration/test_verifier_docker.py`(DB 기록 확인)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 567 passed, 4 deselected / `make lint` → PASS / `make test-docker` → 3 passed
+  - `make verify-negative RUN_ID=r-20260927-054424-94f9`(W06의 `make run-new`로 만든 활성 run) → 종료 코드 0. `VER-B4BE5C22EA1F`: FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, origin human_injected_negative. `INC-6878BEAECCC1`: VERIFYING → ESCALATED(reason `VERIFICATION_FAILED`). 감사: `RUN_CREATED`(operator) → `DEMO_STATE_PREPARED`(trusted_harness) → `INCIDENT_TRANSITION`(verifier) → `VERIFICATION_RECORDED`(verifier). `foreign_key_check` 빈 결과, 이 run ID의 컨테이너·network 0개
+  - 변이 확인: FAIL도 RESOLVED로 기록, 알림 intent 제거, 저장본 `resolved_written` 미갱신, `verify`가 예외를 그대로 올림을 각각 넣으면 테스트가 실패했다(4·4·1·2개). 확인 뒤 원래 코드로 되돌렸다
+- 수용 기준 (2부):
+  - verifier 모듈 밖의 RESOLVED 전이 거부: T-STATE-02(비 verifier 주체 8개 거부)와 정적 검사(제품 모듈 중 `Actor.VERIFIER`를 쓰는 곳은 `verifier.py`뿐) PASS
+  - S1b 실행 후 incident ESCALATED, verification FAIL, resolved_written=false: FakeDocker 시험·docker 시험·실제 `make verify-negative` 모두 PASS
+  - S1b 결과를 origin으로 agent 성과 집계에서 구분: `agent_performance_verifications`가 human_injected_negative·manual_integration을 뺌 PASS
+- 판단:
+  - D71: 저장·전이·알림·감사를 한 트랜잭션으로 묶고, ESCALATED reason을 FAIL `VERIFICATION_FAILED`·INCONCLUSIVE `OBSERVATION_INCONCLUSIVE`로 정했다. work가 없는 시험 사건은 알릴 Issue가 없어 알림 intent를 넣지 않는다. 판정 중 예외는 PASS나 미기록이 아니라 INCONCLUSIVE로 남긴다
+  - spec 08 §7대로 시험 사건 준비 도우미를 테스트 도우미 패키지에 두었고, trusted harness가 그것을 import한다(대가로 기록)
+- 증거: 커밋은 이 보고를 포함한 W05 2부 커밋. DB와 결과 파일은 git 제외 경로 `runs/` 아래에 있다
+- 남은 일·위험: W26 전에는 RECOVERY_* 알림 intent가 PENDING으로 쌓인다. 결과 알림 본문·발송은 W26, case note 연결은 W27
+- 다음 카드: W07
 
 ### W06 완료 보고 (2026-09-27T05:46Z)
 

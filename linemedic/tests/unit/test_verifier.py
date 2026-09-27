@@ -33,6 +33,7 @@ from linemedic.control_plane.observer import (
     ObserverError,
     RecurrenceSignature,
 )
+from linemedic.control_plane.store import Store
 from linemedic.control_plane.verifier import (
     Contract,
     FixtureGuard,
@@ -49,6 +50,8 @@ from linemedic.control_plane.verifier import (
 from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness, wrong_200_defects
 from linemedic.integrations.docker import CliDocker, CommandResult, FakeDocker, _CliLogStream
+from linemedic.tests.helpers.db_rows import count, insert_run, row
+from linemedic.tests.helpers.demo_states import prepare_verifying_incident
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = REPO_ROOT / "linemedic" / "contracts" / "defect-summary-v1.toml"
@@ -688,6 +691,23 @@ def test_unanswered_sample_is_inconclusive(error):
     assert result.detail.startswith("normal-regression: ")
 
 
+def test_unexpected_error_during_verification_is_inconclusive_not_pass():
+    def responder(path, query, elapsed):
+        if elapsed >= 10:
+            raise RuntimeError("예상하지 못한 오류")
+        return correct_response(path, query, elapsed)
+
+    rig = make_rig(responder)
+    result = verify(**{**rig.kwargs, "http": FakeHttp(rig.clock, responder)})
+    assert (result.verdict, result.reason, result.detail) == (
+        "INCONCLUSIVE",
+        "verifier_error",
+        "RuntimeError",
+    )
+    assert result.samples_completed == 1
+    assert result.observation_complete is False
+
+
 def test_slow_final_sample_is_observed_before_pass():
     """t=30 표본이 60초를 넘겨도 PASS 전에 관찰 상태를 다시 본다(검증에서 발견)."""
     rig = make_rig()
@@ -980,7 +1000,7 @@ def test_s1b_path_is_reachable_only_from_trusted_harness():
             assert "wrong_200" not in text and "s1b" not in text, path
 
 
-# ── S1b trusted harness (FakeDocker) ─────────────────────────
+# ── S1b trusted harness (FakeDocker + 실제 제어 DB) ──────────
 
 
 def mes_exec_handler(data_dir: Path, summarize, prober: str):
@@ -1007,11 +1027,32 @@ def harness_docker(runs_dir: Path, summarize) -> FakeDocker:
     return docker
 
 
-def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock):
-    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
-    outcome = harness.run_verify_negative(
-        RUN_ID, tmp_runs_dir, docker=docker, clock=fake_clock, sleep=fake_clock.sleep
+@pytest.fixture
+def run_store(store, conn):
+    """활성 run이 있는 제어 DB(`make run-new`에 해당)."""
+    insert_run(conn, RUN_ID)
+    return store
+
+
+def run_harness(runs_dir, store, clock, docker, **kwargs):
+    return harness.run_verify_negative(
+        RUN_ID, runs_dir, store=store, docker=docker, clock=clock, sleep=clock.sleep, **kwargs
     )
+
+
+def incident_audit(conn, incident_id):
+    return [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT actor, event_type FROM audit_events WHERE incident_id = ? ORDER BY seq",
+            (incident_id,),
+        )
+    ]
+
+
+def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock, run_store, conn):
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    outcome = run_harness(tmp_runs_dir, run_store, fake_clock, docker)
     result = outcome["result"]
     names = harness.resource_names(RUN_ID)
     data_dir = tmp_runs_dir / RUN_ID / "verify-negative" / "mes-data"
@@ -1022,7 +1063,7 @@ def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock):
     assert result["observation_complete"] is False
     assert result["resolved_written"] is False
     assert any(SPEC_08_FAILED_EXAMPLE.items() <= f.items() for f in result["failed_assertions"])
-    assert harness.expected_outcome(result)
+    assert harness.expected_outcome(outcome)
 
     result_path = Path(outcome["result_path"])
     assert result_path == (
@@ -1031,6 +1072,28 @@ def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock):
     assert json.loads(result_path.read_text(encoding="utf-8")) == result
     assert result["target"]["image_id"] == outcome["s1b_image_id"]
     assert (outcome["mes_image_id"], outcome["prober_image_id"]) == (MES_ID, PROBER_ID)
+
+    # 제어 DB: 시험 사건은 verifier 주체로 ESCALATED, verification은 FAIL·human_injected_negative
+    assert outcome["incident_status"] == "ESCALATED"
+    incident = row(conn, "incidents", outcome["incident_id"])
+    assert (incident["status"], incident["reason_code"], incident["version"]) == (
+        "ESCALATED",
+        "VERIFICATION_FAILED",
+        1,
+    )
+    stored = row(conn, "verifications", result["verification_id"])
+    assert (stored["origin"], stored["verdict"], stored["incident_id"]) == (
+        "human_injected_negative",
+        "FAIL",
+        outcome["incident_id"],
+    )
+    assert json.loads(stored["result_json"]) == result
+    assert outcome["notification_id"] is None and count(conn, "notifications") == 0
+    assert incident_audit(conn, outcome["incident_id"]) == [
+        ("trusted_harness", "DEMO_STATE_PREPARED"),
+        ("verifier", "INCIDENT_TRANSITION"),
+        ("verifier", "VERIFICATION_RECORDED"),
+    ]
 
     # S1b는 신뢰 레시피 MES 이미지 위에 한 파일만 덮어 만든다.
     builds = [call for call in docker.calls if call[0] == "build"]
@@ -1071,102 +1134,196 @@ def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock):
         assert set(json.loads(path.read_text(encoding="utf-8"))) == {"lot_id", "records"}
 
 
-def test_harness_passes_correct_service_so_expected_outcome_is_false(tmp_runs_dir, fake_clock):
+def test_harness_passes_correct_service_so_expected_outcome_is_false(
+    tmp_runs_dir, fake_clock, run_store, conn
+):
     """S1b가 우연히 정상이면 harness가 기대 결과가 아니라고 알려야 한다."""
     docker = harness_docker(tmp_runs_dir, reference_summary)
-    outcome = harness.run_verify_negative(
-        RUN_ID, tmp_runs_dir, docker=docker, clock=fake_clock, sleep=fake_clock.sleep
-    )
+    outcome = run_harness(tmp_runs_dir, run_store, fake_clock, docker)
     assert (outcome["result"]["verdict"], outcome["result"]["reason"]) == (
         "PASS",
         "all_checks_passed",
     )
-    assert not harness.expected_outcome(outcome["result"])
+    assert outcome["result"]["resolved_written"] is True
+    assert row(conn, "incidents", outcome["incident_id"])["status"] == "RESOLVED"
+    assert not harness.expected_outcome(outcome)
     assert docker.containers == {} and docker.networks == set()
 
 
-def test_harness_requires_mes_image(tmp_runs_dir, fake_clock):
+def test_harness_records_inconclusive_when_verifier_errors(
+    tmp_runs_dir, fake_clock, run_store, conn
+):
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    healthy = docker.exec_handler
+
+    def broken(name, command):
+        if "/defects/summary" in command[3]:
+            raise RuntimeError("prober 내부 오류")
+        return healthy(name, command)
+
+    docker.exec_handler = broken
+    outcome = run_harness(tmp_runs_dir, run_store, fake_clock, docker)
+    result = outcome["result"]
+    assert (result["verdict"], result["reason"], result["detail"]) == (
+        "INCONCLUSIVE",
+        "verifier_error",
+        "RuntimeError",
+    )
+    incident = row(conn, "incidents", outcome["incident_id"])
+    assert (incident["status"], incident["reason_code"]) == (
+        "ESCALATED",
+        "OBSERVATION_INCONCLUSIVE",
+    )
+    assert not harness.expected_outcome(outcome)
+    assert docker.containers == {} and docker.networks == set()
+
+
+def test_harness_reports_unfinished_test_incident(tmp_runs_dir, fake_clock, run_store, conn):
+    """중단된 이전 실행이 남긴 VERIFYING 시험 사건이 있으면 추적 가능한 오류로 알린다."""
+    with run_store.tx() as tx:
+        stale = prepare_verifying_incident(
+            tx, RUN_ID, purpose=harness.DEMO_PURPOSE, fingerprint=harness.DEMO_FINGERPRINT
+        )
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    with pytest.raises(harness.HarnessError, match=stale):
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
+    assert not [call for call in docker.calls if call[0] in {"build", "run"}]
+
+
+def test_harness_records_inconclusive_when_interrupted(tmp_runs_dir, fake_clock, run_store, conn):
+    """Ctrl-C로 중단돼도 시험 사건을 VERIFYING에 남기지 않고 INCONCLUSIVE로 기록한다."""
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    healthy = docker.exec_handler
+
+    def interrupted(name, command):
+        if "/defects/summary" in command[3]:
+            raise KeyboardInterrupt
+        return healthy(name, command)
+
+    docker.exec_handler = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
+    [incident] = conn.execute("SELECT status, reason_code FROM incidents").fetchall()
+    assert tuple(incident) == ("ESCALATED", "OBSERVATION_INCONCLUSIVE")
+    [stored] = conn.execute("SELECT verdict, result_json FROM verifications").fetchall()
+    assert stored["verdict"] == "INCONCLUSIVE"
+    assert json.loads(stored["result_json"])["detail"] == "interrupted:KeyboardInterrupt"
+    assert docker.containers == {} and docker.networks == set()
+
+
+def test_harness_requires_active_run_in_db(tmp_runs_dir, fake_clock, store, conn):
+    docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
+    with pytest.raises(harness.HarnessError, match="make run-new"):
+        run_harness(tmp_runs_dir, store, fake_clock, docker)
+    insert_run(conn, RUN_ID, active=0)
+    with pytest.raises(harness.HarnessError, match="활성 run"):
+        run_harness(tmp_runs_dir, store, fake_clock, docker)
+    assert not [call for call in docker.calls if call[0] in {"build", "run"}]
+
+
+def test_harness_requires_mes_image(tmp_runs_dir, fake_clock, run_store):
     docker = FakeDocker()
     with pytest.raises(harness.HarnessError, match="make mes-image"):
-        harness.run_verify_negative(RUN_ID, tmp_runs_dir, docker=docker, clock=fake_clock)
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
     assert not [call for call in docker.calls if call[0] in {"build", "run", "network_create"}]
 
 
-def test_harness_checks_recorded_mes_image_id(tmp_runs_dir, fake_clock):
+def test_harness_checks_recorded_mes_image_id(tmp_runs_dir, fake_clock, run_store):
     docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
     with pytest.raises(harness.HarnessError, match="MES_BASE_IMAGE_ID"):
-        harness.run_verify_negative(
-            RUN_ID,
-            tmp_runs_dir,
-            docker=docker,
-            clock=fake_clock,
-            expected_mes_image_id="sha256:" + "c" * 64,
+        run_harness(
+            tmp_runs_dir, run_store, fake_clock, docker, expected_mes_image_id="sha256:" + "c" * 64
         )
     assert not [call for call in docker.calls if call[0] == "build"]
 
 
-def test_harness_rejects_invalid_run_id(tmp_runs_dir, fake_clock):
+def test_harness_rejects_invalid_run_id(tmp_runs_dir, fake_clock, run_store):
     with pytest.raises(harness.HarnessError, match="run_id"):
-        harness.run_verify_negative("../x", tmp_runs_dir, docker=FakeDocker(), clock=fake_clock)
+        harness.run_verify_negative(
+            "../x", tmp_runs_dir, store=run_store, docker=FakeDocker(), clock=fake_clock
+        )
 
 
-def test_harness_cleans_up_when_service_never_ready(tmp_runs_dir, fake_clock):
+def test_harness_cleans_up_when_service_never_ready(tmp_runs_dir, fake_clock, run_store, conn):
     docker = harness_docker(tmp_runs_dir, wrong_200_defects.summarize)
     docker.exec_handler = probe_reply({"error": "ConnectionRefusedError"})
     with pytest.raises(harness.HarnessError, match="준비되지 않았다"):
-        harness.run_verify_negative(
-            RUN_ID, tmp_runs_dir, docker=docker, clock=fake_clock, sleep=fake_clock.sleep
-        )
+        run_harness(tmp_runs_dir, run_store, fake_clock, docker)
     assert docker.containers == {} and docker.networks == set()
     assert not (tmp_runs_dir / RUN_ID / "verifications").exists()
+    assert count(conn, "incidents") == 0  # 사건은 MES가 준비된 뒤에만 만든다
 
 
 # ── CLI·Makefile ─────────────────────────────────────────────
 
 
 @pytest.fixture
-def negative_env(tmp_path, monkeypatch):
+def negative_env(tmp_path, monkeypatch, fake_clock):
     for name in ("RUNS_DIR", "MES_BASE_IMAGE_ID"):
         monkeypatch.delenv(name, raising=False)
+    runs_dir = tmp_path / "cli-runs"
+    runs_dir.mkdir()
+    Store(runs_dir / "linemedic.db", fake_clock).migrate()
     env_file = tmp_path / ".env"
-    env_file.write_text(
-        f"RUNS_DIR={tmp_path / 'runs'}\nMES_BASE_IMAGE_ID={MES_ID}\n", encoding="utf-8"
-    )
+    env_file.write_text(f"RUNS_DIR={runs_dir}\nMES_BASE_IMAGE_ID={MES_ID}\n", encoding="utf-8")
     return env_file
 
 
+def cli_args(env_file: Path) -> list[str]:
+    return [
+        "verify-negative",
+        "--run-id",
+        RUN_ID,
+        "--env-file",
+        str(env_file),
+        "--config",
+        str(REPO_ROOT / "config" / "linemedic.toml"),
+    ]
+
+
 @pytest.mark.parametrize(
-    ("verdict", "reason", "exit_code"),
+    ("verdict", "reason", "incident_status", "exit_code"),
     [
-        ("FAIL", "content_mismatch", 0),
-        ("PASS", "all_checks_passed", 1),
-        ("FAIL", "error_recurred", 1),
+        ("FAIL", "content_mismatch", "ESCALATED", 0),
+        ("PASS", "all_checks_passed", "RESOLVED", 1),
+        ("FAIL", "error_recurred", "ESCALATED", 1),
+        ("FAIL", "content_mismatch", "VERIFYING", 1),
     ],
 )
-def test_cli_verify_negative_exit_code(monkeypatch, negative_env, verdict, reason, exit_code):
+def test_cli_verify_negative_exit_code(
+    monkeypatch, negative_env, verdict, reason, incident_status, exit_code
+):
     seen = {}
 
-    def fake_run(run_id, runs_dir, mes_image, expected_mes_image_id):
+    def fake_run(run_id, runs_dir, *, store, mes_image, expected_mes_image_id, route_id):
         seen.update(
-            run_id=run_id, runs_dir=runs_dir, mes_image=mes_image, expected=expected_mes_image_id
+            run_id=run_id,
+            runs_dir=runs_dir,
+            db=store.path,
+            mes_image=mes_image,
+            expected=expected_mes_image_id,
+            route_id=route_id,
         )
         return {
             "result": {
                 "verdict": verdict,
                 "reason": reason,
-                "resolved_written": False,
+                "resolved_written": verdict == "PASS",
                 "observation_complete": verdict == "PASS",
-            }
+            },
+            "incident_status": incident_status,
         }
 
     monkeypatch.setattr(harness, "run_verify_negative", fake_run)
-    argv = ["verify-negative", "--run-id", RUN_ID, "--env-file", str(negative_env)]
-    assert cli.main(argv) == exit_code
+    assert cli.main(cli_args(negative_env)) == exit_code
+    runs_dir = negative_env.parent / "cli-runs"
     assert seen == {
         "run_id": RUN_ID,
-        "runs_dir": negative_env.parent / "runs",
+        "runs_dir": runs_dir,
+        "db": runs_dir / "linemedic.db",
         "mes_image": scenarios.DEFAULT_MES_IMAGE,
         "expected": MES_ID,
+        "route_id": "github-issue-primary",
     }
 
 
@@ -1175,9 +1332,16 @@ def test_cli_verify_negative_reports_harness_error(monkeypatch, negative_env, ca
         raise harness.HarnessError("MES 이미지가 없다")
 
     monkeypatch.setattr(harness, "run_verify_negative", fake_run)
-    argv = ["verify-negative", "--run-id", RUN_ID, "--env-file", str(negative_env)]
-    assert cli.main(argv) == 2
+    assert cli.main(cli_args(negative_env)) == 2
     assert "MES 이미지가 없다" in capsys.readouterr().err
+
+
+def test_cli_verify_negative_requires_control_db(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("RUNS_DIR", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"RUNS_DIR={tmp_path / 'empty'}\n", encoding="utf-8")
+    assert cli.main(cli_args(env_file)) == 2
+    assert "make run-new" in capsys.readouterr().err
 
 
 def test_make_verify_negative_requires_run_id():

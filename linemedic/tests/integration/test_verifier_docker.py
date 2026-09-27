@@ -17,7 +17,9 @@ import pytest
 
 from linemedic.common.clock import SystemClock, to_rfc3339
 from linemedic.common.ids import new_run_id
+from linemedic.control_plane import runs
 from linemedic.control_plane.observer import ContainerObserver
+from linemedic.control_plane.store import Store
 from linemedic.control_plane.verifier import ProberHttp
 from linemedic.factory_sim.negative import harness
 from linemedic.factory_sim.scenarios import mes_container_options
@@ -83,7 +85,13 @@ def mes_image() -> str:
 
 def test_verify_negative_rejects_real_s1b_container(mes_image, tmp_path):
     run_id = new_run_id(SystemClock())
-    outcome = harness.run_verify_negative(run_id, runs_dir=tmp_path, mes_image=mes_image)
+    store = Store(tmp_path / "linemedic.db", SystemClock())
+    store.migrate()
+    with store.tx() as tx:
+        runs.create_run(tx, run_id, {"schema_version": "linemedic.v4", "run_id": run_id})
+    outcome = harness.run_verify_negative(
+        run_id, runs_dir=tmp_path, store=store, mes_image=mes_image
+    )
     result = outcome["result"]
 
     assert (result["verdict"], result["reason"]) == ("FAIL", "content_mismatch"), result
@@ -103,7 +111,16 @@ def test_verify_negative_rejects_real_s1b_container(mes_image, tmp_path):
     assert result["target"]["image_id"] == outcome["s1b_image_id"]
     assert result["observer"]["stream_gap"] is False
     assert result["observer"]["identity_changed"] is False
-    assert harness.expected_outcome(result)
+    assert harness.expected_outcome(outcome)
+    with store.read() as tx:
+        incident = tx.one(
+            "SELECT status, reason_code FROM incidents WHERE id = ?", (outcome["incident_id"],)
+        )
+        stored = tx.one(
+            "SELECT origin, verdict FROM verifications WHERE id = ?", (result["verification_id"],)
+        )
+    assert (incident["status"], incident["reason_code"]) == ("ESCALATED", "VERIFICATION_FAILED")
+    assert (stored["origin"], stored["verdict"]) == ("human_injected_negative", "FAIL")
 
     saved = Path(outcome["result_path"])
     assert saved.parent == tmp_path / run_id / "verifications"

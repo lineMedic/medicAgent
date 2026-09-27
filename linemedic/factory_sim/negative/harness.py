@@ -1,14 +1,15 @@
-"""S1b 거짓 정상 시험 harness (W05 1부, trusted harness 전용).
+"""S1b 거짓 정상 시험 harness (W05, trusted harness 전용).
 
-1. 신뢰 레시피 MES 이미지 위에 잘못된 집계를 덮은 S1b 이미지를 만든다.
-2. 내부 network에 S1b MES 컨테이너와 신뢰 prober 컨테이너를 띄운다.
-3. 관찰을 시작한 뒤(t0) verifier를 실행하고
-   결과를 `runs/<run_id>/verifications/<VER-id>.json`에 저장한다.
-4. 이 run의 정확한 컨테이너·network만 정리한다.
+1. 제어 DB의 활성 run을 확인한다(`make run-new`가 만든 run).
+2. 신뢰 레시피 MES 이미지 위에 잘못된 집계를 덮은 S1b 이미지를 만든다.
+3. 내부 network에 S1b MES 컨테이너와 신뢰 prober 컨테이너를 띄운다.
+4. 관찰을 시작하고, 시험 사건을 VERIFYING으로 준비한 뒤(t0) verifier를 실행한다.
+5. `verifier.persist_result`로 결과를 저장하고 verifier 주체로 사건을 전이한다(S1b는 ESCALATED).
+   같은 결과를 `runs/<run_id>/verifications/<VER-id>.json`에도 남긴다.
+6. 이 run의 정확한 컨테이너·network만 정리한다.
 
-1부에서는 DB에 쓰지 않는다(2부에서 incident ESCALATED로 기록한다).
 결과 origin은 human_injected_negative이며 에이전트 성과 집계에서 빠진다.
-제품 broker·/tools에는 이 경로가 없다.
+제품 broker·/tools에는 이 경로가 없다. 사건 준비는 테스트·demo 전용 도우미(`demo_states`)만 쓴다.
 """
 
 import json
@@ -21,6 +22,7 @@ from typing import Any
 from linemedic.common.clock import Clock, SystemClock, to_rfc3339
 from linemedic.common.ids import is_valid_run_id
 from linemedic.control_plane.observer import ContainerObserver, RecurrenceSignature
+from linemedic.control_plane.store import Store
 from linemedic.control_plane.verifier import (
     DEFAULT_CONTRACT,
     EVAL_DIR,
@@ -29,9 +31,11 @@ from linemedic.control_plane.verifier import (
     ProberHttp,
     RequestFailed,
     RequestTimeout,
+    VerificationRun,
+    drive,
     load_contract,
+    persist_result,
     resolve_cases,
-    verify,
 )
 from linemedic.factory_sim.scenarios import (
     BUG_LOT,
@@ -41,6 +45,7 @@ from linemedic.factory_sim.scenarios import (
     mes_container_options,
 )
 from linemedic.integrations.docker import CliDocker, DockerPort
+from linemedic.tests.helpers.demo_states import prepare_verifying_incident
 
 NEGATIVE_DIR = Path(__file__).resolve().parent
 S1B_IMAGE = "linemedic-mes:s1b-negative"
@@ -52,6 +57,9 @@ S1_SIGNATURE = RecurrenceSignature(
     error_type="KeyError", top_frame="app.defects:summarize", path="/defects/summary"
 )
 HEALTH_TIMEOUT_SECONDS = 30.0
+DEFAULT_ROUTE_ID = "github-issue-primary"
+DEMO_PURPOSE = "verifier_negative_test"
+DEMO_FINGERPRINT = "verifier-negative:defect-summary-v1"
 
 
 class HarnessError(RuntimeError):
@@ -122,15 +130,37 @@ def wait_healthy(http: HttpClient, clock: Clock, sleep: Callable[[float], None])
         sleep(0.5)
 
 
+def _active_run(store: Store, run_id: str) -> None:
+    with store.read() as tx:
+        run = tx.one("SELECT active FROM demo_runs WHERE id = ?", (run_id,))
+        stale = tx.one(
+            "SELECT id FROM incidents"
+            " WHERE run_id = ? AND fingerprint = ? AND status = 'VERIFYING'",
+            (run_id, DEMO_FINGERPRINT),
+        )
+    if run is None:
+        raise HarnessError(f"run이 제어 DB에 없다: {run_id} (먼저 make run-new)")
+    if run["active"] != 1:
+        raise HarnessError(f"활성 run이 아니다: {run_id}")
+    if stale is not None:
+        raise HarnessError(
+            f"이 run에 끝나지 않은 S1b 시험 사건이 있다: {stale['id']} "
+            "(이전 실행이 강제 종료됨). 새 run(make run-new)에서 다시 실행한다"
+        )
+
+
 def run_verify_negative(
     run_id: str,
     runs_dir: Path,
+    *,
+    store: Store,
     docker: DockerPort | None = None,
     clock: Clock | None = None,
     sleep: Callable[[float], None] = time.sleep,
     mes_image: str = DEFAULT_MES_IMAGE,
     expected_mes_image_id: str | None = None,
     prober_image: str = PROBER_IMAGE,
+    route_id: str = DEFAULT_ROUTE_ID,
 ) -> dict[str, Any]:
     """S1b 시험 1회. `mes_image`는 태그여야 한다(BuildKit `FROM`은 image ID를 받지 않는다).
 
@@ -138,6 +168,7 @@ def run_verify_negative(
     """
     if not is_valid_run_id(run_id):
         raise HarnessError(f"run_id 형식이 아니다: {run_id!r}")
+    _active_run(store, run_id)
     docker = docker or CliDocker()
     clock = clock or SystemClock()
     names = resource_names(run_id)
@@ -154,6 +185,8 @@ def run_verify_negative(
     data_dir, lot_files = prepare_data(runs_dir, run_id)
 
     observer = None
+    incident_id = None
+    interrupted: BaseException | None = None
     try:
         created = docker.network_create(names["network"], {"linemedic.run_id": run_id})
         if created.returncode != 0:
@@ -172,7 +205,11 @@ def run_verify_negative(
         contract, contract_sha256 = load_contract(DEFAULT_CONTRACT)
         observer = ContainerObserver(docker, names["mes"], S1_SIGNATURE)
         identity = observer.start(since=to_rfc3339(clock.utc_now()))
-        result = verify(
+        with store.tx() as tx:
+            incident_id = prepare_verifying_incident(
+                tx, run_id, purpose=DEMO_PURPOSE, fingerprint=DEMO_FINGERPRINT
+            )
+        run = VerificationRun(
             contract=contract,
             contract_sha256=contract_sha256,
             cases=resolve_cases(contract),
@@ -183,6 +220,13 @@ def run_verify_negative(
             target={"container": names["mes"], "image": S1B_IMAGE, **identity},
             fixture_guard=FixtureGuard([DEFAULT_CONTRACT, HOLDOUT, *lot_files]),
         )
+        try:
+            result = drive(run)
+        except (
+            BaseException
+        ) as exc:  # Ctrl-C 등: 사건을 VERIFYING에 남기지 않고 기록한 뒤 다시 올린다
+            interrupted = exc
+            result = run.abort(f"interrupted:{type(exc).__name__}")
     finally:
         if observer is not None:
             observer.stop()
@@ -193,12 +237,31 @@ def run_verify_negative(
     out_dir = runs_dir / run_id / "verifications"
     out_dir.mkdir(parents=True, exist_ok=True)
     result_path = out_dir / f"{result.verification_id}.json"
-    result_path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    stored = result.to_dict()
+    try:
+        with store.tx() as tx:
+            persisted = persist_result(
+                tx,
+                result,
+                run_id=run_id,
+                incident_id=incident_id,
+                expected_incident_version=0,
+                route_id=route_id,
+            )
+        stored = persisted.result
+    finally:
+        result_path.write_text(
+            json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    if interrupted is not None:
+        raise interrupted
     return {
-        "result": result.to_dict(),
+        "result": stored,
         "result_path": str(result_path),
+        "incident_id": incident_id,
+        "incident_status": persisted.incident_status,
+        "incident_version": persisted.incident_version,
+        "notification_id": persisted.notification_id,
         "mes_image": mes_image,
         "mes_image_id": mes_image_id,
         "s1b_image_id": s1b_image,
@@ -207,11 +270,13 @@ def run_verify_negative(
     }
 
 
-def expected_outcome(result: dict[str, Any]) -> bool:
-    """S1b에서 verifier가 기대대로 거절했는가: FAIL/content_mismatch, 복구 기록 없음."""
+def expected_outcome(outcome: dict[str, Any]) -> bool:
+    """S1b를 기대대로 거절했는가: FAIL/content_mismatch, 사건 ESCALATED, 복구 기록 없음."""
+    result = outcome.get("result", {})
     return (
         result.get("verdict") == "FAIL"
         and result.get("reason") == "content_mismatch"
         and result.get("resolved_written") is False
         and result.get("observation_complete") is False
+        and outcome.get("incident_status") == "ESCALATED"
     )

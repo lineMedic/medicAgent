@@ -5,6 +5,7 @@
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -55,9 +56,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     negative_parser = sub.add_parser(
         "verify-negative",
-        help="S1b 거짓 정상 이미지에 verifier 실행, FAIL/content_mismatch면 종료 코드 0 (W05)",
+        help="S1b 거짓 정상 이미지로 verifier 실행·DB 기록, 기대대로 거절하면 종료 코드 0 (W05)",
     )
-    negative_parser.add_argument("--run-id", required=True, help="r-YYYYMMDD-HHMMSS-xxxx")
+    negative_parser.add_argument(
+        "--run-id", required=True, help="make run-new가 만든 활성 run (r-YYYYMMDD-HHMMSS-xxxx)"
+    )
+    negative_parser.add_argument(
+        "--db", type=Path, help="제어 DB 경로 (기본: <RUNS_DIR 또는 runs>/linemedic.db)"
+    )
+    negative_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     negative_parser.add_argument(
         "--mes-image",
         default=scenarios.DEFAULT_MES_IMAGE,
@@ -108,18 +115,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "verify-negative":
         env = process_env(args.env_file)
+        db_path = args.db or runs.default_db_path(env)
+        if not db_path.is_file():
+            print(
+                f"verify-negative 실패: 제어 DB가 없다: {db_path} (먼저 make run-new)",
+                file=sys.stderr,
+            )
+            return 2
         try:
+            settings = load_settings(args.config, env)
+            store = Store(db_path, SystemClock())
+            store.migrate()
             outcome = harness.run_verify_negative(
                 args.run_id,
                 runs_dir=Path(env.get("RUNS_DIR") or "runs"),
+                store=store,
                 mes_image=args.mes_image,
                 expected_mes_image_id=env.get("MES_BASE_IMAGE_ID") or None,
+                route_id=settings.config.notifications.required_start_route_id,
             )
-        except (harness.HarnessError, DockerError, ObserverError) as exc:
+        except (
+            harness.HarnessError,
+            DockerError,
+            ObserverError,
+            ConfigError,
+            StoreError,
+            sqlite3.Error,
+        ) as exc:
             print(f"verify-negative 실패: {exc}", file=sys.stderr)
             return 2
         print(json.dumps(outcome, ensure_ascii=False, indent=2))
-        if harness.expected_outcome(outcome["result"]):
+        if harness.expected_outcome(outcome):
             return 0
         print("verify-negative: verifier가 S1b를 기대대로 거절하지 않았다", file=sys.stderr)
         return 1
