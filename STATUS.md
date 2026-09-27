@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W01의 게이트 없이 가능한 부분** ([tasks/W01-contest-conditions.md](tasks/W01-contest-conditions.md), G6 답변 기록 양식 준비). W00은 G1(데모 호스트 확정) 대기라 게이트 없이 할 수 있는 부분이 없다. 그다음은 W02·W03의 게이트 없는 준비(스파이크·점검 스크립트), 이어서 게이트가 필요 없는 W04다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W02의 게이트 없이 가능한 부분** ([tasks/W02-runtime-spikes.md](tasks/W02-runtime-spikes.md), N01 스파이크 스크립트·키 없을 때 `NOT_CONFIGURED` 단위 테스트·수동 절차 README). W00은 G1, W01은 G6 대기다. 그다음은 W03의 게이트 없는 준비, 이어서 게이트가 필요 없는 W04다.
 
 ## 작업표
 
@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|---|
 | 1 | B00 | UNIT_TESTED | UNIT_TESTED | `make test` → 38 passed, `make lint` → PASS, `python -m linemedic.cli doctor` → exit 1 (env NOT_CONFIGURED), 새 clone `make setup`·`make test`·`make lint` PASS, 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa` | | 2026-09-27T02:27Z |
 | 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
-| 3 | W01 | LIVE_VERIFIED | NOT_CHECKED | | G6 | |
+| 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
 | 4 | W02 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4·G5 | |
 | 5 | W03 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 6 | W04 | UNIT_TESTED | NOT_CHECKED | | | |
@@ -90,15 +90,25 @@
 
 | ID | 상태 | 근거 |
 |---|---|---|
-| R1 Skill API | UNCONFIRMED | |
-| R2 NeMo Framework/Microservices | UNCONFIRMED | |
-| R3 심사 항목 | PROVISIONAL (제공 자료 기준, 최종 원문 확인 필요) | |
-| R4 데모·코드·개별 신청 | UNCONFIRMED | |
-| R5 공식 마감 | UNCONFIRMED (원안의 더 이른 일정을 보수적으로 사용) | |
+| R1 Skill API | UNCONFIRMED | `evidence/contest-conditions.md` — 답변 대기 |
+| R2 NeMo Framework/Microservices | UNCONFIRMED | `evidence/contest-conditions.md` — 답변 대기 |
+| R3 심사 항목 | PROVISIONAL (제공 자료 기준, 최종 원문 확인 필요) | `evidence/contest-conditions.md` — 답변 대기 |
+| R4 데모·코드·개별 신청 | UNCONFIRMED | `evidence/contest-conditions.md` — 답변 대기 |
+| R5 공식 마감 | UNCONFIRMED (원안의 더 이른 일정을 보수적으로 사용) | `evidence/contest-conditions.md` — 답변 대기. 공식 페이지 표기가 9/28과 10/1로 엇갈림(§3 관찰) |
 
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W01 중단 보고 — G6 대기 (2026-09-27T03:15Z)
+
+- 상태: BLOCKED (BLOCKED_ON_HUMAN: G6). 게이트 없이 할 수 있는 부분(기록 양식)은 끝냈다
+- 변경 파일: `evidence/contest-conditions.md`(R1~R5 상태 표, 주최 측 답변 기록 표, 공식 페이지 관찰 기록, 답변 후 할 일), STATUS.md(W01 행·대회 조건 근거·다음 작업)
+- 실행: 코드 변경 없음 → `make test` NOT_RUN(해당 없음). 문의 발송·신청서 제출은 하지 않았다(사람의 일)
+- 상태 판단: R1·R2·R4·R5는 UNCONFIRMED, R3는 기존 STATUS와 같게 PROVISIONAL로 두었다(카드는 "모두 UNCONFIRMED"라고 적지만 STATUS가 이미 제공 자료 기준 PROVISIONAL로 기록해 둔 값과 맞췄다). 공식 페이지 관찰은 주최 측 답변이 아니므로 상태를 바꾸지 않았다
+- 증거: `evidence/contest-conditions.md`, 커밋은 이 보고를 포함한 W01 커밋
+- 남은 일·재개 조건: 사람이 spec 12 §2 문안을 주최 측에 보내고 답변 원문을 전달하면 §2에 옮기고 R 상태·영향 카드(W14·W21·Guardrails)를 갱신한다
+- 다음 카드: W02 게이트 없는 부분
 
 ### B00 완료 보고 (2026-09-27T02:27Z)
 
