@@ -133,6 +133,7 @@ def test_non_error_or_incomplete_events_have_no_signature(event):
         '{"a": NaN}',
         '"just a string"',
         json.dumps({"x": "y" * 70_000}),
+        "[" * 30_000 + "]" * 30_000,  # 깊은 중첩: RecursionError가 아니라 무시(검증에서 발견)
     ],
 )
 def test_parse_line_rejects_non_objects_and_unsafe_json(line):

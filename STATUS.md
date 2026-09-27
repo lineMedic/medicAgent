@@ -27,7 +27,7 @@
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
 | 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
-| 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
+| 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함, 전체 검증 수정 뒤 665), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
 | 11 | W08 | UNIT_TESTED | NOT_CHECKED | | | |
 | 12 | W09 | UNIT_TESTED | NOT_CHECKED | | | |
 | 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
@@ -99,6 +99,26 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### 전체 검증 보고 — B00~W07 (카드 밖, 2026-09-27T06:55Z)
+
+- 요청: 지금까지 만든 것이 실제로 잘 작동하는지 확인
+- 방법:
+  - 새 clone에서 `make setup` → `make lint` → `make test` → `make test-docker`(로컬 상태 없이 재현)
+  - 새 DB로 전체 흐름: `make run-new` → `make scenario-s1` → `make detect-once` → `make verify-negative`
+  - 실제 uvicorn 서버에 HTTP 요청 26개(인증·범위·조회 도구·입력 검증·멱등성·전이 표)
+  - verifier 실시간 경로: 저장소 밖 임시 정상 구현 이미지로 60초 관찰 PASS(60.05초, 표본 4/4, 관찰 로그 12줄), 관찰 중 t≈35초 컨테이너 제거 → INCONCLUSIVE/identity_changed(35.96초). 임시 이미지는 지웠다
+  - DB `foreign_key_check`·`integrity_check`, token 평문 저장 여부, holdout 식별자 유출 여부, 남은 컨테이너·network, doctor·host-manifest·W02·W03 스크립트 종료 코드
+  - 독립 리뷰 에이전트(읽기 전용)가 W04~W07 코드를 검토했고, 지적은 모두 재현 테스트로 확인한 뒤 고쳤다
+- 발견·수정(각 PR 브랜치에 수정 커밋을 넣고 앞에서부터 병합 커밋으로 반영, force push 없음):
+  - B00(#33): `loads_strict`가 깊은 중첩 JSON에서 RecursionError → `StrictJSONError`
+  - W04(#37): 상대 `RUNS_DIR` mount 수정 백포트(#38에만 있던 수정)
+  - W05 1부(#38): 마지막 표본이 60초를 넘기면 재관찰 없이 PASS하던 문제(HIGH), 잘못된 UTF-8 한 바이트에 로그 reader가 죽고 alive로 남던 문제(MEDIUM), 한 표본의 틀린 응답이 다른 case 무응답에 가려 INCONCLUSIVE가 되던 문제, 계약 하한(case 1개·표본 4회·관찰 60초 이상)
+  - W06(#39): 멱등 재전송 응답 바이트 불일치(key 순서), 동시 첫 migration 충돌, INV-01 정적 검사 우회 3종 탐지
+  - W05 2부(#40): 관찰 미완료 PASS 저장 거부, Ctrl-C 중단 시 INCONCLUSIVE 기록, 강제 종료로 남은 시험 사건 안내
+  - W07: `detect-once`가 쌓인 로그를 한 번에 읽어 60초 규칙을 무시하고 재실행 때 다시 세던 문제 → Docker daemon 수신 시각과 checkpoint(D72 ⑧ 갱신)
+- 결과: 각 브랜치에서 `make lint`·`make test` 통과. 최종 W07 브랜치 `make test` → 665 passed, `make test-docker` → 4 passed. 수정 전 실패를 확인한 회귀 테스트 20여 개 추가
+- 남은 위험: detect-once의 60초 창은 실행 사이에 이어지지 않는다(상시 감시 W13). 실제 수정 PR로 60초 PASS까지 가는 흐름은 W10·W12 이후에 확인한다
 
 ### W07 완료 보고 (2026-09-27T06:22Z)
 

@@ -142,16 +142,15 @@ def _detect_once(args: argparse.Namespace) -> int:
             settings.config, args.run_id, routing_scope, scenarios.MES_SERVICE
         )
         container = scenarios.resource_names(args.run_id)["container"]
-        lines = CliDocker().logs_once(container)
         runs_dir = Path(env.get("RUNS_DIR") or "runs")
         watcher = detector.Detector(
             store, detector_settings, clock, FileLogStore(runs_dir), eval_identifiers()
         )
-        summary = watcher.observe_lines(lines, f"container:{container}")
+        summary = detector.run_detect_once(store, watcher, CliDocker(), container)
     except (ConfigError, StoreError, DockerError, ValueError) as exc:
         print(f"detect-once 실패: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps({"run_id": args.run_id, "container": container, **vars(summary)}, indent=2))
+    print(json.dumps({"run_id": args.run_id, "container": container, **summary}, indent=2))
     return 0
 
 

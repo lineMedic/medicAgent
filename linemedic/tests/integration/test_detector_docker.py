@@ -1,7 +1,8 @@
 """W07 docker 시험: 실제 S1 MES 컨테이너 로그 → 감지기 → 사건 → 조회 도구 (make test-docker).
 
 - S1 주입이 제어 DB에 `DEPLOY_OBSERVED`를 남긴다
-- 컨테이너 stdout 로그(로트 118 오류 3회)를 감지기에 넣으면 사건 NEW 1개(count 3·증거 3)가 생긴다
+- 컨테이너 로그(`docker logs --timestamps`, 로트 118 오류 3회)를 감지하면 사건 NEW 1개가 생기고,
+  다시 실행해도 checkpoint 덕분에 같은 줄을 다시 세지 않는다
 - attempt를 시작한 agent token으로 get_incident·search_logs·get_deploys가 자기 사건을 읽는다
 정리는 이 테스트가 만든 run ID의 정확한 컨테이너·network만 지운다.
 """
@@ -17,7 +18,7 @@ from linemedic.common.clock import SystemClock
 from linemedic.common.ids import new_run_id
 from linemedic.control_plane import runs
 from linemedic.control_plane.auth import AgentPrincipal
-from linemedic.control_plane.detector import Detector, DetectorSettings
+from linemedic.control_plane.detector import Detector, DetectorSettings, run_detect_once
 from linemedic.control_plane.log_store import FileLogStore
 from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.control_plane.store import Store
@@ -76,27 +77,30 @@ def test_s1_container_logs_become_one_incident_readable_by_tools(mes_image, tmp_
         )
         assert [r["status"] for r in injected["requests"]] == [500, 500, 500, 200]
         container = scenarios.resource_names(run_id)["container"]
-        lines = CliDocker().logs_once(container)
+        logs = FileLogStore(tmp_path)
+        watcher = Detector(
+            store,
+            DetectorSettings(
+                run_id=run_id,
+                routing_scope=f"eval:{run_id}",
+                service="mes-api",
+                line_id="L3",
+                repository_id=0,
+            ),
+            clock,
+            logs,
+            eval_identifiers(),
+        )
+        # 실제 `docker logs --timestamps` 형식을 파싱하고, 두 번째 실행은 checkpoint로 건너뛴다.
+        summary = run_detect_once(store, watcher, CliDocker(), container)
+        again = run_detect_once(store, watcher, CliDocker(), container)
     finally:
         scenarios.stop_s1(run_id)
 
-    logs = FileLogStore(tmp_path)
-    watcher = Detector(
-        store,
-        DetectorSettings(
-            run_id=run_id,
-            routing_scope=f"eval:{run_id}",
-            service="mes-api",
-            line_id="L3",
-            repository_id=0,
-        ),
-        clock,
-        logs,
-        eval_identifiers(),
-    )
-    summary = watcher.observe_lines(lines, f"container:{container}")
-    assert summary.errors == 3 and len(summary.created) == 1 and summary.updated == []
-    incident_id = summary.created[0]
+    assert summary["errors"] == 3 and len(summary["created"]) == 1 and summary["updated"] == []
+    assert summary["unparsed"] == 0
+    assert (again["lines"], again["skipped"]) == (0, summary["lines"])
+    incident_id = summary["created"][0]
 
     connection = store.connect()
     try:

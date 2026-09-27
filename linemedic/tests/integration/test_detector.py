@@ -6,20 +6,25 @@
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from linemedic.common.clock import to_rfc3339
 from linemedic.common.config import load_settings
 from linemedic.control_plane.detector import (
     Detector,
     DetectorSettings,
+    parse_docker_timestamped,
     problem_fingerprint,
+    run_detect_once,
     settings_for_run,
     signature,
 )
 from linemedic.control_plane.log_store import FileLogStore, LogRecord, MemoryLogStore
 from linemedic.control_plane.redaction import eval_identifiers
+from linemedic.integrations.docker import FakeDocker
 from linemedic.tests.helpers.db_rows import count, insert_run
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -274,3 +279,73 @@ def test_file_log_store_roundtrip_and_cap(tmp_path):
         logs.path("../etc", "mes-api")
     with pytest.raises(ValueError):
         logs.path(RUN, "../passwd")
+
+
+# ── detect-once: docker log 시각과 checkpoint (검증에서 발견) ─────
+
+
+def stamped(seconds: float, text: str) -> str:
+    """`docker logs --timestamps` 형식 줄. 시각은 Docker daemon이 받은 시각이다."""
+    base = datetime(2026, 9, 27, 1, 0, 0, tzinfo=UTC) + timedelta(seconds=seconds)
+    return base.strftime("%Y-%m-%dT%H:%M:%S.%f") + "123Z " + text
+
+
+@pytest.fixture
+def fake_mes(store, conn, fake_clock):
+    insert_run(conn, RUN)
+    docker = FakeDocker()
+    docker.run(["--name", "linemedic-mes-test"], "mes:bug")
+    return docker
+
+
+def test_detect_once_uses_log_timestamps_for_the_window(store, conn, fake_clock, fake_mes):
+    """쌓인 로그를 한 번에 읽어도 60초 3회는 로그 수신 시각으로 센다(2시간 간격 → 사건 없음)."""
+    fake_mes.log_history["linemedic-mes-test"] = [
+        stamped(0, error_line(1)),
+        stamped(3600, error_line(2)),
+        stamped(7200, error_line(3)),
+    ]
+    summary = run_detect_once(
+        store, make_detector(store, fake_clock), fake_mes, "linemedic-mes-test"
+    )
+    assert summary["errors"] == 3 and summary["created"] == []
+    assert incidents(conn) == []
+
+
+def test_detect_once_checkpoint_prevents_double_counting(store, conn, fake_clock, fake_mes):
+    history = [stamped(0, INFO_LINE)] + [stamped(i + 1, error_line(i)) for i in range(3)]
+    fake_mes.log_history["linemedic-mes-test"] = history
+    first = run_detect_once(store, make_detector(store, fake_clock), fake_mes, "linemedic-mes-test")
+    assert (first["lines"], first["skipped"], len(first["created"])) == (4, 0, 1)
+    [incident] = incidents(conn)
+    assert incident["first_seen"] == "2026-09-27T01:00:01.000000Z"  # 로그 시각
+    again = run_detect_once(store, make_detector(store, fake_clock), fake_mes, "linemedic-mes-test")
+    assert (again["lines"], again["skipped"]) == (0, 4)
+    assert incidents(conn)[0]["count"] == 3
+    history.append(stamped(10, error_line(9)))
+    later = run_detect_once(store, make_detector(store, fake_clock), fake_mes, "linemedic-mes-test")
+    assert (later["lines"], later["skipped"], later["updated"]) == (1, 4, [incident["id"]])
+    assert incidents(conn)[0]["count"] == 4
+
+
+BASE_EPOCH_NS = int(datetime(2026, 9, 27, 6, 17, 7, tzinfo=UTC).timestamp()) * 1_000_000_000
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("2026-09-27T06:17:07.814829123Z {}", (814829123, "2026-09-27T06:17:07.814829Z", "{}")),
+        ("2026-09-27T06:17:07Z plain text", (0, "2026-09-27T06:17:07.000000Z", "plain text")),
+        ("2026-09-27T06:17:07.5Z x", (500000000, "2026-09-27T06:17:07.500000Z", "x")),
+        ("not a timestamp", None),
+        ("2026-09-27T06:17:07+09:00 x", None),
+    ],
+)
+def test_parse_docker_timestamped(line, expected):
+    parsed = parse_docker_timestamped(line)
+    if expected is None:
+        assert parsed is None
+    else:
+        ns, at, text = parsed
+        nanos, iso, rest = expected
+        assert (ns, to_rfc3339(at), text) == (BASE_EPOCH_NS + nanos, iso, rest)

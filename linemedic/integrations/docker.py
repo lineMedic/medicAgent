@@ -45,7 +45,7 @@ class DockerPort(Protocol):
 
     def logs_follow(self, name: str, since: str | None = None) -> LogStream: ...
 
-    def logs_once(self, name: str) -> list[str]: ...
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]: ...
 
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str: ...
 
@@ -146,9 +146,12 @@ class CliDocker:
             argv += ["--since", since]
         return _CliLogStream([*argv, name])
 
-    def logs_once(self, name: str) -> list[str]:
-        """컨테이너 stdout 로그를 지금까지 한 번 읽는다(stderr는 읽지 않는다)."""
-        result = self._run(["logs", name])
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]:
+        """컨테이너 stdout 로그를 지금까지 한 번 읽는다(stderr는 읽지 않는다).
+
+        `timestamps`면 각 줄 앞에 Docker daemon 수신 시각(RFC3339Nano)이 붙는다.
+        """
+        result = self._run(["logs", *(["--timestamps"] if timestamps else []), name])
         if result.returncode != 0:
             raise DockerError(f"docker logs 실패: {result.stderr.strip()[:300]}")
         return result.stdout.splitlines()
@@ -243,8 +246,9 @@ class FakeDocker:
         self.calls.append(("logs_follow", name, since))
         return self.streams.setdefault(name, FakeLogStream())
 
-    def logs_once(self, name: str) -> list[str]:
-        self.calls.append(("logs_once", name))
+    def logs_once(self, name: str, timestamps: bool = False) -> list[str]:
+        """log_history를 그대로 돌려준다. timestamps 시험에는 시각이 붙은 줄을 넣어 둔다."""
+        self.calls.append(("logs_once", name, timestamps))
         if name not in self.containers:
             raise DockerError(f"docker logs 실패: No such container: {name}")
         return list(self.log_history.get(name, []))
