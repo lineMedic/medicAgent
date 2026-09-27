@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W02의 게이트 없이 가능한 부분** ([tasks/W02-runtime-spikes.md](tasks/W02-runtime-spikes.md), N01 스파이크 스크립트·키 없을 때 `NOT_CONFIGURED` 단위 테스트·수동 절차 README). W00은 G1, W01은 G6 대기다. 그다음은 W03의 게이트 없는 준비, 이어서 게이트가 필요 없는 W04다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W03의 게이트 없이 가능한 부분** ([tasks/W03-github-setup.md](tasks/W03-github-setup.md), GitHub 설정 점검 스크립트를 FakeGitHub 기준으로 준비). W00은 G1, W01은 G6, W02의 live 부분은 G3·G4·G5 대기다. 그다음은 게이트가 필요 없는 W04다.
 
 ## 작업표
 
@@ -21,7 +21,7 @@
 | 1 | B00 | UNIT_TESTED | UNIT_TESTED | `make test` → 38 passed, `make lint` → PASS, `python -m linemedic.cli doctor` → exit 1 (env NOT_CONFIGURED), 새 clone `make setup`·`make test`·`make lint` PASS, 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa` | | 2026-09-27T02:27Z |
 | 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
 | 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
-| 4 | W02 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4·G5 | |
+| 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
 | 5 | W03 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 6 | W04 | UNIT_TESTED | NOT_CHECKED | | | |
 | 7 | W05 (1부) | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,21 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W02 중단 보고 — live 부분 G3·G4·G5 대기 (2026-09-27T03:23Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5). 스크립트 작성과 단위 테스트까지 끝냈고, 실제 스파이크는 하나도 실행하지 않았다
+- 변경 파일: `linemedic/scripts/spikes/n01_model_tool_call.py`(가짜 `get_incident` 도구로 tool call → 결과 재입력 → 구조화 제안 확인, 모델 ID·request ID·지연·token 기록, 키 미출력), `linemedic/scripts/spikes/README.md`(N01 실행법, N02~N05·N08~N10 수동 체크리스트, evidence 양식), `linemedic/tests/unit/test_spike_n01.py`, `linemedic/tests/live/test_model_toolcall.py`(live_model)
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - `make test` → 46 passed, 1 deselected
+  - `make lint` → PASS
+  - `make test-live` → 1 skipped (`NOT_CONFIGURED (G3)`, 필수 env 없음). 통과로 세지 않는다
+  - `python -m linemedic.scripts.spikes.n01_model_tool_call --env-file /dev/null` → 종료 코드 2, `NOT_CONFIGURED`
+- 테스트: `test_spike_n01.py` 8개 — 키 없을 때 NOT_CONFIGURED·비밀 미출력, 정상 왕복 PASS(요청 형식·tool 메시지·request ID·usage 기록 확인), 도구 미호출 FAIL, OpenAI 비호환 응답 INCONCLUSIVE, 401 FAIL(키 미노출), 429 INCONCLUSIVE, 제안이 JSON이 아니면 FAIL, 금지 필드(confidence) FAIL
+- 판단: 스파이크 판정의 기준은 카드의 통과 증거(tool → 결과 재입력 → 제안 1회)를 따랐다. 최종 제안은 항상 허용되는 `escalate` 형식을 요청해 도구 왕복과 구조화 출력만 시험한다. N02의 "fake `/tools`에 제안 제출"은 W06~W09 이전이면 NOT_RUN으로 두도록 README에 적었다
+- 증거: 커밋은 이 보고를 포함한 W02 커밋. `evidence/spikes/`는 실제 실행 전이라 없다
+- 남은 일·재개 조건: G3 키가 들어오면 N01 실행 → `evidence/spikes/N01-model-tool-call.{json,md}` 기록. 이어서 N02(runtime) → G4 결정 → G5 이후 N03·N04·N09·N10, N05 secret inventory
+- 다음 카드: W03 게이트 없는 부분
 
 ### W01 중단 보고 — G6 대기 (2026-09-27T03:15Z)
 
