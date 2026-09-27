@@ -120,7 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
     cancel_parser.add_argument("--work-id", required=True)
     cancel_parser.add_argument("--expected-version", type=int)
     cancel_parser.add_argument("--note", default="운영자 CLI 취소")
-    for command_parser in (approve_parser, retry_parser, cancel_parser):
+    reconcile_parser = sub.add_parser(
+        "notification-reconcile",
+        help="UNKNOWN 알림을 bound Issue 댓글 조회로만 조정 (W26, 다시 보내지 않음)",
+    )
+    reconcile_parser.add_argument("--notification-id", required=True)
+    for command_parser in (approve_parser, retry_parser, cancel_parser, reconcile_parser):
         command_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
         command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
@@ -325,6 +330,32 @@ def _work_command(args: argparse.Namespace, transport: httpx.BaseTransport | Non
     return _print_response(response)
 
 
+def _notification_reconcile(
+    args: argparse.Namespace, transport: httpx.BaseTransport | None = None
+) -> int:
+    target = _ops_target(args, "notification-reconcile")
+    if target is None:
+        return 2
+    base_url, headers = target
+    try:
+        with httpx.Client(base_url=base_url, timeout=30.0, transport=transport) as client:
+            response = client.post(
+                f"/ops/notifications/{args.notification_id}/reconcile",
+                json={"schema_version": "linemedic.v4"},
+                headers={
+                    **headers,
+                    "Idempotency-Key": f"notification-reconcile:{args.notification_id}",
+                },
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"notification-reconcile 실패: Control API에 연결하지 못했다({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return 2
+    return _print_response(response)
+
+
 def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
     target = _ops_target(args, "issue-bind")
     if target is None:
@@ -436,6 +467,8 @@ def main(argv: list[str] | None = None) -> int:
         return _issue_bind(args)
     if args.command in ("approve-work", "retry-work", "cancel-work"):
         return _work_command(args)
+    if args.command == "notification-reconcile":
+        return _notification_reconcile(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

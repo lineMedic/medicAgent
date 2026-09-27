@@ -12,6 +12,9 @@
 - GET `/ops/work-items/{id}`: work·현재 Issue snapshot·시작 알림 (역할 `read`, W25)
 - POST `/ops/work-items/{id}/approve`·`/retry`(역할 `authorize`), `/cancel`(역할 `operate`) (W25).
   version CAS·멱등 키를 거치고, 상태 변경과 멱등 기록을 한 트랜잭션에 쓴다
+- GET `/ops/notifications`: outbox·receipt·실패 상태 (역할 `read`, W26). 수신 주소를 보이지 않는다
+- POST `/ops/notifications/{id}/reconcile`: UNKNOWN 알림을 외부 조회로만 조정
+  (역할 `reconcile`, W26). 다시 보내지 않는다
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -31,6 +34,7 @@ from linemedic.control_plane.app import (
     context,
     idempotency_key,
     read_json_body,
+    reject_unknown_query,
     request_id,
     require_operator_role,
 )
@@ -38,7 +42,7 @@ from linemedic.control_plane.auth import OperatorPrincipal, load_visible_inciden
 from linemedic.control_plane.codes import RUN_ID_PATTERN, BlockerCode
 from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
-from linemedic.control_plane.notifications import outbox
+from linemedic.control_plane.notifications import outbox, templates
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
 
 router = APIRouter()
@@ -78,6 +82,10 @@ class CancelRequest(_Body):
     schema_version: Literal["linemedic.v4"]
     expected_work_version: Annotated[int, Field(ge=0)]
     cancel_note: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class ReconcileRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
 
 
 class EscalateRequest(_Body):
@@ -613,5 +621,120 @@ async def cancel_work(
         body,
         request_id(request),
         action,
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+# ── 알림 (W26) ────────────────────────────────────────────────
+
+NOTIFICATION_STATUSES = ("PENDING", "SENDING", "ACCEPTED", "FAILED", "UNKNOWN")
+
+
+@router.get("/ops/notifications")
+async def list_notifications(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+    status: str | None = None,
+    limit: int = 50,
+) -> JSONResponse:
+    reject_unknown_query(request, frozenset({"status", "limit"}))
+    if status is not None and status not in NOTIFICATION_STATUSES:
+        raise ApiError("INVALID_REQUEST", {"reason": "unknown_status"})
+    if not 1 <= limit <= 200:
+        raise ApiError("INVALID_REQUEST", {"reason": "limit_out_of_range"})
+    ctx = context(request)
+    routes = ctx.catalog.routes if ctx.catalog is not None else {}
+
+    def load() -> list[dict]:
+        where, params = ("WHERE status = ?", [status]) if status else ("", [])
+        with ctx.store.read() as tx:
+            rows = tx.all(
+                "SELECT id, run_id, incident_id, work_id, event_type, route_id, status,"
+                " attempt_count, next_attempt_at, receipt_id, accepted_at, created_at, updated_at,"
+                f" result_json FROM notifications {where}"
+                " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (*params, limit),
+            )
+        items = []
+        for row in rows:
+            route = routes.get(row["route_id"])
+            last = (_json(row["result_json"]) or {}).get("last") or {}
+            items.append(
+                {
+                    **{k: row[k] for k in row.keys() if k != "result_json"},
+                    "status_label": templates.status_label(
+                        row["status"], route.adapter if route else ""
+                    ),
+                    "last_error": last.get("error") or last.get("observation"),
+                }
+            )
+        return items
+
+    items = await run_in_threadpool(load)
+    return JSONResponse(content=success_body(request_id(request), {"notifications": items}))
+
+
+def _reconcile_notification(
+    ctx: AppContext,
+    operator: OperatorPrincipal,
+    notification_id: str,
+    path: str,
+    key: str,
+    body: ReconcileRequest,
+    rid: str,
+) -> tuple[int, dict]:
+    if ctx.outbox_worker is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    if not is_valid_entity_id(notification_id, "NOT"):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    with ctx.store.read() as tx:
+        row = tx.one(
+            "SELECT run_id, incident_id FROM notifications WHERE id = ?", (notification_id,)
+        )
+        if row is None:
+            raise ApiError("RESOURCE_NOT_FOUND")
+        load_visible_incident(tx, operator, row["incident_id"])
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": path,
+        "run_id": row["run_id"],
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    data = ctx.outbox_worker.reconcile(notification_id)  # 외부 조회는 트랜잭션 밖
+    response = success_body(rid, data)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post("/ops/notifications/{notification_id}/reconcile")
+async def reconcile_notification(
+    notification_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("reconcile"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, ReconcileRequest)
+    status_code, payload = await run_in_threadpool(
+        _reconcile_notification,
+        context(request),
+        operator,
+        notification_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
     )
     return JSONResponse(status_code=status_code, content=payload)

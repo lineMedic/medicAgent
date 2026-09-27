@@ -119,6 +119,7 @@
 | D76 | Issue polling: scope별 활성화·checkpoint, 서버 시각 경계·cap delta는 읽은 곳까지, 처음 볼 때만 새 Issue 판정, 사람 작업·closed·권한 회수·삭제 처리, ETag·전체 조회·rate limit backoff, shadow planned, sync API | 입력 | 유효 (spec 15 §2·§3.3·§5 구체화) |
 | D77 | 로그 → Issue: 갱신 후 lookup 1~5(form 형식·토큰 2개 후보·다른 scope 봇 Issue 제외), closed 연결은 운영자, attached(작업 복제 없음), 생성 intent·결과 불명·rate limit 재시도·거절 매핑, marker 템플릿, 조정 규칙, 운영자 연결 API·control_api 주소 | 입력 | 유효 (spec 15 §3·§4 구체화) |
 | D78 | work lifecycle: API 트랜잭션에 멱등 기록 포함, 현재 snapshot 승인·자동 승인 정책, incident 연결 기록, scope 변경 상태별 처리, start_attempt 유일 attempt 발급·슬롯 대기, retry 중복 거절·새 incident, cancel 상태별, work 조회 API·CLI | 입력 | 유효 (spec 04 §3·§7·§8, spec 15 §6·§8 구체화) |
+| D79 | 알림: worker 분리·SENDING 선커밋, 대상은 catalog·DB work만(no_bound_issue 미전송), shadow는 PENDING 유지, 안전한 거절만 3회 backoff(Retry-After 우선), UNKNOWN 재발송 금지·조정 규칙(봇+marker+본문 hash), provider·저장 시각 분리, 시작 게이트·60초 만료·늦은 receipt 무부활, 템플릿 정제, 상태 표시, 알림 운영 API·CLI | 알림 | 유효 (spec 16 §1~§7 구체화) |
 
 ## 3. 주제별 보기
 
@@ -126,7 +127,7 @@
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
 | 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 |
-| 알림 | D33 D34 D39 D70 |
+| 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
 | PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 |

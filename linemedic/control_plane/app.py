@@ -37,6 +37,7 @@ from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.knowledge import KnowledgeBase
 from linemedic.control_plane.log_store import LogStore
 from linemedic.control_plane.metrics_store import MetricsStore
+from linemedic.control_plane.notifications.worker import OutboxWorker
 from linemedic.control_plane.state import TransitionDenied
 from linemedic.control_plane.store import StateConflict, Store, StoreBusy
 
@@ -63,6 +64,7 @@ class AppContext:
     max_submissions: int = 2  # docs/07 agent.max_submissions (attempt당 서로 다른 제출 합산)
     issue_sync: IssueSync | None = None  # 등록 repo Issue 조회(W23). G2 전에는 없음
     issue_router: IssueRouter | None = None  # 로그 incident → Issue 연결(W24)
+    outbox_worker: OutboxWorker | None = None  # 알림 발송·조정(W26)
 
 
 def _under(path: str, prefix: str) -> bool:
