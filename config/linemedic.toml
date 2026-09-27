@@ -1,0 +1,126 @@
+# LineMedic v4 — 비밀이 아닌 설정 (D52·D60)
+# 값의 근거: docs/07-constants.md, spec 15 §2(issue_intake), spec 16 §1(notifications)
+# 규칙
+# - 미확정 값은 키를 생략한다(빈 문자열·0 금지). 생략한 선택 키는 None으로 읽힌다.
+# - 비밀(토큰·키·수신 주소)은 여기에 두지 않는다. .env에만 둔다.
+# - TOML 날짜·시각 타입을 쓰지 않는다. 시각이 필요하면 "...Z" RFC3339 문자열로 쓴다.
+# - 값을 바꾸면 config hash가 바뀌고 평가 집합을 분리한다.
+
+schema_version = "linemedic.v4"
+
+[services.mes-api]
+contract_id = "defect-summary-v1"
+log_source = "stdout_jsonl"  # D57: detector와 verifier가 같은 stdout JSON Lines 스트림을 읽는다
+
+[repository]
+# id·full_name은 G2 확인 전 미확정이라 생략한다. env GITHUB_REPOSITORY_ID·GITHUB_REPOSITORY로 채운다.
+
+[issue_intake]
+enabled = false  # G10(쓰기 활성화) 전에는 꺼 둔다. env ISSUE_INTAKE_ENABLED로 켠다
+service_id = "mes-api"
+routing_scope = "live"
+transport = "polling"
+poll_interval_seconds = 60  # 탐지 SLA가 아니다
+overlap_seconds = 120
+initial_import = "observe_only"
+per_page = 100
+max_pages = 10  # cap 도달 시 잔여 페이지가 있으면 complete=false
+closed_issue_policy = "require_operator"
+start_notification_route_id = "github-issue-primary"
+
+[issue_intake.auto_start]
+mode = "trusted_authors"
+deny_labels = ["linemedic-ignore", "needs-human"]
+# author_ids는 G2에서 확정한다. env ISSUE_TRUSTED_AUTHOR_IDS(숫자, 쉼표 구분)로 채운다.
+
+[notifications]
+required_start_route_id = "github-issue-primary"
+start_wait_seconds = 60
+retry_max_attempts = 3
+
+[notifications.routes.github-issue-primary]
+adapter = "github_comment"
+target = "bound_issue"
+enabled = true
+
+[notifications.routes.ops-mail]
+adapter = "smtp"
+recipient_config_key = "LINEMEDIC_OPS_RECIPIENT"
+enabled = false  # G12에서 메일 채널을 선택할 때만 켠다
+
+[agent]
+max_concurrent = 1
+deadline_seconds = 240
+tool_call_budget = 15
+proposal_revisions = 1
+max_submissions = 2
+model_transient_retries = 1
+# mode·runtime·model_id·model_base_url은 G3·G4 전 미확정이라 생략한다.
+# env AGENT_MODE·AGENT_RUNTIME·NVIDIA_MODEL_ID·NVIDIA_BASE_URL로 채운다.
+
+[tools]
+http_timeout_seconds = 10
+
+[tools.logs]
+window_minutes = 30  # 사건 기준 ±30분
+max_lines = 20
+max_bytes = 65536
+
+[tools.metrics]
+max_minutes = 30
+max_samples = 60
+
+[tools.deploys]
+window_hours = 24
+
+[proposal]
+max_bytes = 131072
+summary_max_chars = 2000
+max_evidence_ids = 20
+
+[patch]
+allowed_app_file = "app/defects.py"
+allowed_new_test_glob = "tests/repro/test_*.py"
+max_files = 2
+max_changed_lines = 100  # additions + deletions, header 제외
+protected_globs = [
+    "tests/regression/**",
+    "Dockerfile",
+    "pyproject.toml",
+    "requirements*",
+    "setup.*",
+    ".github/**",
+    "pytest.ini",
+    "conftest.py",
+    "**/conftest.py",
+    "tox.ini",
+    "setup.cfg",
+]
+
+[runner]
+network = "none"
+run_as_non_root = true
+drop_all_capabilities = true
+read_only_root = true
+cpus = 1
+memory_mib = 512
+pids = 64
+stage_timeout_seconds = 60
+max_log_bytes = 1048576
+
+[verifier]
+contract_id = "defect-summary-v1"
+sample_offsets_seconds = [0, 10, 20, 30]
+observation_end_seconds = 60  # 관찰 종료 전 PASS 금지
+
+[memory]
+mode = "cold_start"
+search_engine = "sqlite_fts5"
+top_k = 5
+snippet_max_chars = 2000
+query_max_tokens = 16
+# snapshot_path는 memory_assisted 평가에서만 쓴다. env MEMORY_SNAPSHOT_PATH로 채운다.
+
+[detector]
+dedupe_window_seconds = 60
+dedupe_min_occurrences = 3  # 같은 fingerprint 60초 안 3회

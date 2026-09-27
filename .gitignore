@@ -36,3 +36,7 @@ runs/
 
 # macOS
 .DS_Store
+
+# Python packaging
+*.egg-info/
+build/
