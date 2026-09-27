@@ -147,7 +147,7 @@ def inject_s1(
             "--cpus",
             "1",
             "--volume",
-            f"{data_dir}:/data:ro",
+            f"{data_dir.resolve()}:/data:ro",  # 상대 RUNS_DIR는 docker가 named volume으로 해석한다
             image_id.stdout.strip(),
         ],
         "MES 컨테이너 기동",
