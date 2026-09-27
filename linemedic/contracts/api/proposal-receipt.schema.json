@@ -1,0 +1,24 @@
+{
+  "$id": "urn:linemedic:v4:proposal-receipt",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "202 응답 data. 접수 기록일 뿐 허용·실행 성공을 뜻하는 필드가 없다.",
+  "properties": {
+    "decision": {
+      "const": "RECEIVED",
+      "title": "Decision",
+      "type": "string"
+    },
+    "proposal_id": {
+      "pattern": "^PROP-[0-9A-F]{12}$",
+      "title": "Proposal Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "decision"
+  ],
+  "title": "ProposalReceipt",
+  "type": "object"
+}

@@ -57,6 +57,7 @@ class AppContext:
     metrics_max_minutes: int = 30  # docs/07 tools.metrics.max_minutes
     metrics_max_samples: int = 60  # docs/07 tools.metrics.max_samples
     knowledge: KnowledgeBase | None = None
+    max_submissions: int = 2  # docs/07 agent.max_submissions (attempt당 서로 다른 제출 합산)
 
 
 def _under(path: str, prefix: str) -> bool:
@@ -140,7 +141,7 @@ def idempotency_key(request: Request) -> str:
     return key
 
 
-def _safe_errors(exc: ValidationError) -> list[dict[str, Any]]:
+def safe_validation_errors(exc: ValidationError) -> list[dict[str, Any]]:
     """검증 오류의 위치·종류만 돌려준다. 입력 값은 넣지 않는다."""
     items = []
     for error in exc.errors(include_url=False, include_context=False, include_input=False):
@@ -149,8 +150,8 @@ def _safe_errors(exc: ValidationError) -> list[dict[str, Any]]:
     return items[:MAX_ERROR_ITEMS]
 
 
-async def read_json_body[M: BaseModel](request: Request, model: type[M]) -> M:
-    """크기 제한 → 엄격한 JSON 파싱 → pydantic 모델 검증 순서로 body를 읽는다."""
+async def read_raw_body(request: Request) -> bytes:
+    """content-type(JSON)과 크기 제한만 확인하고 body 바이트를 읽는다."""
     limit = context(request).max_body_bytes
     media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if media_type != "application/json":
@@ -166,8 +167,15 @@ async def read_json_body[M: BaseModel](request: Request, model: type[M]) -> M:
         body += chunk
         if len(body) > limit:
             raise ApiError("PAYLOAD_TOO_LARGE", {"max_bytes": limit})
+    return bytes(body)
+
+
+async def read_json_body[M: BaseModel](request: Request, model: type[M]) -> M:
+    """크기 제한 → 엄격한 JSON 파싱 → pydantic 모델 검증 순서로 body를 읽는다."""
+    limit = context(request).max_body_bytes
+    body = await read_raw_body(request)
     try:
-        data = loads_strict(bytes(body), max_bytes=limit)
+        data = loads_strict(body, max_bytes=limit)
     except StrictJSONError:
         raise ApiError("INVALID_REQUEST", {"reason": "invalid_json"}) from None
     if not isinstance(data, dict):
@@ -175,7 +183,7 @@ async def read_json_body[M: BaseModel](request: Request, model: type[M]) -> M:
     try:
         return model.model_validate(data)
     except ValidationError as exc:
-        raise ApiError("INVALID_REQUEST", {"errors": _safe_errors(exc)}) from None
+        raise ApiError("INVALID_REQUEST", {"errors": safe_validation_errors(exc)}) from None
 
 
 # ── 예외 → 오류 외피 ─────────────────────────────────────────

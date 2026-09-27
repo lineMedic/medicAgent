@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W09** ([tasks/W09-proposal-schema.md](tasks/W09-proposal-schema.md), 제안 schema·접수·정비 초안·escalate — 선행 W06·W07·W08 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W22** ([tasks/W22-github-registration.md](tasks/W22-github-registration.md), GitHubPort·FakeGitHub·repo/author/route catalog — 선행 W06 충족. 포트·fake·설정 부분은 게이트 없이 UNIT_TESTED까지, live smoke는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -29,7 +29,7 @@
 | 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
 | 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함, 전체 검증 수정 뒤 665), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
 | 11 | W08 | UNIT_TESTED | UNIT_TESTED | `make test` → 706 passed(W08 테스트 41개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`(vision-inspection NEW, count 10, 증거 3, 배포 없음), `RECENT_DEPLOY=1 RUN_ID=r-20260927-072410-712e` → `INC-793CE4A26CC2`(이상 10분 전 mes-api 배포 기록), 지표 파일 `runs/<run>/metrics/`(git 제외) | | 2026-09-27T07:25Z |
-| 12 | W09 | UNIT_TESTED | NOT_CHECKED | | | |
+| 12 | W09 | UNIT_TESTED | UNIT_TESTED | `make test` → 843 passed(W09 테스트 137개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make api-schema` → `linemedic/contracts/api/*.schema.json` 3개(`--check` 최신), 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB) 12/12 PASS: create_pr 202 → REJECTED(PROTECTION_UNAVAILABLE)·수정 허용 → escalate 202 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·WORK_BLOCKED intent, 변이 25개 모두 테스트 실패로 잡힘 | | 2026-09-27T08:52Z |
 | 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 14 | W23 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 15 | W24 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
@@ -99,6 +99,36 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W09 완료 보고 (2026-09-27T08:52Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음
+- 변경 파일:
+  - `linemedic/control_plane/broker/proposals.py`: 제안 schema(공통 필드 + `action` union 3종, extra=forbid·strict, category↔action·근거 규칙), 응답 모델 `ProposalReceipt`·`ProposalStatus`
+  - `linemedic/control_plane/broker/intake.py`: 동기 접수 `submit`(principal 범위 → 멱등 → B01 → B02 → 제출 합산 → RECEIVED·VALIDATING → 202), 백그라운드 `Broker`(`run` 루프, `process_pending`, `recover_checking`, B03~B06, 거절·수정 1회·이관)
+  - `linemedic/control_plane/broker/work_order.py`(승인 문구로 채운 초안, `delivery_status: not_sent`), `notifications/blocker.py`(spec 16 §6 blocker report payload)
+  - `linemedic/control_plane/codes.py`(blocker_code·category↔action·run ID 형식 공용), `tools_api.py`(`submit_proposal`·`get_proposal`), `app.py`(`read_raw_body`·`safe_validation_errors`, `max_submissions`), `ops_api.py`(공용 코드 사용)
+  - `linemedic/scripts/api_schema.py`·`Makefile`(`make api-schema`), `linemedic/contracts/api/proposal{,-receipt,-status}.schema.json`, DECISIONS.md·ADR.md(D74)
+  - 테스트: `unit/test_proposal_schema.py`(82), `integration/test_proposal_intake.py`(55)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 843 passed, 5 deselected / `make lint` → PASS / `make test-docker` → 4 passed / `python -m linemedic.scripts.api_schema --check` → 최신
+  - 실제 HTTP(uvicorn 127.0.0.1 + httpx, 임시 DB, 확인 뒤 삭제) 12/12 PASS: 202 응답은 `proposal_id`·`decision`만, 같은 키 재전송 → 같은 응답 바이트, operator token → 403, 128 KiB 초과 → 413, create_pr → REJECTED(PROTECTION_UNAVAILABLE)·`revision_allowed`, escalate 수정 제출 → ESCALATED/BLOCKED(UNSUPPORTED_ACTION)·제출 2회·WORK_BLOCKED intent PENDING 1개, attempt 종료 뒤 조회 404, `foreign_key_check` 빈 결과, DB 기록에 token 원문 없음
+  - 변이 확인 25개: 시작 알림 ACCEPTED 무시, 멱등보다 B01 먼저, 형식 오류 미집계, B01 실패 집계, B03 incident 범위 무시, B04 UNKNOWN 무시, B05 secret·URL 검사 제거, B06 version 재확인 제거, catalog 매뉴얼 검사 제거, 예산 무시 수정 허용, 예산 판정 off-by-one, create_pr 통과, 초안 delivery_status·안내 문구 변경, get_proposal 범위 축소, recover_checking의 intent 무시, deadline·Issue snapshot·body ID 검사 제거, category↔action 검사 제거, escalate 증거 0개 거부, 루프의 복구·오류 계속·감사 내용 변경을 각각 넣으면 테스트가 실패했다. 확인 뒤 원래 코드로 되돌렸다
+- 수용 기준:
+  - T-V4-01: `schema_version: linemedic.v2` → 422, 다른 work·incident·attempt ID → 403, 이전 attempt token → 403: PASS
+  - `equipment`+`create_pr`, `unknown`+`create_work_order_draft`, `code_bug`+`create_pr`+증거 0개 → 거절, `escalate`+증거 0개 → 허용(18조합 전체 표 시험): PASS
+  - `actions: [...]`·`confidence`·역할/모델 필드 → 422, 중복 key → 422, 128 KiB 초과 → 413: PASS
+  - 시작 알림이 ACCEPTED가 아닌(PENDING·SENDING·FAILED·UNKNOWN·없음) work의 제안 → 409 `START_NOTICE_UNCONFIRMED`: PASS
+  - 같은 Idempotency-Key 재전송은 제출 횟수를 늘리지 않음(422·202 모두), 세 번째 서로 다른 제출 → 409: PASS
+  - 초안에 자유 절차·제어값·URL·수신자 필드 → 422, 등록되지 않은 equipment·manual_ref(다른 서비스 설비 포함) → 422: PASS
+  - draft 처리 후 `delivery_status: not_sent`, incident WORK_ORDER_DRAFTED(복구 상태 아님)·work HANDED_OFF·HANDOFF_DRAFTED intent: PASS
+- 판단: D74(B01·B02 동기, 멱등 재전송 우선, B02 422도 제출 합산, 백그라운드 B03~B06 코드, 거절 후 수정 1회·이관, create_pr는 W10 전까지 PROTECTION_UNAVAILABLE, 초안·blocker report payload, JSON Schema 생성)
+- 증거: 커밋은 이 보고를 포함한 W09 커밋. 실제 HTTP 확인은 임시 DB로 했고 삭제했다(제품 DB `runs/linemedic.db`는 건드리지 않음)
+- 남은 일·위험:
+  - create_pr의 패치 정책·runner 검사는 W10(지금은 항상 PROTECTION_UNAVAILABLE 거절), 봇 PR 생성은 W11
+  - `Broker.run`을 API와 같은 프로세스에서 띄우는 것은 W13(`make start`), WORK_BLOCKED·HANDOFF_DRAFTED 실제 발송·문장 템플릿은 W26
+  - B02 형식 오류는 proposal 행 없이 api_requests·감사 기록에만 남는다. 처리 중 예외가 난 제안은 다음 시작 전까지 CHECKING·VALIDATING에 머문다(감사 `PROPOSAL_CHECK_ERROR`)
+- 다음 카드: W22 (fake 부분)
 
 ### W08 완료 보고 (2026-09-27T07:25Z)
 

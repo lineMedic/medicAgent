@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "enum": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B05",
+            "B06",
+            "TEMPLATE"
+          ],
+          "title": "Check",
+          "type": "string"
+        },
+        "evidence_id": {
+          "anyOf": [
+            {
+              "pattern": "^EV-[0-9A-F]{12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Id"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "EVIDENCE_SCOPE_MISMATCH",
+            "SENSITIVE_CONTENT",
+            "STATE_CONFLICT",
+            "PROTECTION_UNAVAILABLE"
+          ],
+          "title": "Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "result"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    }
+  },
+  "$id": "urn:linemedic:v4:proposal-status",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`get_proposal` 응답 data. ALLOWED도 외부 실행 완료가 아니다.",
+  "properties": {
+    "action_type": {
+      "enum": [
+        "create_pr",
+        "create_work_order_draft",
+        "escalate"
+      ],
+      "title": "Action Type",
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "code_bug",
+        "equipment",
+        "config",
+        "infra",
+        "external_dependency",
+        "unknown"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckResult"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "decision": {
+      "enum": [
+        "RECEIVED",
+        "CHECKING",
+        "ALLOWED",
+        "REJECTED"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "decision_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "WORK_ORDER_DRAFTED",
+            "ESCALATED",
+            "EVIDENCE_SCOPE_MISMATCH",
+            "SENSITIVE_CONTENT",
+            "STATE_CONFLICT",
+            "PROTECTION_UNAVAILABLE"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Decision Reason"
+    },
+    "incident_id": {
+      "pattern": "^INC-[0-9A-F]{12}$",
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "max_submissions": {
+      "minimum": 1,
+      "title": "Max Submissions",
+      "type": "integer"
+    },
+    "proposal_id": {
+      "pattern": "^PROP-[0-9A-F]{12}$",
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "received_at": {
+      "title": "Received At",
+      "type": "string"
+    },
+    "revision_allowed": {
+      "title": "Revision Allowed",
+      "type": "boolean"
+    },
+    "submissions_used": {
+      "minimum": 0,
+      "title": "Submissions Used",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "incident_id",
+    "category",
+    "action_type",
+    "decision",
+    "decision_reason",
+    "checks",
+    "received_at",
+    "submissions_used",
+    "max_submissions",
+    "revision_allowed"
+  ],
+  "title": "ProposalStatus",
+  "type": "object"
+}

@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -89,3 +89,8 @@ detect-once:
 scenario-s2-lite:
 	@test -n "$(RUN_ID)" || { echo "사용법: make scenario-s2-lite RUN_ID=<활성 run> [RECENT_DEPLOY=1]"; exit 2; }
 	$(PY) -m linemedic.cli scenario-s2-lite --run-id "$(RUN_ID)" $(if $(RECENT_DEPLOY),--recent-deploy,)
+
+# 제안·응답 JSON Schema (W09): pydantic 모델에서 linemedic/contracts/api/*.schema.json을 다시 쓴다.
+# 파일이 모델과 다르면 make test의 schema 비교 테스트가 실패한다.
+api-schema:
+	$(PY) -m linemedic.scripts.api_schema
