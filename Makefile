@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -100,3 +100,9 @@ api-schema:
 issue-sync:
 	@test -n "$(RUN_ID)" || { echo "사용법: make issue-sync RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
 	$(PY) -m linemedic.cli issue-sync --run-id "$(RUN_ID)"
+
+# 운영자 Issue 연결 (W24): incident를 등록 repo의 Issue 번호에 명시적으로 연결한다(basis OPERATOR).
+# Control API(make start, W13)가 떠 있어야 하고 CONTROL_OPERATOR_TOKEN을 쓴다. 같은 명령은 멱등 재전송이다.
+issue-bind:
+	@test -n "$(INCIDENT_ID)" -a -n "$(ISSUE_NUMBER)" || { echo "사용법: make issue-bind INCIDENT_ID=INC-... ISSUE_NUMBER=<번호> [EXPECTED_VERSION=] [NOTE=]"; exit 2; }
+	$(PY) -m linemedic.cli issue-bind --incident-id "$(INCIDENT_ID)" --issue-number "$(ISSUE_NUMBER)" $(if $(EXPECTED_VERSION),--expected-version "$(EXPECTED_VERSION)",) $(if $(NOTE),--note "$(NOTE)",)

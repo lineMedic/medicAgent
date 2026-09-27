@@ -17,7 +17,7 @@ MES stdout JSON Lines → 정제·보관 → 오류 signature → problem_finger
 
 import re
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -256,13 +256,21 @@ class Detector:
         clock: Clock,
         log_store: LogStore | None,
         eval_terms: Iterable[str] = (),
+        on_new_incident: Callable[[str], None] | None = None,
     ) -> None:
         self.store = store
         self.settings = settings
         self.clock = clock
         self.log_store = log_store
         self.eval_terms = tuple(eval_terms)
+        self.on_new_incident = on_new_incident  # 새 사건 뒤 router(W24). 트랜잭션 밖에서 부른다
         self._pending: dict[str, deque[tuple[float, Occurrence]]] = {}
+
+    def _created(self, outcome: LineOutcome) -> LineOutcome:
+        if outcome.action == "created" and self.on_new_incident is not None:
+            assert outcome.incident_id is not None
+            self.on_new_incident(outcome.incident_id)
+        return outcome
 
     def observe_line(
         self, line: str, source_identity: str, at: datetime | None = None
@@ -292,20 +300,26 @@ class Detector:
         fingerprint = problem_fingerprint(sig, settings.fingerprint_version)
         occurrence = Occurrence(now, source_identity, event)
         with self.store.tx() as tx:
-            incident = self._latest_incident(tx, fingerprint)
-            if incident is not None:
-                self._merge(tx, incident, [occurrence])
-                return LineOutcome(True, "updated", incident["id"])
-            window = self._pending.setdefault(fingerprint, deque())
-            window.append((monotonic, occurrence))
-            while window and monotonic - window[0][0] > settings.window_seconds:
-                window.popleft()
-            if len(window) < settings.min_occurrences:
-                return LineOutcome(error=True)
-            occurrences = [item for _, item in window]
-            incident_id = self._create(tx, sig, fingerprint, occurrences)
-            window.clear()
-            return LineOutcome(True, "created", incident_id)
+            outcome = self._observe_occurrence(tx, sig, fingerprint, occurrence, monotonic)
+        return self._created(outcome)
+
+    def _observe_occurrence(
+        self, tx: Tx, sig: Signature, fingerprint: str, occurrence: Occurrence, monotonic: float
+    ) -> LineOutcome:
+        incident = self._latest_incident(tx, fingerprint)
+        if incident is not None:
+            self._merge(tx, incident, [occurrence])
+            return LineOutcome(True, "updated", incident["id"])
+        window = self._pending.setdefault(fingerprint, deque())
+        window.append((monotonic, occurrence))
+        while window and monotonic - window[0][0] > self.settings.window_seconds:
+            window.popleft()
+        if len(window) < self.settings.min_occurrences:
+            return LineOutcome(error=True)
+        occurrences = [item for _, item in window]
+        incident_id = self._create(tx, sig, fingerprint, occurrences)
+        window.clear()
+        return LineOutcome(True, "created", incident_id)
 
     def observe_lines(self, lines: Iterable[str], source_identity: str) -> ObservationSummary:
         summary = ObservationSummary()
@@ -452,31 +466,48 @@ class Detector:
                     (len(anomaly.samples), last, incident["id"]),
                 )
                 return LineOutcome(True, "updated", incident["id"])
-            incident_id = self._insert_incident(
-                tx,
-                sig,
-                fingerprint,
-                len(anomaly.samples),
-                first,
-                last,
-                {
-                    "metric": {
-                        "equipment_id": equipment_id,
-                        "anomaly": anomaly.kind,
-                        "rule": {
-                            "brightness_drop_ratio": rule.brightness_drop_ratio,
-                            "confidence_min": rule.confidence_min,
-                            "consecutive_samples": rule.consecutive_samples,
-                        },
-                    }
-                },
+            outcome = self._create_metric_incident(
+                tx, sig, fingerprint, equipment_id, anomaly, rule, comparison, first, last
             )
-            self._add_metric_evidence(tx, incident_id, equipment_id, anomaly.samples, first, last)
-            for other_id, other in sorted((comparison or {}).items()):
-                window = tuple(sample for sample in other if first <= sample.ts <= last)
-                if other_id != equipment_id and window:
-                    self._add_metric_evidence(tx, incident_id, other_id, window, first, last)
-            return LineOutcome(True, "created", incident_id)
+        return self._created(outcome)
+
+    def _create_metric_incident(
+        self,
+        tx: Tx,
+        sig: Signature,
+        fingerprint: str,
+        equipment_id: str,
+        anomaly: MetricAnomaly,
+        rule: MetricRule,
+        comparison: Mapping[str, list[MetricSample]] | None,
+        first: str,
+        last: str,
+    ) -> LineOutcome:
+        incident_id = self._insert_incident(
+            tx,
+            sig,
+            fingerprint,
+            len(anomaly.samples),
+            first,
+            last,
+            {
+                "metric": {
+                    "equipment_id": equipment_id,
+                    "anomaly": anomaly.kind,
+                    "rule": {
+                        "brightness_drop_ratio": rule.brightness_drop_ratio,
+                        "confidence_min": rule.confidence_min,
+                        "consecutive_samples": rule.consecutive_samples,
+                    },
+                }
+            },
+        )
+        self._add_metric_evidence(tx, incident_id, equipment_id, anomaly.samples, first, last)
+        for other_id, other in sorted((comparison or {}).items()):
+            window = tuple(sample for sample in other if first <= sample.ts <= last)
+            if other_id != equipment_id and window:
+                self._add_metric_evidence(tx, incident_id, other_id, window, first, last)
+        return LineOutcome(True, "created", incident_id)
 
     def _add_metric_evidence(
         self,

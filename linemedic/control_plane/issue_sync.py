@@ -190,9 +190,17 @@ class IssueSync:
 
     # 공개
 
-    def poll_once(self) -> SyncResult:
-        """한 번 조회한다. 아직 활성화 전이면 initial import를 한다."""
-        if not self._lock.acquire(blocking=False):
+    def poll_once(self, wait_seconds: float = 0) -> SyncResult:
+        """한 번 조회한다. 아직 활성화 전이면 initial import를 한다.
+
+        다른 조회가 진행 중이면 `wait_seconds`까지 기다리고, 그래도 끝나지 않으면 `busy`다.
+        """
+        acquired = (
+            self._lock.acquire(timeout=wait_seconds)
+            if wait_seconds > 0
+            else self._lock.acquire(blocking=False)
+        )
+        if not acquired:
             return SyncResult("busy")
         try:
             state = self._state()
@@ -399,15 +407,15 @@ class IssueSync:
 
     # 항목 하나
 
-    def _observe(self, tx: Tx, item: dict[str, Any], result: SyncResult, ctx: _Pass) -> None:
-        if is_pull_request(item):
-            result.skipped_pull_requests += 1
-            return
+    def same_repository(self, item: Mapping[str, Any]) -> bool:
         repo_url = item.get("repository_url")
-        if repo_url is not None and not repo_url.endswith(f"/repos/{self.port.full_name}"):
-            result.skipped_other_repository += 1
-            return
-        result.seen += 1
+        return repo_url is None or repo_url.endswith(f"/repos/{self.port.full_name}")
+
+    def upsert_mirror(self, tx: Tx, item: dict[str, Any]) -> tuple[Any, Any, bool]:
+        """Issue 한 건을 mirror에 넣는다. (이전 행, 지금 행, 바뀌었나)를 돌려준다(router도 쓴다).
+
+        같은 `poll_event_key`면 쓰지 않고, 더 오래된 관찰이 늦게 오면 덮어쓰지 않는다.
+        """
         repository_id, number = self.port.repository_id, item["number"]
         snapshot = snapshot_sha256(repository_id, item, self.permission_labels)
         existing = tx.one(
@@ -415,13 +423,11 @@ class IssueSync:
             (repository_id, number),
         )
         if existing is not None and (
-            existing["node_id"],
-            existing["updated_at"],
-            existing["snapshot_sha256"],
-        ) == (item["node_id"], item["updated_at"], snapshot):
-            return  # 같은 poll_event_key: overlap으로 다시 읽은 항목
-        if existing is not None and item["updated_at"] < existing["updated_at"]:
-            return  # 더 오래된 관찰이 늦게 도착했다
+            (existing["node_id"], existing["updated_at"], existing["snapshot_sha256"])
+            == (item["node_id"], item["updated_at"], snapshot)
+            or item["updated_at"] < existing["updated_at"]
+        ):
+            return existing, existing, False
         tx.execute(
             "INSERT INTO github_issues(repository_id, issue_number, node_id, state, author_id,"
             " created_at, updated_at, snapshot_sha256, payload_json, last_observed_at)"
@@ -443,13 +449,26 @@ class IssueSync:
                 tx.now,
             ),
         )
-        result.mirrored += 1
-        if ctx.activated_at is None:
-            return  # initial import: 관찰만
-        issue = tx.one(
+        current = tx.one(
             "SELECT * FROM github_issues WHERE repository_id = ? AND issue_number = ?",
             (repository_id, number),
         )
+        return existing, current, True
+
+    def _observe(self, tx: Tx, item: dict[str, Any], result: SyncResult, ctx: _Pass) -> None:
+        if is_pull_request(item):
+            result.skipped_pull_requests += 1
+            return
+        if not self.same_repository(item):
+            result.skipped_other_repository += 1
+            return
+        result.seen += 1
+        existing, issue, changed = self.upsert_mirror(tx, item)
+        if not changed:
+            return  # 같은 poll_event_key(overlap 중복) 또는 더 오래된 관찰
+        result.mirrored += 1
+        if ctx.activated_at is None:
+            return  # initial import: 관찰만
         if existing is None:
             self._first_seen(tx, item, issue, result, ctx)
         else:

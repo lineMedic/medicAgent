@@ -50,6 +50,10 @@ write_enabled = false  # shadow 모드: Issue 생성·댓글·PR을 보내지 �
 timeout_seconds = 10
 # api_version은 N11에서 확정한 뒤 적는다. 확정 전에는 X-GitHub-Api-Version 헤더를 보내지 않는다(D46)
 
+[control_api]
+host = "127.0.0.1"  # 운영 CLI가 부르는 Control API. 공개 네트워크에 열지 않는다(spec 03 §1)
+port = 8080
+
 [issue_intake]
 enabled = false  # G10(쓰기 활성화) 전에는 꺼 둔다. env ISSUE_INTAKE_ENABLED로 켠다
 service_id = "mes-api"
