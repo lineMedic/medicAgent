@@ -1,4 +1,4 @@
-"""합성 장애 주입 (W04: S1, W07: 배포 관찰 기록). S2-lite 주입은 W08에서 추가한다.
+"""합성 장애 주입 (W04: S1, W07: 배포 관찰 기록, W08: S2-lite 카메라 지표).
 
 `inject_s1(run_id)`는 버그 base MES 이미지로 컨테이너를 띄우고, 로트 118 요청 3회(60초 안)와
 로트 101 요청 1회를 보낸다.
@@ -18,13 +18,18 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from linemedic.common.clock import Clock, SystemClock, to_rfc3339
+from linemedic.common.clock import Clock, SystemClock, from_rfc3339, to_rfc3339
+from linemedic.common.config import LineMedicConfig
 from linemedic.common.ids import is_valid_run_id
 from linemedic.control_plane.deploys import record_deploy_observed
+from linemedic.control_plane.detector import Detector, metric_rule, settings_for_run
+from linemedic.control_plane.metrics_store import FileMetricsStore, MetricsStore
 from linemedic.control_plane.store import Store
+from linemedic.factory_sim import camera_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SEED_LOTS_DIR = REPO_ROOT / "l3-mes-api-seed" / "data" / "lots"
@@ -234,3 +239,82 @@ def stop_s1(run_id: str, run: RunFn = run_command) -> dict[str, int]:
     container = run(["docker", "rm", "--force", names["container"]])
     network = run(["docker", "network", "rm", names["network"]])
     return {"container_rm": container.returncode, "network_rm": network.returncode}
+
+
+# ── S2-lite (W08) ─────────────────────────────────────────────
+
+S2_SERVICE = "vision-inspection"
+RECENT_DEPLOY_LEAD_MINUTES = 10  # recent-deploy 변형: 이상 시작 10분 전 mes-api 배포 기록
+
+
+def inject_s2_lite(
+    run_id: str,
+    runs_dir: Path,
+    store: Store,
+    config: LineMedicConfig,
+    clock: Clock | None = None,
+    recent_deploy: bool = False,
+    metrics_store: MetricsStore | None = None,
+    base_sha: str | None = None,
+    mes_image_id: str | None = None,
+) -> dict[str, Any]:
+    """L3 카메라 3대의 합성 지표를 run에 쓰고 감지기로 한 번 관찰한다(이상은 L3-CAM-2).
+
+    `recent_deploy`면 이상 시작 전 mes-api 배포 기록을 더한다. 시뮬레이터 설계상 이 배포는 원인이
+    아니지만, 그 사실은 어떤 기록·도구 응답에도 넣지 않는다(혼동 사례 S2-recent-deploy).
+    """
+    if not is_valid_run_id(run_id):
+        raise ScenarioError(f"run_id 형식이 아니다: {run_id!r}")
+    with store.read() as tx:
+        run = tx.one("SELECT active, config_json FROM demo_runs WHERE id = ?", (run_id,))
+    if run is None or run["active"] != 1:
+        raise ScenarioError(f"활성 run이 아니다: {run_id} (먼저 make run-new)")
+    routing_scope = json.loads(run["config_json"]).get("routing_scope") or f"eval:{run_id}"
+    clock = clock or SystemClock()
+    series = camera_metrics.generate_series(clock.utc_now())
+    metrics_store = metrics_store or FileMetricsStore(runs_dir)
+    for equipment_id, samples in series.items():
+        metrics_store.write_series(run_id, equipment_id, samples)
+
+    deployed_at = None
+    if recent_deploy:
+        onset = series["L3-CAM-2"][-camera_metrics.ANOMALY_SAMPLES].ts
+        deployed_at = to_rfc3339(
+            from_rfc3339(onset) - timedelta(minutes=RECENT_DEPLOY_LEAD_MINUTES)
+        )
+        with store.tx() as tx:
+            record_deploy_observed(
+                tx,
+                run_id=run_id,
+                service=MES_SERVICE,
+                base_sha=base_sha,
+                image_id=mes_image_id,
+                container=None,
+                container_id=None,
+                actor=HARNESS_ACTOR,
+                deployed_at=deployed_at,
+            )
+
+    watcher = Detector(
+        store, settings_for_run(config, run_id, routing_scope, S2_SERVICE), clock, None
+    )
+    rule = metric_rule(config)
+    incidents = []
+    for equipment_id, samples in series.items():
+        outcome = watcher.observe_metrics(equipment_id, samples, rule, comparison=series)
+        if outcome.incident_id is not None and outcome.incident_id not in incidents:
+            incidents.append(outcome.incident_id)
+    return {
+        "scenario": "s2-lite",
+        "run_id": run_id,
+        "equipment": {
+            equipment_id: {
+                "brightness": samples[-1].brightness,
+                "confidence": samples[-1].confidence,
+            }
+            for equipment_id, samples in series.items()
+        },
+        "incidents": incidents,
+        "recent_deploy": recent_deploy,
+        "deployed_at": deployed_at,
+    }

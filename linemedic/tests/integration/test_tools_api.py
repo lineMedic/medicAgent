@@ -301,6 +301,7 @@ def test_inject_s1_records_deploy_observed(store, conn, tmp_path, fake_clock):
         {
             "observed_at": "2026-09-27T00:00:00.000000Z",
             "source": "deploy_observed",
+            "service": "mes-api",
             "base_sha": BASE_SHA,
             "image_id": IMAGE_ID,
             "container": f"linemedic-mes-{RUN}",

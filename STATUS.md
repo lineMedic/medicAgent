@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W08** ([tasks/W08-s2-lite-fixtures.md](tasks/W08-s2-lite-fixtures.md), S2-lite 카메라 지표·설비·매뉴얼 — 선행 W06·W07 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W09** ([tasks/W09-proposal-schema.md](tasks/W09-proposal-schema.md), 제안 schema·접수·정비 초안·escalate — 선행 W06·W07·W08 충족, 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -28,7 +28,7 @@
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
 | 9 | W05 (2부) | UNIT_TESTED | UNIT_TESTED | `make test` → 567 passed(2부 테스트 20개 포함), `make lint` → PASS, `make test-docker` → 3 passed(실제 S1b → DB에 incident ESCALATED·verification FAIL), `make verify-negative RUN_ID=r-20260927-054424-94f9` → 종료 코드 0, `VER-B4BE5C22EA1F` FAIL/content_mismatch·origin human_injected_negative·resolved_written=false, `INC-6878BEAECCC1` VERIFYING → ESCALATED(`VERIFICATION_FAILED`, 주체 verifier), `runs/linemedic.db`·`runs/r-20260927-054424-94f9/verifications/VER-B4BE5C22EA1F.json`(git 제외) | | 2026-09-27T05:59Z |
 | 10 | W07 | UNIT_TESTED | UNIT_TESTED | `make test` → 641 passed(W07 테스트 74개 포함, 전체 검증 수정 뒤 665), `make lint` → PASS, `make test-docker` → 4 passed(실제 S1 로그 → 사건 1개 → 조회 도구), `make scenario-s1`·`make detect-once RUN_ID=r-20260927-054424-94f9` → `DEPLOY_OBSERVED` 기록, 사건 `INC-885B28A026C0` NEW(count 3·증거 3·line L3·fp-v1), 로그 5줄 `runs/r-20260927-054424-94f9/logs/mes-api.jsonl`(git 제외), 정리 뒤 컨테이너·network 0개 | | 2026-09-27T06:22Z |
-| 11 | W08 | UNIT_TESTED | NOT_CHECKED | | | |
+| 11 | W08 | UNIT_TESTED | UNIT_TESTED | `make test` → 706 passed(W08 테스트 41개 포함), `make lint` → PASS, `make test-docker` → 4 passed, `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`(vision-inspection NEW, count 10, 증거 3, 배포 없음), `RECENT_DEPLOY=1 RUN_ID=r-20260927-072410-712e` → `INC-793CE4A26CC2`(이상 10분 전 mes-api 배포 기록), 지표 파일 `runs/<run>/metrics/`(git 제외) | | 2026-09-27T07:25Z |
 | 12 | W09 | UNIT_TESTED | NOT_CHECKED | | | |
 | 13 | W22 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 14 | W23 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
@@ -99,6 +99,36 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W08 완료 보고 (2026-09-27T07:25Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음
+- 변경 파일:
+  - `config/linemedic.toml`·`common/config.py`: `[services.vision-inspection]`(코드 경로 없음), `[equipment.L3-CAM-1~3]`, 지표 이상 규칙(`detector.metric_*`), 설비 catalog 교차 검사
+  - `linemedic/factory_sim/camera_metrics.py`(합성 시계열 30분·60 sample), `linemedic/control_plane/metrics_store.py`(run별 지표 보관)
+  - `linemedic/control_plane/detector.py`: `MetricRule`·`metric_anomaly`(연속 3 sample)·`metric_signature`·`Detector.observe_metrics`(사건·비교 설비 증거)
+  - `linemedic/control_plane/catalog.py`(서비스·설비·매뉴얼 범위, 같은 라인 서비스), `knowledge.py`(가상 매뉴얼 절 검색, 승인 문구 로드·검증)
+  - `linemedic/factory_sim/manuals/MANUAL-L3-VISION-4.2.md`(가상 매뉴얼, 첫 줄 "실제 산업 매뉴얼·안전 절차가 아님"), `linemedic/policies/manual_templates.toml`
+  - `linemedic/control_plane/tools_api.py`: `query_equipment_metrics`, `get_knowledge`, 설비 사건 symptom·scope, 같은 라인 서비스 배포. `deploys.py`: `deployed_at`·service·서비스 집합
+  - `linemedic/factory_sim/scenarios.py`(`inject_s2_lite`), `linemedic/cli.py`(`scenario-s2-lite`), `Makefile`(`scenario-s2-lite RUN_ID= [RECENT_DEPLOY=1]`), DECISIONS.md·ADR.md(D73)
+  - 테스트: `unit/test_camera_metrics.py`(22), `integration/test_s2_tools.py`(19)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 706 passed, 5 deselected / `make lint` → PASS / `make test-docker` → 4 passed
+  - `make scenario-s2-lite RUN_ID=r-20260927-072354-84d8` → `INC-AC32E4E6A0AA`: vision-inspection NEW, `metric:L3-CAM-2:brightness_drop`, count 10, 증거 3(CAM-2 + 비교 CAM-1·3), 배포 기록 없음
+  - `make scenario-s2-lite RUN_ID=r-20260927-072410-712e RECENT_DEPLOY=1` → `INC-793CE4A26CC2`와 이상 시작(07:19:40Z) 10분 전 mes-api 배포 기록(07:09:40Z). `foreign_key_check` 빈 결과
+  - 변이 확인: 설비 범위 무시, 배포를 사건 서비스로만 한정, 연속 조건 off-by-one, 배포를 이상 뒤에 기록, 비교 설비 증거 제거, 증상에 원인 추정 문구를 각각 넣으면 테스트가 실패했다. 확인 뒤 원래 코드로 되돌렸다
+- 수용 기준:
+  - CAM-2 관찰 밝기 59·신뢰도 0.61, CAM-1(100·0.94)·CAM-3(99·0.93) 정상값이 표와 같다: PASS(도구 응답에서도 확인)
+  - 미등록 `equipment_id`(L3-CAM-9·소문자·PLC-1) → 404, 다른 서비스 사건의 카메라 조회 → 404, 다른 사건 범위 → 404: PASS
+  - `get_knowledge`가 매뉴얼 밖 경로·URL을 돌려주지 않음(`../../etc/passwd`·URL 검색어 → 빈 결과): PASS
+  - recent-deploy 변형에서 `get_deploys`에 24시간 안의 mes-api 배포(이상 전), 기본 변형에서는 없음: PASS
+  - 도구 응답·매뉴얼에 "렌즈 오염이 원인" 같은 확정 문구·시나리오 이름 없음: PASS
+- 판단: D73(catalog 형식, 이상 규칙 세부, 조회 창, 같은 라인 배포 범위, `deployed_at`, recent-deploy 배포 시각)
+- 증거: 커밋은 이 보고를 포함한 W08 커밋. DB·지표 파일은 git 제외 경로 `runs/` 아래에 있다
+- 남은 일·위험:
+  - 정비 초안 제안 접수와 승인 문구 채우기는 W09, sandbox 실제 실행은 W16
+  - 같은 run에서 S1과 S2-lite를 섞으면 같은 라인의 배포 기록이 서로 보인다(평가는 run을 나눈다)
+- 다음 카드: W09
 
 ### 전체 검증 보고 — B00~W07 (카드 밖, 2026-09-27T06:55Z)
 

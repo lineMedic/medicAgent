@@ -1,6 +1,6 @@
 """에이전트 조회 도구 `/tools/*` (W07: get_incident·search_logs·get_deploys, spec 03 §2).
 
-나머지 도구는 W08(get_knowledge·query_equipment_metrics), W09(submit_proposal·get_proposal),
+W08: query_equipment_metrics·get_knowledge. 나머지는 W09(submit_proposal·get_proposal),
 W27·W28(search_cases·get_bound_issue)에서 더한다.
 
 - agent token의 run·incident·attempt·work가 지금 사건과 맞고 work가 RUNNING일 때만 답한다.
@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from linemedic.common.clock import from_rfc3339, to_rfc3339
+from linemedic.common.sanitize import disable_urls
 from linemedic.control_plane import evidence
 from linemedic.control_plane.app import (
     AppContext,
@@ -43,11 +44,28 @@ def _agent(request: Request) -> AgentPrincipal:
     return current
 
 
+def _related_services(ctx: AppContext, service: str) -> frozenset[str]:
+    """배포 기록을 볼 서비스: 같은 라인의 등록 서비스. catalog가 없으면 사건 서비스만."""
+    if ctx.catalog is None:
+        return frozenset({service})
+    return ctx.catalog.related_services(service)
+
+
 def _shift(value: str, **delta: float) -> str:
     return to_rfc3339(from_rfc3339(value) + timedelta(**delta))
 
 
+METRIC_SYMPTOMS = {
+    "brightness_drop": "{equipment} 밝기가 기준보다 낮게 관찰됨",
+    "confidence_drop": "{equipment} 판정 신뢰도가 기준보다 낮게 관찰됨",
+}
+
+
 def _symptom(details: dict[str, Any]) -> str | None:
+    """관찰 사실만 적는다. 원인을 추정하는 문장을 만들지 않는다."""
+    metric = details.get("metric")
+    if isinstance(metric, dict) and metric.get("anomaly") in METRIC_SYMPTOMS:
+        return METRIC_SYMPTOMS[metric["anomaly"]].format(equipment=metric.get("equipment_id"))
     sig = details.get("signature")
     if not isinstance(sig, dict) or not sig.get("endpoint") or not sig.get("error_type"):
         return None
@@ -68,9 +86,10 @@ def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> 
                 "SELECT id, status, receipt_id FROM notifications WHERE id = ? AND work_id = ?",
                 (work["start_notification_id"], work["id"]),
             )
-        history = deploy_records(tx, run_id, service, since="")
+        history = deploy_records(tx, run_id, _related_services(ctx, service), since="")
         evidence_ids = evidence.evidence_ids(tx, run_id, incident_id)
     first_seen = incident["first_seen"]
+    details = json.loads(incident["details_json"] or "{}")
     recent_from = _shift(first_seen, hours=-ctx.deploys_window_hours)
     base_sha = next((d["base_sha"] for d in reversed(history) if d.get("base_sha")), None)
     data = {
@@ -82,10 +101,10 @@ def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> 
         "service": service,
         "line_id": incident["line_id"],
         "category": incident["category"],
-        "symptom": _symptom(json.loads(incident["details_json"] or "{}")),
+        "symptom": _symptom(details),
         "features": {
             "recent_deploy": any(recent_from <= d["observed_at"] <= first_seen for d in history),
-            "scope": "service",
+            "scope": "equipment" if "metric" in details else "service",
         },
         "base_sha": base_sha,
         "observed_at": first_seen,
@@ -176,11 +195,13 @@ def _deploys(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> dict:
     with ctx.store.read() as tx:
         incident = load_visible_incident(tx, agent, incident_id)
         since = _shift(incident["first_seen"], hours=-ctx.deploys_window_hours)
-        history = deploy_records(tx, incident["run_id"], incident["service"], since="")
+        services = _related_services(ctx, incident["service"])
+        history = deploy_records(tx, incident["run_id"], services, since="")
     recent = [d for d in history if d["observed_at"] >= since]
     current = next((d["base_sha"] for d in reversed(history) if d.get("base_sha")), None)
     return {
         "service": incident["service"],
+        "services": sorted(services),
         "window_hours": ctx.deploys_window_hours,
         "deploys": recent,
         "current_base_sha": current,
@@ -191,4 +212,79 @@ def _deploys(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> dict:
 async def get_deploys(incident_id: str, request: Request) -> JSONResponse:
     reject_unknown_query(request)
     data = await run_in_threadpool(_deploys, context(request), _agent(request), incident_id)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _equipment_metrics(
+    ctx: AppContext, agent: AgentPrincipal, incident_id: str, equipment_id: str
+) -> dict:
+    if ctx.catalog is None or ctx.metrics_store is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    with ctx.store.read() as tx:
+        incident = load_visible_incident(tx, agent, incident_id)
+    equipment = ctx.catalog.equipment_of(incident["service"]).get(equipment_id)
+    if equipment is None:
+        raise ApiError("RESOURCE_NOT_FOUND")  # 미등록 설비·다른 서비스 설비
+    end = incident["last_seen"]
+    start = _shift(end, minutes=-ctx.metrics_max_minutes)
+    samples = ctx.metrics_store.read(incident["run_id"], equipment_id, start, end)
+    samples = samples[-ctx.metrics_max_samples :]
+    return {
+        "equipment_id": equipment_id,
+        "service": equipment.service,
+        "line_id": equipment.line_id,
+        "window": {"from": start, "to": end},
+        "baseline": {"brightness": samples[-1].baseline_brightness if samples else None},
+        "samples": [
+            {"ts": s.ts, "brightness": s.brightness, "confidence": s.confidence} for s in samples
+        ],
+        "quality": {
+            "sample_count": len(samples),
+            "max_samples": ctx.metrics_max_samples,
+            "window_minutes": ctx.metrics_max_minutes,
+        },
+    }
+
+
+@router.get("/tools/incidents/{incident_id}/equipment/{equipment_id}/metrics")
+async def query_equipment_metrics(
+    incident_id: str, equipment_id: str, request: Request
+) -> JSONResponse:
+    reject_unknown_query(request)
+    data = await run_in_threadpool(
+        _equipment_metrics, context(request), _agent(request), incident_id, equipment_id
+    )
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _knowledge(ctx: AppContext, agent: AgentPrincipal, incident_id: str, q: str | None) -> dict:
+    if ctx.catalog is None or ctx.knowledge is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    with ctx.store.read() as tx:
+        incident = load_visible_incident(tx, agent, incident_id)
+    allowed = ctx.catalog.manuals_for(incident["service"])
+    found = ctx.knowledge.search(allowed, q)
+    return {
+        "q": q,
+        "results": [
+            {
+                "manual_ref_id": section.manual_ref_id,
+                "section_id": section.section_id,
+                "title": section.title,
+                "text": disable_urls(section.text),
+                "disclaimer": manual.disclaimer,
+            }
+            for manual, section in found
+        ],
+    }
+
+
+@router.get("/tools/incidents/{incident_id}/knowledge")
+async def get_knowledge(
+    incident_id: str,
+    request: Request,
+    q: Annotated[str | None, Query(max_length=LOG_QUERY_MAX_CHARS)] = None,
+) -> JSONResponse:
+    reject_unknown_query(request, frozenset({"q"}))
+    data = await run_in_threadpool(_knowledge, context(request), _agent(request), incident_id, q)
     return JSONResponse(content=success_body(request_id(request), data))

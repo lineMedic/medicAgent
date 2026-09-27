@@ -29,8 +29,11 @@ from linemedic.control_plane.auth import (
     TokenRegistry,
     bearer_token,
 )
+from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.errors import ApiError, error_response
+from linemedic.control_plane.knowledge import KnowledgeBase
 from linemedic.control_plane.log_store import LogStore
+from linemedic.control_plane.metrics_store import MetricsStore
 from linemedic.control_plane.state import TransitionDenied
 from linemedic.control_plane.store import StateConflict, Store, StoreBusy
 
@@ -49,6 +52,11 @@ class AppContext:
     logs_window_minutes: int = 30  # docs/07 tools.logs.window_minutes
     logs_max_bytes: int = 65536  # docs/07 tools.logs.max_bytes
     deploys_window_hours: int = 24  # docs/07 tools.deploys.window_hours
+    catalog: Catalog | None = None  # 등록 서비스·설비(W08)
+    metrics_store: MetricsStore | None = None
+    metrics_max_minutes: int = 30  # docs/07 tools.metrics.max_minutes
+    metrics_max_samples: int = 60  # docs/07 tools.metrics.max_samples
+    knowledge: KnowledgeBase | None = None
 
 
 def _under(path: str, prefix: str) -> bool:
