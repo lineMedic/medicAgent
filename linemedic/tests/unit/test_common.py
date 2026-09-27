@@ -363,3 +363,11 @@ def test_host_manifest_uses_null_for_missing_tools_and_no_env_dump():
     assert isinstance(manifest["sqlite"]["fts5"], bool)
     assert "nvapi-secret" not in json.dumps(manifest)
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z", manifest["collected_at"])
+
+
+def test_loads_strict_rejects_deeply_nested_json_as_strict_error():
+    """아주 깊은 중첩은 RecursionError가 아니라 StrictJSONError로 거부한다(검증에서 발견)."""
+    deep = b"[" * 60_000 + b"]" * 60_000
+    assert len(deep) <= 131072
+    with pytest.raises(StrictJSONError):
+        loads_strict(deep)

@@ -67,8 +67,15 @@ class _CliLogStream:
     """`docker logs --follow`의 stdout을 백그라운드 thread로 읽는다."""
 
     def __init__(self, argv: list[str]) -> None:
+        # 비신뢰 컨테이너가 잘못된 UTF-8을 써도 reader가 죽지 않게 대체 문자로 읽는다.
         self._proc = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
         )
         self._lines: queue.Queue[str] = queue.Queue()
         self._reader = threading.Thread(target=self._pump, daemon=True)
@@ -88,7 +95,8 @@ class _CliLogStream:
                 return lines
 
     def alive(self) -> bool:
-        return self._proc.poll() is None
+        """process와 reader thread가 모두 살아 있어야 읽는 중이다. 하나라도 끝나면 관찰 공백이다."""
+        return self._proc.poll() is None and self._reader.is_alive()
 
     def close(self) -> None:
         if self._proc.poll() is None:
@@ -110,6 +118,8 @@ class CliDocker:
                 [self.binary, *args],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout or self.timeout,
                 check=False,
             )
