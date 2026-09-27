@@ -100,6 +100,17 @@
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
 
+### W26 리뷰 반영 (카드 밖, 2026-09-27T11:49Z)
+
+- 계기: PR #48 리뷰(CHANGES_REQUESTED) — 차단된 work의 시작 알림이 나중에 발송됨(재현). shadow로 60초가 지나 BLOCKED가 된 뒤 G10에서 쓰기를 켜면 "작업 시작 예정" 댓글 다음에 "진행 중단 — START_NOTICE_UNCONFIRMED"가 달렸다(알림 정확성 위반)
+- 수정:
+  1. `Supervisor.expire_start_notices`: 같은 트랜잭션에서 아직 PENDING인 시작 알림을 `FAILED(expired_before_send)`로 닫는다(감사 NOTIFICATION_FAILED). SENDING·UNKNOWN은 그대로 둔다
+  2. `OutboxWorker._claim`: WORK_STARTING은 work가 WAITING_NOTIFICATION일 때만 가져가고, 아니면 보내지 않고 `FAILED(work_not_waiting)`로 닫는다. `on_scope_changed` 같은 다른 차단 경로도 막힌다
+  3. 테스트: 리뷰 재현(shadow → 61초 → expire → 쓰기 켬 → 시작 댓글 0개·차단 댓글 1개), scope 변경으로 멈춘 work의 시작 알림 미발송. 수정 전 2건 실패 확인
+- 실행: `make test` 상당 → Python 3.12.2 1100 passed, 3.14.4 1099 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), `ruff check`·`ruff format --check` PASS. docker·live 미실행
+- 판단: D79 ⑥ 보충(시작하지 않을 work에 시작 예정 알림 금지)
+- 남은 일: #49가 병합되면 이 브랜치에 main을 병합한다. 조정의 본문 hash 정확 일치는 live N12(강제 timeout → FOUND)에서 GitHub의 줄바꿈·끝 공백 보존을 확인한다. T-NOT-01의 workspace·agent 순서는 W28·W13에서 같은 감사에 잇는다(그때까지 Issue #16 열어 둠)
+
 ### W26 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T11:22Z)
 
 - 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10). FakeGitHub와 실제 SQLite로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
