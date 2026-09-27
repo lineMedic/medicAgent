@@ -151,6 +151,8 @@ def test_run_id_must_match_incident_run(api):
         (b'{"expected_incident_version": NaN}', "invalid_json"),
         (b"not json", "invalid_json"),
         (b"\xff\xfe", "invalid_json"),
+        (b'{"expected_incident_version": ' + b"9" * 5000 + b"}", "invalid_json"),  # 500이 아님
+        (b'{"expected_incident_version": 1e999}', "invalid_json"),
         (b"[1, 2]", "body_must_be_object"),
     ],
 )

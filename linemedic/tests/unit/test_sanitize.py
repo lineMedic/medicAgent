@@ -75,6 +75,31 @@ def test_disable_urls_without_allowed_repo_disables_all():
     assert disable_urls("https://github.com/a/b") == "https[:]//github.com/a/b"
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("절차는https://evil.example/x", "절차는https[:]//evil.example/x"),
+        ("참고www.evil.example", "참고www[.]evil.example"),
+        ("받기ftp://evil.example/f", "받기ftp[:]//evil.example/f"),
+        ("xhttps://evil.example", "xhttps[:]//evil.example"),
+    ],
+    ids=["korean_https", "korean_www", "korean_ftp", "ascii_prefix"],
+)
+def test_disable_urls_catches_urls_glued_to_preceding_text(text, expected):
+    """앞 글자에 붙은 URL도 무력화한다(단어 경계가 없어도). W09 리뷰에서 발견."""
+    assert disable_urls(text, REPO) == expected
+
+
+def test_disable_urls_keeps_registered_repo_link_glued_to_korean():
+    text = f"PR은https://github.com/{REPO}/pull/17"
+    assert disable_urls(text, REPO) == text
+
+
+def test_disable_urls_is_idempotent():
+    once = disable_urls("a https://evil.example b www.evil.example 절차는ftp://x.example")
+    assert disable_urls(once) == once
+
+
 def test_escape_html():
     assert escape_html('<img src=x onerror="alert(1)"> & ok') == (
         '&lt;img src=x onerror="alert(1)"&gt; &amp; ok'

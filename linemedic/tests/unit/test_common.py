@@ -371,3 +371,28 @@ def test_loads_strict_rejects_deeply_nested_json_as_strict_error():
     assert len(deep) <= 131072
     with pytest.raises(StrictJSONError):
         loads_strict(deep)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"a": ' + b"1" * 5000 + b"}",  # int 자릿수 상한(4300) 초과 → 표준 json은 ValueError
+        b'{"a": 1' + b"0" * 400 + b".5}",  # float로 바꾸면 inf
+        b'{"a": 1e999}',
+        b'{"a": -1e999}',
+    ],
+    ids=["huge_int", "huge_float", "exp_inf", "exp_neg_inf"],
+)
+def test_loads_strict_rejects_numbers_python_cannot_represent_exactly(raw):
+    """숫자 변환 오류·무한대가 되는 값도 StrictJSONError로 거부한다(W09 리뷰에서 발견)."""
+    with pytest.raises(StrictJSONError):
+        loads_strict(raw)
+
+
+def test_loads_strict_keeps_ordinary_numbers():
+    assert loads_strict(b'{"a": 12, "b": -0.5, "c": 1e3, "d": 4300}') == {
+        "a": 12,
+        "b": -0.5,
+        "c": 1000.0,
+        "d": 4300,
+    }
