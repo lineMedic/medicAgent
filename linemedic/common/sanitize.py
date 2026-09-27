@@ -33,7 +33,8 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 # 앞이 단어 문자가 아닌 @만 멘션이다(메일 주소 a@b.com은 그대로 둔다).
 _MENTION = re.compile(r"(?<![\w@`])@(?=[A-Za-z0-9][A-Za-z0-9-]*(?:/[A-Za-z0-9_.-]+)?)")
-_URL = re.compile(r"(?i)\b(?:https?|ftp)://[^\s<>()\[\]\"'`]+|\bwww\.[^\s<>()\[\]\"'`]+")
+# 단어 경계(\b)를 두지 않는다. 한글 등 앞 글자에 붙은 URL(`절차는https://…`)도 잡는다.
+_URL = re.compile(r"(?i)(?:https?|ftp)://[^\s<>()\[\]\"'`]+|www\.[^\s<>()\[\]\"'`]+")
 _ZERO_WIDTH_SPACE = "\u200b"
 
 
