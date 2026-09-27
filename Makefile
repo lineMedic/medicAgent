@@ -46,5 +46,6 @@ fmt:
 doctor:
 	$(PY) -m linemedic.cli doctor
 
+# 명령줄을 출력하지 않는다(@). `make host-manifest > evidence/host-manifest.json`이 순수 JSON이 되게 한다.
 host-manifest:
-	$(PY) -m linemedic.cli host-manifest
+	@$(PY) -m linemedic.cli host-manifest

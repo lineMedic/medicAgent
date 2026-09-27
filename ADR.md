@@ -105,6 +105,7 @@
 | D62 | 개발 진행 상태·완료 보고는 STATUS.md에 직접 기록. 선행·게이트는 작업 카드로 확인하며 별도 진행 도구 제거 | 범위 | 유효 (D61 대체) |
 | D63 | 저장소·문서 루트 이름은 `lineMedic`. GitHub 생성 목표는 조직 `lineMedic`의 공개 저장소 `lineMedic/lineMedic` | 기반 | 로컬 이름 유효; GitHub 게시 대상은 D64로 대체 |
 | D64 | GitHub 게시 대상은 사용자 지정 `lineMedic/medicAgent`. 로컬 루트·제품·패키지·데모 대상 이름은 유지 | 기반 | 유효 (D63의 GitHub 게시 대상 대체) |
+| D65 | `config_hash`는 설정 파일 + 설정 키에 대응하는 env만 포함. 호스트·run 식별 env는 `RuntimeEnv`로 분리해 해시에서 제외 | 기반 | 유효 (D52 구체화) |
 
 ## 3. 주제별 보기
 

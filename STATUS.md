@@ -8,18 +8,18 @@
 
 | 카드 | 시작 시각 | 진행 메모 |
 |---|---|---|
-| B00 | 2026-09-27T02:10Z | 사람 게이트 G1·G2·G3·G5·G6·G11 요청 기록 후 착수. 작업 위치: fork `minjcho/medicAgent` clone (upstream `lineMedic/medicAgent`) |
+| (없음) | | |
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **B00** ([tasks/B00-bootstrap.md](tasks/B00-bootstrap.md)). 구현을 시작할 때 먼저 [docs/08 §2](docs/08-task-plan.md)의 게이트 요청을 사용자에게 전달한다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W01의 게이트 없이 가능한 부분** ([tasks/W01-contest-conditions.md](tasks/W01-contest-conditions.md), G6 답변 기록 양식 준비). W00은 G1(데모 호스트 확정) 대기라 게이트 없이 할 수 있는 부분이 없다. 그다음은 W02·W03의 게이트 없는 준비(스파이크·점검 스크립트), 이어서 게이트가 필요 없는 W04다.
 
 ## 작업표
 
 | # | 카드 | 목표 상태 | 현재 상태 | 증거 (명령·커밋·경로) | 게이트·차단 | 갱신 |
 |---|---|---|---|---|---|---|
-| 1 | B00 | UNIT_TESTED | NOT_CHECKED | | | |
-| 2 | W00 | LIVE_VERIFIED | NOT_CHECKED | | G1 | |
+| 1 | B00 | UNIT_TESTED | UNIT_TESTED | `make test` → 38 passed, `make lint` → PASS, `python -m linemedic.cli doctor` → exit 1 (env NOT_CONFIGURED), 새 clone `make setup`·`make test`·`make lint` PASS, 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa` | | 2026-09-27T02:27Z |
+| 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
 | 3 | W01 | LIVE_VERIFIED | NOT_CHECKED | | G6 | |
 | 4 | W02 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4·G5 | |
 | 5 | W03 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
@@ -99,6 +99,22 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### B00 완료 보고 (2026-09-27T02:27Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달)
+- 변경 파일: `pyproject.toml`(허용 의존성·pytest 마커·ruff), `Makefile`(setup/lock/test/test-docker/test-live/lint/fmt/doctor/host-manifest), `.gitignore`(패키징 산출물 추가), `.env.example`(spec 11 §2 이름만, 비밀 표시), `config/linemedic.toml`(docs/07 기본값, 미확정 키 생략), `requirements.lock`, `linemedic/common/{clock,ids,canonical_json,config}.py`, `linemedic/cli.py`, `linemedic/scripts/{host_manifest,doctor}.py`, `linemedic/tests/{conftest.py,unit/test_common.py}`, `evidence/README.md`, DECISIONS.md·ADR.md(D65)
+- 실행 (로컬 개발 Mac, fake/unit — live 아님):
+  - `make test` → 38 passed / `make lint` → PASS (ruff check, format check 14 files)
+  - `make test-docker` → NOT_RUN (docker 마커 테스트 없음) / `make test-live` → 실행 안 함
+  - `python -m linemedic.cli doctor` → 종료 코드 1 (`env` NOT_CONFIGURED, 필수 변수 18개 미설정 이름만 표시, 비밀 값 출력 없음). `make doctor`는 이를 make 오류로 보고한다
+  - 새 clone(커밋 cc2766b)에서 `make setup` exit 0 → `make test` 38 passed → `make lint` PASS
+- 테스트: `linemedic/tests/unit/test_common.py` — 중복 key·128 KiB 상한·NaN·비UTF-8 거부, canonical 동일성·sha256 안정성, run_id·엔티티 ID 형식, FakeClock 10초 advance, config_hash(비밀 env 무관·deadline 변경 시 변경·호스트 식별 env 무관), 모르는 키·잘못된 타입·TOML 날짜/시각·크기 상한 거부, 생략 키 None, 잘못된 env 값 거부, Secrets repr 비노출, doctor NOT_CONFIGURED·종료 코드·비밀 미출력, host manifest null 처리
+- 환경: 개발 Mac(arm64, kernel 25.6.0), Python 3.12.2, SQLite 3.46.0(FTS5), git 2.55.0(Homebrew), Docker 28.1.1. **데모 호스트 manifest가 아니다** — W00에서 확정 호스트로 다시 만든다
+- 결정·해석: D65(config hash 범위). ruff 대상을 Python 파일로 한정했다(ruff 0.16이 Markdown도 포맷 대상으로 잡아 spec/ 수정 위험). doctor 필수 env는 config 기본값이 없는 18개로 정했다
+- 증거: 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa`(구현). 후속 커밋에서 `make host-manifest`가 명령줄을 출력하지 않게 고침(W00의 `make host-manifest > evidence/host-manifest.json`이 순수 JSON이 되도록, 출력 JSON 파싱 확인) 및 이 보고 기록
+- 남은 일·위험: 원격 push 안 함(사용자 허락 대기). 작업 위치는 fork `minjcho/medicAgent`이며 upstream `lineMedic/medicAgent` 쓰기 권한 없음 → 팀장 초대 또는 PR로 반영 필요
+- 다음 카드: W01 게이트 없는 부분 (W00은 G1 대기)
 
 ### D64 승인 허용 후 게시 재개 — 실행 제한 지속 (2026-09-26T18:05:17Z)
 
