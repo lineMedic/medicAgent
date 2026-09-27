@@ -278,6 +278,13 @@ def effective_profile(info: Mapping[str, Any]) -> dict[str, Any]:
         "pid_mode": host.get("PidMode"),
         "ipc_mode": host.get("IpcMode"),
         "tmpfs": host.get("Tmpfs"),
+        "ulimits": sorted(
+            (
+                {"name": u.get("Name"), "soft": u.get("Soft"), "hard": u.get("Hard")}
+                for u in host.get("Ulimits") or []
+            ),
+            key=lambda u: str(u["name"]),
+        ),
         "user": config.get("User"),
         "mounts": sorted(
             (
@@ -293,6 +300,7 @@ def profile_problems(effective: Mapping[str, Any], profile: RunnerProfile) -> li
     """요청한 실행 프로필과 실제 적용 값이 다른 항목."""
     problems = []
     mounts = {m["destination"]: m for m in effective.get("mounts") or []}
+    fsize = profile.tmpfs_mib * MIB
     checks = {
         "image": effective.get("image") == profile.image_id,
         "network": effective.get("network_mode") == "none",
@@ -306,6 +314,8 @@ def profile_problems(effective: Mapping[str, Any], profile: RunnerProfile) -> li
         "swap": effective.get("memory_swap") == profile.memory_mib * MIB,
         "cpus": effective.get("nano_cpus") == profile.cpus * 1_000_000_000,
         "pids": effective.get("pids_limit") == profile.pids,
+        "file_size_limit": {"name": "fsize", "soft": fsize, "hard": fsize}
+        in (effective.get("ulimits") or []),
         "namespaces": effective.get("pid_mode") in (None, "")
         and effective.get("ipc_mode") not in ("host",),
         "user": effective.get("user") == f"{profile.uid}:{profile.gid}",
@@ -348,6 +358,9 @@ class Runner:
             f"{p.memory_mib}m",
             "--pids-limit",
             str(p.pids),
+            # 파일 하나의 크기 상한(/tmp와 같은 값). 결과 mount의 junit.xml도 이 크기를 넘지 못한다
+            "--ulimit",
+            f"fsize={p.tmpfs_mib * MIB}",
             "--cap-drop",
             "ALL",
             "--security-opt",
@@ -409,7 +422,13 @@ class Runner:
         tests: Sequence[str],
         labels: Mapping[str, str],
     ) -> StageRun:
-        """한 단계를 실행한다. `results`는 새 빈 경로, `logs`는 컨테이너에 보이지 않는 host 경로."""
+        """한 단계를 실행한다. `results`는 새 빈 경로, `logs`는 컨테이너에 보이지 않는 host 경로.
+
+        결과 폴더는 쓰기 가능하게 mount되지만 폴더 자체는 읽기 전용(0555)이다. 컨테이너는
+        미리 만든 `junit.xml` 하나에만 쓸 수 있고(`--ulimit fsize`로 크기 상한),
+        새 파일·폴더·symlink를 만들 수 없다.
+        `docker run` 뒤의 Docker·OS 오류는 예외로 올리지 않고 `runner_error`로 돌려준다.
+        """
         base = StageRun(stage, tuple(tests))
         tree, results = tree.resolve(), results.resolve()
         if not _CONTAINER_NAME.fullmatch(name) or not all(
@@ -417,25 +436,36 @@ class Runner:
         ):
             return replace(base, runner_error="unsafe_stage_parameters")
         results.mkdir(parents=True)
-        os.chmod(results, 0o777)  # 비루트 컨테이너 사용자가 junit을 쓸 수 있게(이 단계 전용 경로)
+        junit_file = results / JUNIT_NAME
+        junit_file.touch()
+        os.chmod(junit_file, 0o666)  # 비루트 컨테이너 사용자가 이 파일 하나에만 쓴다
+        os.chmod(results, 0o555)  # 새 항목을 만들 수 없다(host 디스크를 파일 수로 채우지 못한다)
         self.docker.stop(name)  # 같은 이름의 이전 컨테이너(정확한 이름)만 지운다
+        step = "docker_run_failed"
         try:
-            try:
-                container_id = self.docker.run(
-                    self.options(name, tree, results, labels),
-                    self.profile.image_id,
-                    self.command(tests),
-                )
-            except DockerError as exc:
-                return replace(base, runner_error="docker_run_failed", exit_code=exc.returncode)
+            container_id = self.docker.run(
+                self.options(name, tree, results, labels),
+                self.profile.image_id,
+                self.command(tests),
+            )
+            step = "docker_wait_failed"
             exit_code = self.docker.wait(name, self.profile.stage_timeout_seconds)
+            step = "docker_inspect_failed"
             info = self.docker.inspect(name) or {}
+            step = "docker_logs_failed"
             log, truncated = self.docker.logs_capped(name, self.profile.max_log_bytes)
+        except (DockerError, OSError) as exc:
+            code = exc.returncode if isinstance(exc, DockerError) else None
+            return replace(base, runner_error=step, exit_code=code)
         finally:
             self.docker.stop(name)  # 제한 시간을 넘겼으면 여기서 컨테이너 전체를 강제 종료·제거한다
-        logs.mkdir(parents=True, exist_ok=True)
-        log_file = logs / f"{stage}.log"
-        log_file.write_bytes(log)
+            os.chmod(results, 0o755)  # host가 run 정리(reset·archive) 때 지울 수 있게 되돌린다
+        try:
+            logs.mkdir(parents=True, exist_ok=True)
+            log_file = logs / f"{stage}.log"
+            log_file.write_bytes(log)
+        except OSError:
+            return replace(base, runner_error="log_write_failed", container_id=container_id)
         state = info.get("State") or {}
         effective = effective_profile(info)
         run = replace(
@@ -456,9 +486,12 @@ class Runner:
             return replace(run, runner_error="profile_mismatch:" + ",".join(problems))
         if run.timed_out:
             return run
+        unexpected = sorted(set(os.listdir(results)) - {JUNIT_NAME})
+        if unexpected:  # 폴더 권한이 지켜지지 않은 host(권한을 무시하는 mount 등)
+            return replace(run, runner_error="unexpected_result_entries")
         try:
-            data = read_result_file(results / JUNIT_NAME, self.profile.max_log_bytes)
-            if data is None:
+            data = read_result_file(junit_file, self.profile.max_log_bytes)
+            if not data:  # 미리 만든 빈 파일 그대로면 pytest가 쓰지 않은 것이다
                 return replace(run, junit_error="junit_missing")
             return replace(run, junit=parse_junit(data, self.profile.max_log_bytes))
         except JunitError as exc:

@@ -67,6 +67,11 @@ def inspect_from_options(name: str, options: list[str], image: str) -> dict[str,
     for spec in _flag_values(options, "--tmpfs"):
         target, _, opts = spec.partition(":")
         tmpfs[target] = opts
+    ulimits = []
+    for spec in _flag_values(options, "--ulimit"):
+        name, _, value = spec.partition("=")
+        soft, _, hard = value.partition(":")
+        ulimits.append({"Name": name, "Soft": int(soft), "Hard": int(hard or soft)})
     return {
         "Name": f"/{name}",
         "Image": image,
@@ -85,6 +90,7 @@ def inspect_from_options(name: str, options: list[str], image: str) -> dict[str,
             "PidMode": "",
             "IpcMode": "private",
             "Tmpfs": tmpfs,
+            "Ulimits": ulimits or None,
         },
         "Mounts": [
             {"Type": "bind", "Source": str(source), "Destination": target, "RW": not read_only}

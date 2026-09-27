@@ -46,6 +46,7 @@ NEW_TESTS = {
 }
 PROBE = """import os
 import pathlib
+import signal
 import socket
 
 
@@ -91,6 +92,34 @@ def test_runs_as_fixed_non_root_user():
 
 def test_no_docker_socket():
     assert not os.path.exists("/var/run/docker.sock")
+
+
+def test_results_mount_cannot_fill_the_host_disk():
+    results = pathlib.Path("/work/results")
+    for make in (
+        lambda: (results / "fill.bin").write_bytes(b"x"),
+        lambda: (results / "sub").mkdir(),
+        lambda: (results / "link").symlink_to("/etc/passwd"),
+    ):
+        try:
+            make()
+            created = True
+        except OSError:
+            created = False
+        assert not created
+    assert sorted(os.listdir(results)) == ["junit.xml"]
+    signal.signal(signal.SIGXFSZ, signal.SIG_IGN)  # 상한을 넘으면 죽는 대신 EFBIG을 받는다
+    chunk, written = b"x" * (1 << 20), 0
+    with open(results / "junit.xml", "wb") as handle:
+        try:
+            for _ in range(65):
+                handle.write(chunk)
+                handle.flush()
+                written += len(chunk)
+        except OSError:
+            pass
+        handle.truncate(0)
+    assert written == 64 << 20  # fsize 상한(/tmp와 같은 64 MiB)에서 멈춘다
 """
 
 
@@ -242,7 +271,7 @@ def test_n06_runner_isolation_probe_and_inspect(runner_image, tmp_path):
     )
     assert run.runner_error is None, run.runner_error
     assert run.exit_code == 0, Path(run.log_path).read_text()[-2000:]
-    assert run.junit is not None and run.junit.tests == 6 and run.junit.count("passed") == 6
+    assert run.junit is not None and run.junit.tests == 7 and run.junit.count("passed") == 7
     effective = run.profile
     assert effective["network_mode"] == "none"
     assert effective["read_only_rootfs"] is True and not effective["privileged"]
@@ -252,6 +281,7 @@ def test_n06_runner_isolation_probe_and_inspect(runner_image, tmp_path):
     assert (effective["nano_cpus"], effective["pids_limit"]) == (1_000_000_000, 64)
     assert effective["user"] == "10001:10001"
     assert effective["tmpfs"] == {"/tmp": "rw,noexec,nosuid,nodev,size=64m"}
+    assert effective["ulimits"] == [{"name": "fsize", "soft": 64 * MIB, "hard": 64 * MIB}]
     assert [(m["destination"], m["rw"]) for m in effective["mounts"]] == [
         ("/work/repo", False),
         ("/work/results", True),

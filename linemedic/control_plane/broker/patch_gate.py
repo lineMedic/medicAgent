@@ -104,7 +104,24 @@ class PatchGate:
         self.runs_dir = runs_dir
 
     def check(self, request: GateRequest) -> GateOutcome:
+        """게이트를 돌린다. 예상하지 못한 예외도 수정 불가 거절로 끝낸다.
+
+        예외가 브로커 밖으로 올라가면 제안이 CHECKING, work가 RUNNING에 남아 전역 실행 슬롯을
+        잡는다(다른 work가 모두 시작하지 못한다). 그래서 여기서 `PROTECTION_UNAVAILABLE`로 닫고
+        브로커의 거절 경로(ESCALATED/BLOCKED·차단 보고)를 탄다.
+        """
         outcome = GateOutcome()
+        try:
+            return self._check(request, outcome)
+        except Exception as exc:  # noqa: BLE001 — git·docker·OS 오류를 모두 닫는다
+            return outcome.fail(
+                "RUNNER",
+                PROTECTION_UNAVAILABLE,
+                f"unexpected_error:{type(exc).__name__}",
+                revisable=False,
+            )
+
+    def _check(self, request: GateRequest, outcome: GateOutcome) -> GateOutcome:
         rules = self.policy.rules
         try:
             plan = check_diff(request.diff, request.new_test_path, rules)
