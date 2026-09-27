@@ -49,6 +49,9 @@ RUNTIME_ENV_FIELDS: dict[str, str] = {
 }
 
 ROUTING_SCOPE_PATTERN = r"^(live|eval:r-\d{8}-\d{6}-[0-9a-f]{4})$"
+ROUTE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{0,63}$"  # outbox ROUTE_ID_RE와 같은 규칙
+# 알림 수신 주소를 담는 env 이름(값은 비밀, 문서·DB에 기록하지 않음). route는 이 이름만 가리킨다.
+RECIPIENT_ENV_NAMES: tuple[str, ...] = ("LINEMEDIC_OPS_RECIPIENT",)
 
 
 class ConfigError(ValueError):
@@ -87,8 +90,28 @@ class EquipmentConfig(_Model):
 
 
 class RepositoryConfig(_Model):
+    """등록 repo. id·full_name은 G2에서 env로 채운다. service_id는 이 repo가 추적하는 서비스."""
+
+    service_id: str
     id: PositiveInt | None = None
     full_name: RepoFullName | None = None
+
+    @model_validator(mode="after")
+    def _no_dot_segments(self) -> "RepositoryConfig":
+        if self.full_name is not None and any(
+            part in (".", "..") for part in self.full_name.split("/")
+        ):
+            raise ValueError("repository.full_name에 . 또는 .. 경로 조각을 쓸 수 없다")
+        return self
+
+
+class GitHubConfig(_Model):
+    """GitHub 연동(W22). write_enabled는 shadow 모드 스위치로 G10에서 사람이 켠다."""
+
+    base_url: Annotated[str, Field(pattern=r"^https://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[\w./-]*)?$")]
+    write_enabled: bool
+    timeout_seconds: PositiveInt
+    api_version: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")] | None = None  # N11 확정 뒤
 
 
 class AutoStartConfig(_Model):
@@ -113,17 +136,28 @@ class IssueIntakeConfig(_Model):
 
 
 class NotificationRoute(_Model):
+    """route catalog 항목(spec 16 §1). 실제 수신자는 host 설정만 정한다(모델·Issue·로그 아님)."""
+
     adapter: Literal["github_comment", "smtp"]
     enabled: bool
     target: Literal["bound_issue"] | None = None
     recipient_config_key: str | None = None
+
+    @model_validator(mode="after")
+    def _adapter_fields(self) -> "NotificationRoute":
+        if self.adapter == "github_comment":
+            if self.target is None or self.recipient_config_key is not None:
+                raise ValueError("github_comment route는 target=bound_issue만 쓴다(수신 주소 없음)")
+        elif self.target is not None or self.recipient_config_key not in RECIPIENT_ENV_NAMES:
+            raise ValueError("smtp route는 등록된 수신 주소 env 이름만 가리킨다")
+        return self
 
 
 class NotificationsConfig(_Model):
     required_start_route_id: str
     start_wait_seconds: PositiveInt
     retry_max_attempts: PositiveInt
-    routes: dict[str, NotificationRoute]
+    routes: dict[Annotated[str, Field(pattern=ROUTE_ID_PATTERN)], NotificationRoute]
 
 
 class AgentConfig(_Model):
@@ -215,6 +249,7 @@ class LineMedicConfig(_Model):
     schema_version: Literal["linemedic.v4"]
     services: dict[str, ServiceConfig]
     repository: RepositoryConfig
+    github: GitHubConfig
     issue_intake: IssueIntakeConfig
     notifications: NotificationsConfig
     agent: AgentConfig
@@ -243,6 +278,8 @@ class LineMedicConfig(_Model):
             raise ValueError("issue_intake.start_notification_route_id must match the start route")
         if self.issue_intake.service_id not in self.services:
             raise ValueError(f"issue_intake.service_id {self.issue_intake.service_id!r} is unknown")
+        if self.repository.service_id != self.issue_intake.service_id:
+            raise ValueError("repository.service_id must match issue_intake.service_id")
         return self
 
 

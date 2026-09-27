@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from linemedic.common.clock import FakeClock
+from linemedic.integrations.github import FakeGitHub
 from linemedic.scripts import doctor
 from linemedic.scripts import github_protection_probe as probe
 from linemedic.scripts import github_setup_check as setup
@@ -212,14 +213,15 @@ def test_doctor_github_ok_and_fail_without_printing_tokens():
     ok_ctx = doctor.DoctorContext(
         config_path=DEFAULT_CONFIG,
         env=doctor_env(),
-        github_get=lambda path, token: (200, {"id": REPO_ID, "full_name": REPO}),
+        github_port=lambda rid, name, cred: FakeGitHub(rid, name),
     )
     status, detail = doctor.check_github(ok_ctx)
     assert status == "OK" and no_secrets(detail)
+    assert "linemedic-bot (ID 900001)" in detail  # 봇 identity(W22)
     bad_ctx = doctor.DoctorContext(
         config_path=DEFAULT_CONFIG,
         env=doctor_env(),
-        github_get=lambda path, token: (200, {"id": 1, "full_name": REPO}),
+        github_port=lambda rid, name, cred: FakeGitHub(rid, name, actual_repository_id=1),
     )
     status, detail = doctor.check_github(bad_ctx)
     assert status == "FAIL" and "불일치" in detail and no_secrets(detail)
@@ -227,6 +229,38 @@ def test_doctor_github_ok_and_fail_without_printing_tokens():
         config_path=DEFAULT_CONFIG, env=doctor_env(GITHUB_REPOSITORY="a/b/c")
     )
     assert doctor.check_github(invalid)[0] == "FAIL"
+
+
+@pytest.mark.parametrize("kind", ["forbidden", "timeout", "rate_limited"])
+def test_doctor_github_lookup_failure_is_fail_without_tokens(kind):
+    def build(rid, name, cred):
+        port = FakeGitHub(rid, name)
+        port.fail_next(kind, when=lambda r: r.path == "/user")  # 봇 identity 조회 실패
+        return port
+
+    ctx = doctor.DoctorContext(config_path=DEFAULT_CONFIG, env=doctor_env(), github_port=build)
+    status, detail = doctor.check_github(ctx)
+    assert status == "FAIL" and no_secrets(detail)
+
+
+def test_doctor_github_without_bot_login_is_fail():
+    def build(rid, name, cred):
+        port = FakeGitHub(rid, name)
+        port.identity = {"id": 1}  # login 없는 identity 응답
+        return port
+
+    ctx = doctor.DoctorContext(config_path=DEFAULT_CONFIG, env=doctor_env(), github_port=build)
+    status, detail = doctor.check_github(ctx)
+    assert status == "FAIL" and "identity" in detail
+
+
+def test_doctor_github_rejects_dot_segment_repository():
+    ctx = doctor.DoctorContext(
+        config_path=DEFAULT_CONFIG,
+        env=doctor_env(GITHUB_REPOSITORY="demo-team/.."),
+        github_port=lambda rid, name, cred: FakeGitHub(rid, name),
+    )
+    assert doctor.check_github(ctx)[0] == "FAIL"
 
 
 # ── 보호 시험 스크립트 ────────────────────────────────────────

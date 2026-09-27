@@ -115,6 +115,7 @@
 | D72 | fingerprint 배열 인코딩·source 기준 service, 관찰 시계 60초 3회, terminal 사건 흡수, 정제 로그 JSONL 보관, `/tools`는 RUNNING attempt만, search_logs 제한 | 입력 | 유효 (spec 15 §3.1·03 §2 구체화) |
 | D73 | S2-lite: vision-inspection·설비 catalog, 합성 지표 30분·60 sample, 연속 3 sample 이상 규칙, 설비 범위 조회 도구, 같은 라인 배포 기록·deployed_at | 입력 | 유효 (spec 09 §3·03 §2 구체화) |
 | D74 | 제안 접수: B01·B02 동기, 멱등 재전송 우선, B02 422도 제출 합산 2회에 포함, 백그라운드 B03~B06(docs/03 §5 코드만), 거절 후 수정 1회·예산 소진 이관, create_pr는 W10 전까지 PROTECTION_UNAVAILABLE, 초안·blocker report payload, JSON Schema 생성 | 배포 | 유효 (spec 03 §3·§4·06 §1·§7 구체화) |
+| D75 | GitHub 포트: 공용 경로·검증·쓰기 차단 base, HTTP 상태·전송 예외 매핑(`request_sent`), `write_enabled` 명시 필수 shadow, repo·route·작성자 catalog, doctor 봇 identity, live smoke 쓰기 이중 허락 | 배포 | 유효 (spec 15 §2·16 §1·02 §4 구체화, D46 확장) |
 
 ## 3. 주제별 보기
 
@@ -125,7 +126,7 @@
 | 알림 | D33 D34 D39 D70 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
-| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 |
+| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 |
 | 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 D68 |
 
 ## 4. 게이트 대기 결정
