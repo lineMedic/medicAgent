@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -137,3 +137,10 @@ cancel-work:
 notification-reconcile:
 	@test -n "$(NOTIFICATION_ID)" || { echo "사용법: make notification-reconcile NOTIFICATION_ID=NOT-..."; exit 2; }
 	$(PY) -m linemedic.cli notification-reconcile --notification-id "$(NOTIFICATION_ID)"
+
+# 결과 불명 execution 조정 (W11): CREATE_PR(W11)·CREATE_ISSUE(W24)를 외부 조회로만 확인한다. 새로 만들지 않는다.
+# CREATE_PR은 봇 작성·head 브랜치·candidate SHA·base·marker가 모두 맞는 PR 1개만 채택한다(PR_OPENED).
+# PR·브랜치가 모두 없음이 확인되면 ESCALATED, 그 밖(충돌·불완전·브랜치만 남음)은 기록만 한다.
+reconcile:
+	@test -n "$(RUN_ID)" -a -n "$(EXECUTION_ID)" || { echo "사용법: make reconcile RUN_ID=<run> EXECUTION_ID=EXE-..."; exit 2; }
+	$(PY) -m linemedic.cli reconcile --run-id "$(RUN_ID)" --execution-id "$(EXECUTION_ID)"

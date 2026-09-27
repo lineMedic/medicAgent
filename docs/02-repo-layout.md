@@ -36,7 +36,8 @@ linemedic/
 │   └── sanitize.py                # [W06] 비밀 패턴·멘션·URL·HTML 정제
 ├── integrations/
 │   ├── docker.py                  # [W05] DockerPort, CliDocker, FakeDocker (D47)
-│   └── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
+│   ├── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
+│   └── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
 ├── control_plane/
 │   ├── app.py                     # [W06] FastAPI app factory, 라우터 등록, body 파서
 │   ├── auth.py                    # [W06] token → principal(agent/operator), scope 검사
@@ -129,6 +130,7 @@ linemedic/
     ├── unit/  integration/  live/ # 배치는 docs/09-test-matrix.md
     ├── helpers/demo_states.py     # [W05] 테스트·demo 전용 상태 준비 helper (운영 API 아님)
     ├── helpers/runner.py          # [W10] docker 옵션→inspect 흉내, 로컬 pytest runner (테스트 전용)
+    ├── helpers/pr_world.py        # [W11] 제안→게이트→봇 PR·조정 시험 world (테스트 전용)
     └── fixtures/                  # [W10] 테스트용 patch·junit XML (에이전트 workspace에 넣지 않음)
 ```
 

@@ -62,7 +62,9 @@
             "PATCH_PATH_DENIED",
             "SOURCE_CHANGED",
             "REPRO_NOT_FAILING",
-            "REGRESSION_FAILED"
+            "REGRESSION_FAILED",
+            "EXECUTION_UNKNOWN",
+            "EXECUTION_FAILED"
           ],
           "title": "Result",
           "type": "string"
@@ -132,7 +134,10 @@
             "PATCH_PATH_DENIED",
             "SOURCE_CHANGED",
             "REPRO_NOT_FAILING",
-            "REGRESSION_FAILED"
+            "REGRESSION_FAILED",
+            "PR_OPENED",
+            "EXECUTION_UNKNOWN",
+            "EXECUTION_FAILED"
           ],
           "type": "string"
         },

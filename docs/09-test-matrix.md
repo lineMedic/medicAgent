@@ -29,7 +29,7 @@
 | T-AUTH-01 | agent token으로 `/ops/releases` 호출 | 403, 외부 변경 없음 | `unit/test_auth.py` | W06 | core |
 | T-AUTH-02 | 다른 run/incident의 증거 요청 | 거부, 내용 미노출 | `unit/test_auth.py` | W06 | core |
 | T-AUTH-03 | body에 `actor=verifier`·임의 status | schema/권한 거부 | `unit/test_auth.py` | W06 | core |
-| T-IDEM-01 | 같은 키·같은 요청 두 번 | 같은 proposal/execution, 중복 PR 없음 | `integration/test_idempotency.py` | W06 | core |
+| T-IDEM-01 | 같은 키·같은 요청 두 번 | 같은 proposal/execution, 중복 PR 없음 | `integration/test_idempotency.py`, PR 경로 `integration/test_github_pr.py` | W06·W11 | core |
 | T-IDEM-02 | 같은 키·다른 body | 409 | `integration/test_idempotency.py` | W06 | core (W25) |
 | T-STATE-01 | log·Issue 처리 coroutine이 같은 work를 동시에 claim | 활성 work·attempt 1개, 시작 게이트 준수 | `integration/test_work_claim_race.py` | W25 | core |
 | T-STATE-02 | broker/operator가 RESOLVED 시도 | 거부 | `unit/test_state_transitions.py` | W06 | core |

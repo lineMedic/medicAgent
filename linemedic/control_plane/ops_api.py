@@ -15,6 +15,10 @@
 - GET `/ops/notifications`: outbox·receipt·실패 상태 (역할 `read`, W26). 수신 주소를 보이지 않는다
 - POST `/ops/notifications/{id}/reconcile`: UNKNOWN 알림을 외부 조회로만 조정
   (역할 `reconcile`, W26). 다시 보내지 않는다
+- GET `/ops/executions/{id}`: 외부 실행 intent·결과·조정 기록 (역할 `read`, W11)
+- POST `/ops/executions/{id}/reconcile`: UNKNOWN execution을 외부 조회로만 조정
+  (역할 `reconcile`, W11). 새 PR·Issue를 만들지 않는다.
+  body의 run_id가 execution의 run과 같아야 한다
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -86,6 +90,11 @@ class CancelRequest(_Body):
 
 class ReconcileRequest(_Body):
     schema_version: Literal["linemedic.v4"]
+
+
+class ExecutionReconcileRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
 
 
 class EscalateRequest(_Body):
@@ -717,6 +726,105 @@ def _reconcile_notification(
     with ctx.store.tx() as tx:
         idempotency.complete(tx, **scope, status_code=200, body=response)
     return 200, response
+
+
+def _visible_execution(tx: Any, operator: OperatorPrincipal, execution_id: str) -> Any:
+    """형식 오류·없음·범위 밖은 모두 같은 404다."""
+    if not is_valid_entity_id(execution_id, "EXE"):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    execution = tx.one("SELECT * FROM executions WHERE id = ?", (execution_id,))
+    if execution is None:
+        raise ApiError("RESOURCE_NOT_FOUND")
+    load_visible_incident(tx, operator, execution["incident_id"])
+    return execution
+
+
+@router.get("/ops/executions/{execution_id}")
+async def get_execution(
+    execution_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+) -> JSONResponse:
+    ctx = context(request)
+
+    def load() -> dict:
+        with ctx.store.read() as tx:
+            execution = _visible_execution(tx, operator, execution_id)
+        data = {
+            k: execution[k] for k in execution.keys() if k not in ("request_json", "result_json")
+        }
+        data["request"] = _json(execution["request_json"])
+        data["result"] = _json(execution["result_json"])
+        return data
+
+    data = await run_in_threadpool(load)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _reconcile_execution(
+    ctx: AppContext,
+    operator: OperatorPrincipal,
+    execution_id: str,
+    path: str,
+    key: str,
+    body: ExecutionReconcileRequest,
+    rid: str,
+) -> tuple[int, dict]:
+    if ctx.execution_reconciler is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    with ctx.store.read() as tx:
+        execution = _visible_execution(tx, operator, execution_id)
+    if execution["run_id"] != body.run_id:  # 다른 run의 execution을 잘못 조정하지 않는다
+        raise ApiError("RESOURCE_NOT_FOUND")
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": path,
+        "run_id": execution["run_id"],
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    try:
+        data = ctx.execution_reconciler.reconcile(execution_id)  # 외부 조회는 트랜잭션 밖
+    except RuntimeError:  # 조정에 필요한 연결(GitHub 포트·router)이 없다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise ApiError("DEPENDENCY_UNAVAILABLE") from None
+    response = success_body(rid, data)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post("/ops/executions/{execution_id}/reconcile")
+async def reconcile_execution(
+    execution_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("reconcile"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, ExecutionReconcileRequest)
+    status_code, payload = await run_in_threadpool(
+        _reconcile_execution,
+        context(request),
+        operator,
+        execution_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 @router.post("/ops/notifications/{notification_id}/reconcile")

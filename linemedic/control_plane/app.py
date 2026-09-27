@@ -9,7 +9,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -41,6 +41,9 @@ from linemedic.control_plane.notifications.worker import OutboxWorker
 from linemedic.control_plane.state import TransitionDenied
 from linemedic.control_plane.store import StateConflict, Store, StoreBusy
 
+if TYPE_CHECKING:  # broker.reconcile → intake → app 순환을 피한다
+    from linemedic.control_plane.broker.reconcile import ExecutionReconciler
+
 DEFAULT_MAX_BODY_BYTES = 131072  # docs/07 proposal.max_bytes (128 KiB)
 MAX_ERROR_ITEMS = 20
 
@@ -65,6 +68,7 @@ class AppContext:
     issue_sync: IssueSync | None = None  # 등록 repo Issue 조회(W23). G2 전에는 없음
     issue_router: IssueRouter | None = None  # 로그 incident → Issue 연결(W24)
     outbox_worker: OutboxWorker | None = None  # 알림 발송·조정(W26)
+    execution_reconciler: "ExecutionReconciler | None" = None  # 결과 불명 execution 조정(W11)
 
 
 def _under(path: str, prefix: str) -> bool:

@@ -134,14 +134,31 @@ def test_write_enabled_creates_issue_comment_and_pull_in_shared_number_space():
     assert issue["labels"] == [{"name": "linemedic"}] and issue["user"]["login"] == "linemedic-bot"
     comment = port.create_issue_comment(issue["number"], "댓글").data
     assert port.list_issue_comments(issue["number"]).data == [comment]
+    port.branches.update({"autofix/r-1/INC-1/PROP-1": "c" * 40, "baseline/r-1": "b" * 40})
     pull = port.create_pull("autofix/r-1/INC-1/PROP-1", "baseline/r-1", "PR 제목", "PR 본문").data
     assert pull["number"] == issue["number"] + 1
-    assert port.get_pull(pull["number"]).data["head"]["ref"] == "autofix/r-1/INC-1/PROP-1"
+    head = port.get_pull(pull["number"]).data["head"]
+    assert (head["ref"], head["sha"]) == ("autofix/r-1/INC-1/PROP-1", "c" * 40)
     listed = port.list_pulls(head="demo-team:autofix/r-1/INC-1/PROP-1", state="open").data
     assert [p["number"] for p in listed] == [pull["number"]]
     assert "pull_request" in port.get_issue(pull["number"]).data
     assert port.write_calls == 3
     assert all(r.path.startswith(f"/repos/{REPO}") or r.path == "/user" for r in port.requests)
+
+
+def test_branch_head_lookup_and_pull_needs_existing_branches():  # W11
+    port = fake(write_enabled=True)
+    with pytest.raises(NotFound):
+        port.get_branch_head("baseline/r-1")
+    port.branches["baseline/r-1"] = "b" * 40
+    ref = port.get_branch_head("baseline/r-1").data
+    assert (ref["ref"], ref["object"]["sha"]) == ("refs/heads/baseline/r-1", "b" * 40)
+    assert port.requests[-1].path == f"/repos/{REPO}/git/ref/heads/baseline/r-1"
+    for bad in ("../x", "a//b", "x.lock", "-rf", "a b"):
+        with pytest.raises(ValueError):
+            port.get_branch_head(bad)
+    with pytest.raises(Conflict):  # head 브랜치가 없으면 GitHub처럼 422
+        port.create_pull("autofix/r-1/x", "baseline/r-1", "제목", "본문")
 
 
 def test_timeout_after_side_effect_is_unknown_and_the_issue_exists():
@@ -286,6 +303,18 @@ def test_http_uses_registered_repo_path_and_headers():
     versioned.get_identity()
     assert str(rec2.requests[0].url) == "https://api.github.com/user"
     assert rec2.requests[0].headers["x-github-api-version"] == "2022-11-28"
+
+
+def test_http_branch_head_uses_the_git_ref_path():  # W11
+    port, rec = http(lambda r: ok({"ref": "refs/heads/baseline/r-1", "object": {"sha": "b" * 40}}))
+    assert port.get_branch_head("baseline/r-1").data["object"]["sha"] == "b" * 40
+    assert (
+        str(rec.requests[0].url)
+        == f"https://api.github.com/repos/{REPO}/git/ref/heads/baseline/r-1"
+    )
+    missing, _ = http(lambda r: httpx.Response(404, json={"message": "Not Found"}))
+    with pytest.raises(NotFound):
+        missing.get_branch_head("autofix/r-1/INC-1/PROP-1")
 
 
 def test_http_list_issues_params_link_etag_and_rate():

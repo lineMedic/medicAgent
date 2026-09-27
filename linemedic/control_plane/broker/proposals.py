@@ -133,6 +133,8 @@ CheckCode = Literal[
     "SOURCE_CHANGED",
     "REPRO_NOT_FAILING",
     "REGRESSION_FAILED",
+    "EXECUTION_UNKNOWN",
+    "EXECUTION_FAILED",
 ]
 DecisionReason = Literal[
     "WORK_ORDER_DRAFTED",
@@ -145,6 +147,9 @@ DecisionReason = Literal[
     "SOURCE_CHANGED",
     "REPRO_NOT_FAILING",
     "REGRESSION_FAILED",
+    "PR_OPENED",
+    "EXECUTION_UNKNOWN",
+    "EXECUTION_FAILED",
 ]
 # 브로커 검사 이름. 패치 게이트(W10): 정책 → 기준 base → candidate → runner image → R0 → R1 → R2
 CheckName = Literal[

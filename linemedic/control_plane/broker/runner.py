@@ -30,6 +30,7 @@ from xml.etree import ElementTree
 
 from linemedic.common.clock import Clock
 from linemedic.common.config import Settings
+from linemedic.common.sanitize import mask_secrets
 from linemedic.integrations.docker import DockerError, DockerPort
 
 PYTEST_INI = "/opt/linemedic/pytest-protected.ini"
@@ -39,6 +40,7 @@ JUNIT_NAME = "junit.xml"
 DOCKER_ERROR_EXITS = frozenset({125, 126, 127})
 MIB = 1024 * 1024
 MAX_RECORDED_CASES = 50
+MAX_MESSAGE_CHARS = 200
 _IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}")
 _CONTAINER_NAME = re.compile(r"[a-z0-9][a-z0-9_.-]{0,127}")
 _MOUNT_SOURCE = re.compile(r"/[A-Za-z0-9_./-]+")  # bind 옵션을 깨뜨리는 `,`·`=`·공백 없음
@@ -98,6 +100,7 @@ class CaseResult:
     classname: str
     name: str
     outcome: Literal["passed", "failed", "error", "skipped"]
+    message: str | None = None  # failure·error의 `message` 속성(비신뢰, PR 본문 R1 요약용)
 
 
 @dataclass(frozen=True)
@@ -134,11 +137,20 @@ class JunitReport:
             "failures": self.failures,
             "errors": self.errors,
             "skipped": self.skipped,
-            "cases": [
-                {"classname": c.classname[:200], "name": c.name[:200], "outcome": c.outcome}
-                for c in self.cases[:MAX_RECORDED_CASES]
-            ],
+            "cases": [_case_summary(c) for c in self.cases[:MAX_RECORDED_CASES]],
         }
+
+
+def _case_summary(case: CaseResult) -> dict[str, Any]:
+    """기록용 case 요약. 실패 메시지는 failed·error case에만, 비밀을 가리고 길이를 제한해 남긴다."""
+    summary: dict[str, Any] = {
+        "classname": case.classname[:200],
+        "name": case.name[:200],
+        "outcome": case.outcome,
+    }
+    if case.message and case.outcome in ("failed", "error"):
+        summary["message"] = mask_secrets(case.message)[:MAX_MESSAGE_CHARS]
+    return summary
 
 
 def _count_attribute(suite: ElementTree.Element, name: str) -> int:
@@ -179,7 +191,13 @@ def parse_junit(data: bytes, max_bytes: int) -> JunitReport:
                 if "skipped" in tags
                 else "passed"
             )
-            found.append(CaseResult(case.get("classname", ""), case.get("name", ""), outcome))
+            message = None
+            if outcome in ("error", "failed"):
+                detail = case.find("error" if outcome == "error" else "failure")
+                message = detail.get("message") if detail is not None else None
+            found.append(
+                CaseResult(case.get("classname", ""), case.get("name", ""), outcome, message)
+            )
         report = JunitReport(tuple(found))
         declared = tuple(
             _count_attribute(suite, n) for n in ("tests", "failures", "errors", "skipped")

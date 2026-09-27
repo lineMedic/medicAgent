@@ -72,6 +72,7 @@ class GateOutcome:
     reason: str | None = None
     revisable: bool = True  # False면 수정 예산과 관계없이 멈춘다(에이전트가 고칠 수 없음)
     candidate: dict[str, Any] | None = None
+    workdir: Path | None = None  # candidate를 만든 검사 디렉터리(봇 PR push가 `repo.git`을 쓴다)
 
     def fail(
         self, check: str, code: str, reason: str, *, revisable: bool, **extra: Any
@@ -154,7 +155,7 @@ class PatchGate:
             return outcome.fail("CANDIDATE", exc.code, exc.rule, revisable=True, **_path(exc))
         except CandidateError as exc:
             return outcome.fail("CANDIDATE", PROTECTION_UNAVAILABLE, exc.reason, revisable=False)
-        outcome.candidate = candidate.record()
+        outcome.candidate, outcome.workdir = candidate.record(), workdir
         outcome.checks.append({"check": "CANDIDATE", "result": "PASS"} | candidate.record())
 
         image = self.runner.image_problem()

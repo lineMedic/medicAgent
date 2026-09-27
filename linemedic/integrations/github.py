@@ -3,8 +3,8 @@
 - Control Plane의 모든 GitHub 호출은 `GitHubPort`를 거친다. 대상 repo는 만들 때 config의 등록 repo로
   고정되고 메서드에 repo·URL 인자가 없다. 그래서 등록 repo 밖을 가리키는 요청을 만들 수 없다.
 - 번호는 양의 정수로, branch·필터·문자열은 형식과 길이로 검증한다.
-  비신뢰 문자열을 URL path에 잇지 않는다(path에는 등록 repo 이름과 검증한 번호만,
-  나머지는 query·JSON body로 보낸다).
+  비신뢰 문자열을 URL path에 잇지 않는다(path에는 등록 repo 이름과 검증한 번호, 서버가 만든 뒤
+  형식을 검증한 branch 이름만, 나머지는 query·JSON body로 보낸다).
 - 쓰기(`create_issue`·`create_issue_comment`·`create_pull`)는 `write_enabled=false`
   (기본, shadow 모드)면 호출하지 않고 `WritePlan`만 돌려준다.
   G10에서 사람이 config `github.write_enabled`를 켠다.
@@ -234,6 +234,8 @@ class GitHubPort(Protocol):
 
     def get_pull(self, number: int) -> GitHubResponse: ...
 
+    def get_branch_head(self, branch: str) -> GitHubResponse: ...
+
     def create_pull(
         self, head: str, base: str, title: str, body: str
     ) -> GitHubResponse | WritePlan: ...
@@ -332,6 +334,10 @@ class GitHubBase:
 
     def get_pull(self, number: int) -> GitHubResponse:
         return self._send("GET", f"{self._repo}/pulls/{_number(number)}")
+
+    def get_branch_head(self, branch: str) -> GitHubResponse:
+        """브랜치가 가리키는 commit(`object.sha`). 없으면 NotFound(W11)."""
+        return self._send("GET", f"{self._repo}/git/ref/heads/{_branch(branch)}")
 
     # 쓰기
 
@@ -569,6 +575,7 @@ class FakeGitHub(GitHubBase):
         self.issues: dict[int, dict[str, Any]] = {}
         self.comments: dict[int, list[dict[str, Any]]] = {}
         self.pulls: dict[int, dict[str, Any]] = {}
+        self.branches: dict[str, str] = {}  # branch → commit SHA (push·준비로만 바뀐다)
         self.requests: list[FakeRequest] = []
         self._failures: list[_Failure] = []
         self._next_number = 1
@@ -708,6 +715,8 @@ class FakeGitHub(GitHubBase):
         if not request.path.startswith(prefix):
             raise NotFound(404, "Not Found")  # 등록 repo 밖(포트 코드로는 만들 수 없다)
         rest = request.path[len(prefix) :]
+        if request.method == "GET" and rest.startswith("/git/ref/heads/"):
+            return self._get_branch_head(rest[len("/git/ref/heads/") :])
         key = (request.method, re.sub(r"/\d+", "/{n}", rest))
         number = int(match.group(1)) if (match := re.search(r"/(\d+)", rest)) else 0
         handlers: dict[tuple[str, str], Callable[[], GitHubResponse]] = {
@@ -799,13 +808,24 @@ class FakeGitHub(GitHubBase):
         return GitHubResponse(200, chunk, has_next=page * per_page < len(pulls))
 
     def add_pull(
-        self, *, title: str, body: str = "", author_id: int = 200001, head: str = "feature"
+        self,
+        *,
+        title: str,
+        body: str = "",
+        author_id: int = 200001,
+        head: str = "feature",
+        head_sha: str = "0" * 40,
+        base: str = "main",
     ) -> dict[str, Any]:
-        """사람이 연 PR(테스트 준비용). Issue 번호 공간을 같이 쓴다."""
+        """사람(또는 `author_id`)이 연 PR(테스트 준비용). Issue 번호 공간을 같이 쓴다."""
         user = {"login": f"user{author_id}", "id": author_id, "type": "User"}
         issue = self._new_issue(title, body, user, [], is_pull=True)
         owner = self.full_name.split("/")[0]
-        pull = {**issue, "head": {"ref": head, "label": f"{owner}:{head}"}, "base": {"ref": "main"}}
+        pull = {
+            **issue,
+            "head": {"ref": head, "label": f"{owner}:{head}", "sha": head_sha},
+            "base": {"ref": base},
+        }
         pull.pop("pull_request")
         pull["merged"] = False
         self.pulls[issue["number"]] = pull
@@ -816,11 +836,13 @@ class FakeGitHub(GitHubBase):
         label = f"{owner}:{body['head']}"
         if any(p["head"]["label"] == label and p["state"] == "open" for p in self.pulls.values()):
             raise Conflict(422, "A pull request already exists")
+        if body["head"] not in self.branches or body["base"] not in self.branches:
+            raise Conflict(422, "Validation Failed")  # head·base 브랜치가 없다
         issue = self._new_issue(body["title"], body["body"], dict(self.identity), [], is_pull=True)
         pull = {
             **issue,
-            "head": {"ref": body["head"], "label": label},
-            "base": {"ref": body["base"]},
+            "head": {"ref": body["head"], "label": label, "sha": self.branches[body["head"]]},
+            "base": {"ref": body["base"], "sha": self.branches[body["base"]]},
             "merged": False,
         }
         pull.pop("pull_request")
@@ -831,3 +853,12 @@ class FakeGitHub(GitHubBase):
         if number not in self.pulls:
             raise NotFound(404, "Not Found")
         return GitHubResponse(200, self.pulls[number])
+
+    def _get_branch_head(self, branch: str) -> GitHubResponse:
+        if branch not in self.branches:
+            raise NotFound(404, "Not Found")
+        ref = {
+            "ref": f"refs/heads/{branch}",
+            "object": {"sha": self.branches[branch], "type": "commit"},
+        }
+        return GitHubResponse(200, ref)
