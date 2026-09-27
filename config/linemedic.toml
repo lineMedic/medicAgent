@@ -117,30 +117,16 @@ max_bytes = 131072
 summary_max_chars = 2000
 max_evidence_ids = 20
 
-[patch]
-allowed_app_file = "app/defects.py"
-allowed_new_test_glob = "tests/repro/test_*.py"
-max_files = 2
-max_changed_lines = 100  # additions + deletions, header 제외
-protected_globs = [
-    "tests/regression/**",
-    "Dockerfile",
-    "pyproject.toml",
-    "requirements*",
-    "setup.*",
-    ".github/**",
-    "pytest.ini",
-    "conftest.py",
-    "**/conftest.py",
-    "tox.ini",
-    "setup.cfg",
-]
+# 패치 허용 경로·상한·보호 경로는 linemedic/policies/broker_policy.toml에 있다(D80).
 
 [runner]
 network = "none"
 run_as_non_root = true
 drop_all_capabilities = true
 read_only_root = true
+uid = 10001  # runner image의 비루트 사용자
+gid = 10001
+tmpfs_mib = 64  # /tmp만 쓸 수 있다
 cpus = 1
 memory_mib = 512
 pids = 64

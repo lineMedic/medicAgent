@@ -8,6 +8,7 @@
 """
 
 import argparse
+import re
 import shutil
 import sys
 from collections.abc import Callable, Mapping
@@ -182,6 +183,30 @@ def check_github(ctx: DoctorContext) -> tuple[Status, str]:
         f"{repo.get('full_name')} (ID {expected_id}) 조회됨, "
         f"봇 {identity['login']} (ID {identity.get('id')})"
     )
+
+
+RUNNER_IMAGE_ID_RE = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+@register("runner_image", required=True)
+def check_runner_image(ctx: DoctorContext) -> tuple[Status, str]:
+    """`RUNNER_IMAGE_ID`(make runner-image 출력)가 이 host의 image ID와 정확히 같은가(W10)."""
+    image_id = ctx.env.get("RUNNER_IMAGE_ID")
+    if not image_id:
+        return (
+            "NOT_CONFIGURED",
+            "미설정 변수: RUNNER_IMAGE_ID (make runner-image의 runner_image_id)",
+        )
+    if not RUNNER_IMAGE_ID_RE.fullmatch(image_id):
+        return "FAIL", "RUNNER_IMAGE_ID는 태그가 아니라 sha256:<64 hex> image ID여야 한다"
+    if ctx.which("docker") is None:
+        return "MISSING", "docker CLI 없음"
+    found = ctx.run(["docker", "image", "inspect", "--format", "{{.Id}}", image_id])
+    if found is None:
+        return "MISSING", f"runner image {image_id[:19]} 없음 (make runner-image)"
+    if found != image_id:
+        return "FAIL", f"image ID 불일치: 설정 {image_id[:19]}, 실제 {found[:19]}"
+    return "OK", f"runner image {image_id[:19]} 확인"
 
 
 def run_checks(ctx: DoctorContext) -> list[CheckResult]:

@@ -27,7 +27,11 @@ class CommandResult:
 
 
 class DockerError(RuntimeError):
-    """Docker 명령이 실패함."""
+    """Docker 명령이 실패함. `returncode`는 docker CLI 종료 코드(125/126/127 구분용)."""
+
+    def __init__(self, message: str, returncode: int | None = None) -> None:
+        super().__init__(message)
+        self.returncode = returncode
 
 
 class LogStream(Protocol):
@@ -48,6 +52,10 @@ class DockerPort(Protocol):
     def logs_once(self, name: str, timestamps: bool = False) -> list[str]: ...
 
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str: ...
+
+    def wait(self, name: str, timeout: float) -> int | None: ...
+
+    def logs_capped(self, name: str, max_bytes: int) -> tuple[bytes, bool]: ...
 
     def exec(self, name: str, command: list[str], timeout: float = 30.0) -> CommandResult: ...
 
@@ -159,8 +167,32 @@ class CliDocker:
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str:
         result = self._run(["run", "--detach", *options, image, *(command or [])])
         if result.returncode != 0:
-            raise DockerError(f"docker run 실패: {result.stderr.strip()[:300]}")
+            raise DockerError(f"docker run 실패: {result.stderr.strip()[:300]}", result.returncode)
         return result.stdout.strip()
+
+    def wait(self, name: str, timeout: float) -> int | None:
+        """컨테이너가 끝날 때까지 기다려 종료 코드를 돌려준다. `timeout`초를 넘기면 None."""
+        result = self._run(["wait", name], timeout=timeout)
+        if (result.returncode, result.stderr) == (124, "timeout"):
+            return None
+        if result.returncode != 0:
+            raise DockerError(f"docker wait 실패: {result.stderr.strip()[:300]}", result.returncode)
+        return int(result.stdout.strip().splitlines()[-1])
+
+    def logs_capped(self, name: str, max_bytes: int) -> tuple[bytes, bool]:
+        """stdout·stderr 로그를 `max_bytes`까지만 읽는다. (내용, 잘림 여부)."""
+        proc = subprocess.Popen(
+            [self.binary, "logs", name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        )
+        assert proc.stdout is not None
+        try:
+            data = proc.stdout.read(max_bytes + 1)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            proc.stdout.close()
+        return data[:max_bytes], len(data) > max_bytes
 
     def exec(self, name: str, command: list[str], timeout: float = 30.0) -> CommandResult:
         return self._run(["exec", name, *command], timeout=timeout)
@@ -219,18 +251,24 @@ class FakeLogStream:
 
 
 ExecHandler = Callable[[str, list[str]], CommandResult]
+# 컨테이너 실행을 흉내 낸다: (이름, run 옵션, command)로 결과 파일·inspect·종료 코드를 준비
+RunHandler = Callable[[str, list[str], list[str] | None], None]
 
 
 class FakeDocker:
     """메모리 Docker. 컨테이너 inspect 값을 직접 바꿔 identity 변경을 흉내 낼 수 있다."""
 
-    def __init__(self, exec_handler: ExecHandler | None = None) -> None:
+    def __init__(
+        self, exec_handler: ExecHandler | None = None, run_handler: RunHandler | None = None
+    ) -> None:
         self.containers: dict[str, dict[str, Any]] = {}
         self.images: dict[str, str] = {}
         self.streams: dict[str, FakeLogStream] = {}
         self.networks: set[str] = set()
         self.log_history: dict[str, list[str]] = {}
+        self.exit_codes: dict[str, int | None] = {}  # wait 결과. None이면 제한 시간 초과
         self.exec_handler = exec_handler
+        self.run_handler = run_handler
         self.calls: list[tuple[str, Any]] = []
         self._counter = 0
 
@@ -265,7 +303,20 @@ class FakeDocker:
             "Config": {"Cmd": command},
         }
         self.calls.append(("run", options, image, command))
+        if self.run_handler is not None:
+            self.run_handler(name, options, command)
         return container_id
+
+    def wait(self, name: str, timeout: float) -> int | None:
+        self.calls.append(("wait", name, timeout))
+        if name not in self.containers:
+            raise DockerError(f"docker wait 실패: No such container: {name}", 1)
+        return self.exit_codes.get(name, 0)
+
+    def logs_capped(self, name: str, max_bytes: int) -> tuple[bytes, bool]:
+        self.calls.append(("logs_capped", name, max_bytes))
+        data = "\n".join(self.log_history.get(name, [])).encode("utf-8")
+        return data[:max_bytes], len(data) > max_bytes
 
     def exec(self, name: str, command: list[str], timeout: float = 30.0) -> CommandResult:
         self.calls.append(("exec", name, command))

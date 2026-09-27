@@ -65,6 +65,7 @@ linemedic/
 │   │   ├── patch_policy.py        # [W10] 경로·크기·파일 형태·보호 hash
 │   │   ├── candidate.py           # [W10] disposable checkout, git apply, candidate commit
 │   │   ├── runner.py              # [W10] R0/R1/R2, junitxml 판정
+│   │   ├── patch_gate.py          # [W10] 정책 → 기준 base → candidate → R0/R1/R2 순서·거절 사유
 │   │   ├── github_pr.py           # [W11] 브랜치 push·PR 생성·재사용·본문 템플릿
 │   │   └── reconcile.py           # [W11] execution UNKNOWN 재조회
 │   ├── notifications/
@@ -127,6 +128,7 @@ linemedic/
     ├── conftest.py                # [B00] 임시 DB, FakeClock, FakeGitHub, FakeDocker fixture
     ├── unit/  integration/  live/ # 배치는 docs/09-test-matrix.md
     ├── helpers/demo_states.py     # [W05] 테스트·demo 전용 상태 준비 helper (운영 API 아님)
+    ├── helpers/runner.py          # [W10] docker 옵션→inspect 흉내, 로컬 pytest runner (테스트 전용)
     └── fixtures/                  # [W10] 테스트용 patch·junit XML (에이전트 workspace에 넣지 않음)
 ```
 

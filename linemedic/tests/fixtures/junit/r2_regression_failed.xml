@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="0.001" timestamp="2026-09-27T00:00:00.000000+00:00" hostname="runner"><testcase classname="tests.repro.test_missing_inspector_fields" name="test_missing_inspector_fields" time="0.001" /><testcase classname="tests.regression.test_summary_regression" name="test_normal_lot_summary" time="0.001"><failure message="AssertionError: assert {'lot_id': 'L...2, 'I-02': 1}} == {'lot_id': 'L...2, 'I-02': 1}}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Left contains 1 more item:&#10;  {'schema': 2}&#10;  Use -v to get more diff">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x103e15ee0&gt;
+
+    def test_normal_lot_summary(monkeypatch):
+        monkeypatch.delenv("MES_DATA_DIR", raising=False)  # 저장소의 data/ 로트를 읽는다
+        response = TestClient(app).get("/defects/summary", params={"lot_id": "L3-0927-101"})
+        assert response.status_code == 200
+&gt;       assert response.json() == {
+            "lot_id": "L3-0927-101",
+            "total_defects": 3,
+            "by_inspector": {"I-01": 2, "I-02": 1},
+        }
+E       AssertionError: assert {'lot_id': 'L...2, 'I-02': 1}} == {'lot_id': 'L...2, 'I-02': 1}}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'schema': 2}
+E         Use -v to get more diff
+
+tests/regression/test_summary_regression.py:12: AssertionError</failure></testcase><testcase classname="tests.regression.test_summary_regression" name="test_empty_lot_summary" time="0.001"><failure message="AssertionError: assert {'lot_id': 'L...nspector': {}} == {'lot_id': 'L...nspector': {}}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Left contains 1 more item:&#10;  {'schema': 2}&#10;  Use -v to get more diff">def test_empty_lot_summary():
+&gt;       assert summarize("L3-EMPTY-000", []) == {
+            "lot_id": "L3-EMPTY-000",
+            "total_defects": 0,
+            "by_inspector": {},
+        }
+E       AssertionError: assert {'lot_id': 'L...nspector': {}} == {'lot_id': 'L...nspector': {}}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'schema': 2}
+E         Use -v to get more diff
+
+tests/regression/test_summary_regression.py:20: AssertionError</failure></testcase><testcase classname="tests.regression.test_summary_regression" name="test_unknown_lot_is_404" time="0.001" /><testcase classname="tests.regression.test_summary_regression" name="test_healthz" time="0.001" /></testsuite></testsuites>

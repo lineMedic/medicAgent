@@ -1,0 +1,32 @@
+diff --git a/app/defects.py b/app/defects.py
+index 0bda5f1..5b93280 100644
+--- a/app/defects.py
++++ b/app/defects.py
+@@ -4,10 +4,11 @@
+ def summarize(lot_id: str, records: list[dict]) -> dict:
+     by_inspector: dict[str, int] = {}
+     for row in records:
+-        inspector = row["inspector_id"]
++        inspector = row.get("inspector_id") or "미지정"
+         by_inspector[inspector] = by_inspector.get(inspector, 0) + 1
+     return {
+         "lot_id": lot_id,
++        "schema": 2,
+         "total_defects": len(records),
+         "by_inspector": by_inspector,
+     }
+diff --git a/tests/repro/test_missing_inspector_fields.py b/tests/repro/test_missing_inspector_fields.py
+new file mode 100644
+index 0000000..0393489
+--- /dev/null
++++ b/tests/repro/test_missing_inspector_fields.py
+@@ -0,0 +1,9 @@
++"""재현: inspector_id가 없는 record의 건수와 미지정 집계."""
++
++from app.defects import summarize
++
++
++def test_missing_inspector_fields():
++    result = summarize("L3-0927-118", [{"defect_id": "D-1", "inspector_id": "I-01"}, {"defect_id": "D-2"}])
++    assert result["total_defects"] == 2
++    assert result["by_inspector"] == {"I-01": 1, "미지정": 1}

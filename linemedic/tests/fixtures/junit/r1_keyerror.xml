@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.001" timestamp="2026-09-27T00:00:00.000000+00:00" hostname="runner"><testcase classname="tests.repro.test_missing_inspector" name="test_missing_inspector_is_counted_as_unassigned" time="0.001"><failure message="KeyError: 'inspector_id'">def test_missing_inspector_is_counted_as_unassigned():
+        records = [
+            {"defect_id": "D-1", "inspector_id": "I-01"},
+            {"defect_id": "D-2"},
+        ]
+&gt;       assert summarize("L3-0927-118", records) == {
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            "lot_id": "L3-0927-118",
+            "total_defects": 2,
+            "by_inspector": {"I-01": 1, "미지정": 1},
+        }
+
+tests/repro/test_missing_inspector.py:11: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+lot_id = 'L3-0927-118'
+records = [{'defect_id': 'D-1', 'inspector_id': 'I-01'}, {'defect_id': 'D-2'}]
+
+    def summarize(lot_id: str, records: list[dict]) -&gt; dict:
+        by_inspector: dict[str, int] = {}
+        for row in records:
+&gt;           inspector = row["inspector_id"]
+                        ^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'inspector_id'
+
+app/defects.py:7: KeyError</failure></testcase></testsuite></testsuites>

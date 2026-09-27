@@ -208,19 +208,19 @@ class ProposalConfig(_Model):
     max_evidence_ids: PositiveInt
 
 
-class PatchConfig(_Model):
-    allowed_app_file: str
-    allowed_new_test_glob: str
-    max_files: PositiveInt
-    max_changed_lines: PositiveInt
-    protected_globs: list[str]
-
-
 class RunnerConfig(_Model):
+    """격리 runner 실행 프로필(W10, docs/07 §2). 격리 항목은 끌 수 없다(True만 허용).
+
+    패치 허용 경로·상한은 설정이 아니라 `linemedic/policies/broker_policy.toml`에 둔다(D80).
+    """
+
     network: Literal["none"]
-    run_as_non_root: bool
-    drop_all_capabilities: bool
-    read_only_root: bool
+    run_as_non_root: Literal[True]
+    drop_all_capabilities: Literal[True]
+    read_only_root: Literal[True]
+    uid: Annotated[int, Field(gt=0)]  # root(0) 금지
+    gid: Annotated[int, Field(gt=0)]
+    tmpfs_mib: PositiveInt
     cpus: PositiveInt
     memory_mib: PositiveInt
     pids: PositiveInt
@@ -263,7 +263,6 @@ class LineMedicConfig(_Model):
     agent: AgentConfig
     tools: ToolsConfig
     proposal: ProposalConfig
-    patch: PatchConfig
     runner: RunnerConfig
     verifier: VerifierConfig
     memory: MemoryConfig

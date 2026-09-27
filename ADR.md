@@ -120,6 +120,7 @@
 | D77 | 로그 → Issue: 갱신 후 lookup 1~5(form 형식·토큰 2개 후보·다른 scope 봇 Issue 제외), closed 연결은 운영자, attached(작업 복제 없음), 생성 intent·결과 불명·rate limit 재시도·거절 매핑, marker 템플릿, 조정 규칙, 운영자 연결 API·control_api 주소 | 입력 | 유효 (spec 15 §3·§4 구체화) |
 | D78 | work lifecycle: API 트랜잭션에 멱등 기록 포함, 현재 snapshot 승인·자동 승인 정책, incident 연결 기록, scope 변경 상태별 처리, start_attempt 유일 attempt 발급·슬롯 대기, retry 중복 거절·새 incident, cancel 상태별, work 조회 API·CLI | 입력 | 유효 (spec 04 §3·§7·§8, spec 15 §6·§8 구체화) |
 | D79 | 알림: worker 분리·SENDING 선커밋, 대상은 catalog·DB work만(no_bound_issue 미전송), shadow는 PENDING 유지, 안전한 거절만 3회 backoff(Retry-After 우선), UNKNOWN 재발송 금지·조정 규칙(봇+marker+본문 hash), provider·저장 시각 분리, 시작 게이트·60초 만료·늦은 receipt 무부활, 템플릿 정제, 상태 표시, 알림 운영 API·CLI | 알림 | 유효 (spec 16 §1~§7 구체화) |
+| D80 | 패치 게이트: 정책 파일 단일 원본·segment glob, 좁은 diff 문법·거부 규칙, 기준 base 3자 일치, 작업 트리 없는 candidate·적용 뒤 tree 재확인·결정적 commit, runner 고정 image ID·실행 프로필·inspect 재확인·결과 mount 안전 읽기, R0/R1/R2 세부 판정, 게이트는 트랜잭션 밖·고칠 수 없는 결과는 즉시 멈춤·W11 전 통과는 멈춤, 에이전트 보기 축소, runner-image·doctor | PR·릴리스·검증 | 유효 (spec 06 §2~§5 구체화) |
 
 ## 3. 주제별 보기
 
@@ -130,7 +131,7 @@
 | 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 |
-| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 |
+| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 D80 |
 | 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 D68 |
 
 ## 4. 게이트 대기 결정

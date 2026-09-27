@@ -151,7 +151,7 @@ def test_system_clock_is_utc_aware():
 def test_default_config_loads_with_omitted_optional_keys_as_none():
     config = load_config(DEFAULT_CONFIG)
     assert config.agent.deadline_seconds == 240
-    assert config.patch.allowed_app_file == "app/defects.py"
+    assert (config.runner.uid, config.runner.tmpfs_mib) == (10001, 64)
     assert config.repository.id is None
     assert config.repository.full_name is None
     assert config.agent.model_id is None
@@ -330,11 +330,15 @@ def test_doctor_all_required_ok_exits_0(tmp_path):
     env["CASE_SEARCH_ENGINE"] = "sqlite_fts5"
     env["GITHUB_REPOSITORY"] = "demo-team/l3-mes-api"
     env["BASELINE_COMMIT"] = "a" * 40
+    env["RUNNER_IMAGE_ID"] = "sha256:" + "ab" * 32
     ctx = doctor.DoctorContext(
         config_path=DEFAULT_CONFIG,
         env=env,
         # github 항목이 실제 GitHub를 부르지 않도록 가짜 포트를 준다(W22)
         github_port=lambda rid, name, cred: FakeGitHub(rid, name),
+        # runner_image 항목이 실제 docker를 부르지 않도록 한다(W10)
+        which=lambda name: f"/usr/bin/{name}",
+        run=lambda argv: env["RUNNER_IMAGE_ID"] if argv[1:3] == ["image", "inspect"] else "v1",
     )
     results = doctor.run_checks(ctx)
     required_bad = [r for r in results if r.required and r.status != "OK"]

@@ -1,0 +1,34 @@
+diff --git a/app/defects.py b/app/defects.py
+index 0bda5f1..eff35c4 100644
+--- a/app/defects.py
++++ b/app/defects.py
+@@ -4,7 +4,7 @@
+ def summarize(lot_id: str, records: list[dict]) -> dict:
+     by_inspector: dict[str, int] = {}
+     for row in records:
+-        inspector = row["inspector_id"]
++        inspector = row["inspector_id"].strip()
+         by_inspector[inspector] = by_inspector.get(inspector, 0) + 1
+     return {
+         "lot_id": lot_id,
+diff --git a/tests/repro/test_missing_inspector.py b/tests/repro/test_missing_inspector.py
+new file mode 100644
+index 0000000..d1cb9e6
+--- /dev/null
++++ b/tests/repro/test_missing_inspector.py
+@@ -0,0 +1,15 @@
++"""재현: inspector_id가 없는 record가 있으면 집계가 KeyError로 실패한다."""
++
++from app.defects import summarize
++
++
++def test_missing_inspector_is_counted_as_unassigned():
++    records = [
++        {"defect_id": "D-1", "inspector_id": "I-01"},
++        {"defect_id": "D-2"},
++    ]
++    assert summarize("L3-0927-118", records) == {
++        "lot_id": "L3-0927-118",
++        "total_defects": 2,
++        "by_inspector": {"I-01": 1, "미지정": 1},
++    }
