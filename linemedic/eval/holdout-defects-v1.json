@@ -1,0 +1,34 @@
+{
+  "fixture_id": "holdout-defects-v1",
+  "note": "평가 전용. runtime 에이전트의 prompt·workspace·도구 응답에 넣지 않는다. 배포 시 input만 MES 데이터 디렉터리에 읽기 전용으로 mount할 수 있다.",
+  "input": {
+    "lot_id": "L3-HOLDOUT-201",
+    "records": [
+      {
+        "defect_id": "D-201-001",
+        "inspector_id": "I-03"
+      },
+      {
+        "defect_id": "D-201-002"
+      },
+      {
+        "defect_id": "D-201-003",
+        "inspector_id": "I-03"
+      },
+      {
+        "defect_id": "D-201-004"
+      },
+      {
+        "defect_id": "D-201-005"
+      }
+    ]
+  },
+  "expected": {
+    "lot_id": "L3-HOLDOUT-201",
+    "total_defects": 5,
+    "by_inspector": {
+      "I-03": 2,
+      "미지정": 3
+    }
+  }
+}

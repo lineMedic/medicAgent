@@ -11,7 +11,11 @@ RUFF := $(VENV)/bin/ruff
 MARKED := docker or live_github or live_model or live_sandbox or live_smtp
 LIVE := live_github or live_model or live_sandbox or live_smtp
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest
+# 버그 base MES 이미지 (신뢰 레시피 linemedic/runner/mes.Dockerfile, W04)
+MES_IMAGE ?= linemedic-mes:base
+MES_BASE_PYTHON ?= python:3.12-slim
+
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -49,3 +53,15 @@ doctor:
 # 명령줄을 출력하지 않는다(@). `make host-manifest > evidence/host-manifest.json`이 순수 JSON이 되게 한다.
 host-manifest:
 	@$(PY) -m linemedic.cli host-manifest
+
+# 시드(버그 base)로 MES 이미지를 만든다. 빌드 뒤 image ID와 base image digest를 출력해 기록한다.
+# base image를 먼저 받아 두어야 로컬에서 digest를 조회할 수 있다(BuildKit은 빌드 중 받은 base를 목록에 남기지 않는다).
+mes-image:
+	docker pull --quiet $(MES_BASE_PYTHON)
+	docker build --build-arg PYTHON_IMAGE=$(MES_BASE_PYTHON) -f linemedic/runner/mes.Dockerfile -t $(MES_IMAGE) l3-mes-api-seed
+	@docker image inspect --format 'mes_image_id={{.Id}}' $(MES_IMAGE)
+	@docker image inspect --format 'base_repo_digests={{json .RepoDigests}}' $(MES_BASE_PYTHON)
+
+scenario-s1:
+	@test -n "$(RUN_ID)" || { echo "사용법: make scenario-s1 RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
+	$(PY) -m linemedic.cli scenario-s1 --run-id "$(RUN_ID)"
