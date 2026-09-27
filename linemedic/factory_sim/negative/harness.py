@@ -31,10 +31,11 @@ from linemedic.control_plane.verifier import (
     ProberHttp,
     RequestFailed,
     RequestTimeout,
+    VerificationRun,
+    drive,
     load_contract,
     persist_result,
     resolve_cases,
-    verify,
 )
 from linemedic.factory_sim.scenarios import (
     BUG_LOT,
@@ -132,10 +133,20 @@ def wait_healthy(http: HttpClient, clock: Clock, sleep: Callable[[float], None])
 def _active_run(store: Store, run_id: str) -> None:
     with store.read() as tx:
         run = tx.one("SELECT active FROM demo_runs WHERE id = ?", (run_id,))
+        stale = tx.one(
+            "SELECT id FROM incidents"
+            " WHERE run_id = ? AND fingerprint = ? AND status = 'VERIFYING'",
+            (run_id, DEMO_FINGERPRINT),
+        )
     if run is None:
         raise HarnessError(f"run이 제어 DB에 없다: {run_id} (먼저 make run-new)")
     if run["active"] != 1:
         raise HarnessError(f"활성 run이 아니다: {run_id}")
+    if stale is not None:
+        raise HarnessError(
+            f"이 run에 끝나지 않은 S1b 시험 사건이 있다: {stale['id']} "
+            "(이전 실행이 강제 종료됨). 새 run(make run-new)에서 다시 실행한다"
+        )
 
 
 def run_verify_negative(
@@ -175,6 +186,7 @@ def run_verify_negative(
 
     observer = None
     incident_id = None
+    interrupted: BaseException | None = None
     try:
         created = docker.network_create(names["network"], {"linemedic.run_id": run_id})
         if created.returncode != 0:
@@ -197,7 +209,7 @@ def run_verify_negative(
             incident_id = prepare_verifying_incident(
                 tx, run_id, purpose=DEMO_PURPOSE, fingerprint=DEMO_FINGERPRINT
             )
-        result = verify(
+        run = VerificationRun(
             contract=contract,
             contract_sha256=contract_sha256,
             cases=resolve_cases(contract),
@@ -208,6 +220,13 @@ def run_verify_negative(
             target={"container": names["mes"], "image": S1B_IMAGE, **identity},
             fixture_guard=FixtureGuard([DEFAULT_CONTRACT, HOLDOUT, *lot_files]),
         )
+        try:
+            result = drive(run)
+        except (
+            BaseException
+        ) as exc:  # Ctrl-C 등: 사건을 VERIFYING에 남기지 않고 기록한 뒤 다시 올린다
+            interrupted = exc
+            result = run.abort(f"interrupted:{type(exc).__name__}")
     finally:
         if observer is not None:
             observer.stop()
@@ -234,6 +253,8 @@ def run_verify_negative(
         result_path.write_text(
             json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+    if interrupted is not None:
+        raise interrupted
     return {
         "result": stored,
         "result_path": str(result_path),

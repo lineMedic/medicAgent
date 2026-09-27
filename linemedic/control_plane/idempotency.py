@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from linemedic.common.canonical_json import canonical_dumps, sha256_hex
+from linemedic.common.canonical_json import sha256_hex
 from linemedic.control_plane.store import StoreError, Tx
 
 KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -93,8 +93,15 @@ def complete(
     status_code: int,
     body: Mapping[str, Any],
 ) -> None:
-    """RECEIVED 요청을 COMPLETED로 바꾸고 재전송 때 돌려줄 응답을 저장한다."""
-    response = canonical_dumps({"status_code": status_code, "body": dict(body)})
+    """RECEIVED 요청을 COMPLETED로 바꾸고 재전송 때 돌려줄 응답을 저장한다.
+
+    key 순서를 바꾸지 않고 저장해(canonical 정렬 안 함) 재전송 응답이 원래 응답과 바이트까지 같다.
+    """
+    response = json.dumps(
+        {"status_code": status_code, "body": dict(body)},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     cursor = tx.execute(
         f"UPDATE api_requests SET status = 'COMPLETED', response_json = ? WHERE {_where()}"
         " AND status = 'RECEIVED'",

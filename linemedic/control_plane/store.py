@@ -184,6 +184,9 @@ def migrate(
             continue
         statements = split_statements(path.read_text(encoding="utf-8"))
         conn.execute("BEGIN IMMEDIATE")
+        if version in applied_versions(conn):  # 다른 프로세스가 먼저 적용했다
+            conn.execute("ROLLBACK")
+            continue
         try:
             for statement in statements:
                 conn.execute(statement)

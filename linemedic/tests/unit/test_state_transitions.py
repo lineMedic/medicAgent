@@ -4,6 +4,7 @@
 행은 테스트 도우미로 원하는 출발 상태에 넣고, 전이는 제품 함수로만 한다.
 """
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -422,17 +423,51 @@ def test_coupled_outbox_event_mapping():
 # ── INV-01 정적 검사 ─────────────────────────────────────────
 
 
+def _code_strings(tree):
+    """docstring을 뺀 문자열 상수들."""
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
 def test_inv_01_verifier_actor_only_in_verifier_module():
-    """`Actor.VERIFIER`(RESOLVED·SUCCEEDED를 쓸 수 있는 주체)는 verifier.py에서만 쓴다."""
+    """RESOLVED·SUCCEEDED(work)를 쓸 수 있는 곳은 state.py(표)와 verifier.py뿐이다.
+
+    - `Actor.VERIFIER`·`Actor("verifier")` 사용
+    - 코드 문자열의 `RESOLVED`(사건 상태에서만 쓰는 값)
+    - `work_items`와 `SUCCEEDED`를 함께 쓰는 SQL, `cas_update(..., "SUCCEEDED"/"RESOLVED")`
+    """
     allowed = {"linemedic/control_plane/verifier.py", "linemedic/control_plane/state.py"}
-    pattern = re.compile(r"Actor\.VERIFIER|Actor\(\s*['\"]verifier['\"]\s*\)|\bA\.VERIFIER")
-    resolved_sql = re.compile(r"UPDATE\s+(incidents|work_items)\b[^\n]*(RESOLVED|SUCCEEDED)")
+    actor = re.compile(r"Actor\.VERIFIER|Actor\(\s*['\"]verifier['\"]\s*\)")
     offenders = []
     for path in sorted((REPO_ROOT / "linemedic").rglob("*.py")):
         rel = path.relative_to(REPO_ROOT).as_posix()
         if rel.startswith("linemedic/tests/") or rel in allowed:
             continue
-        text = path.read_text(encoding="utf-8")
-        if pattern.search(text) or resolved_sql.search(text):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        found = bool(actor.search(source))
+        for node in _code_strings(tree):
+            text = node.value
+            if re.search(r"\bRESOLVED\b", text) or ("work_items" in text and "SUCCEEDED" in text):
+                found = True
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", getattr(node.func, "attr", "")) == "cas_update"
+            ):
+                values = [a.value for a in node.args if isinstance(a, ast.Constant)]
+                found = found or bool({"RESOLVED", "SUCCEEDED"} & set(values))
+        if found:
             offenders.append(rel)
     assert offenders == []

@@ -198,6 +198,26 @@ def test_invalid_inputs_are_rejected(store, conn, seeded):
     assert count(conn, "verifications") == 0
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"observation_complete": False},
+        {"samples_completed": 3},
+        {"failed_assertions": [{"case_id": "x", "assertion": "exact_lot_id"}]},
+    ],
+    ids=["observation_incomplete", "missing_sample", "has_failures"],
+)
+def test_pass_without_full_observation_is_not_persisted(store, conn, seeded, change):
+    """판정 엔진 밖에서 만든 PASS도 관찰 완료·모든 표본·실패 없음이어야 RESOLVED로 쓴다."""
+    result = make_result("PASS")
+    for key, value in change.items():
+        setattr(result, key, value)
+    with pytest.raises(ValueError):
+        persist(store, result, seeded["incident"])
+    assert count(conn, "verifications") == 0
+    assert row(conn, "incidents", seeded["incident"])["status"] == "VERIFYING"
+
+
 def test_s1b_origin_is_excluded_from_agent_performance(store, conn):
     insert_run(conn, RUN)
     results = {}

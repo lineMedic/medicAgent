@@ -48,6 +48,8 @@ def loads_strict(data: bytes, max_bytes: int = MAX_JSON_BYTES) -> Any:
         raise
     except json.JSONDecodeError as exc:
         raise StrictJSONError(f"invalid JSON: {exc.msg}") from exc
+    except RecursionError:
+        raise StrictJSONError("JSON nesting is too deep") from None
 
 
 def canonical_dumps(obj: Any) -> str:
