@@ -10,7 +10,8 @@
   UNKNOWN은 다시 보내지 않고 `reconcile`로 조회한다.
 - 재시작 때 `SENDING`은 `UNKNOWN`으로 바꾼다(`recover_sending`).
 - 시작 알림(`WORK_STARTING`)이 필수 route에서 ACCEPTED가 되면 같은 트랜잭션에서
-  work를 READY로 옮긴다(시작 게이트).
+  work를 READY로 옮긴다(시작 게이트). 시작 알림은 work가 아직 `WAITING_NOTIFICATION`일 때만
+  가져간다. 이미 차단·취소된 work의 시작 알림은 보내지 않고 `FAILED(work_not_waiting)`로 닫는다.
   이미 BLOCKED·CANCELLED인 work는 늦게 온 receipt로 되살리지 않는다.
 - 대상은 route catalog와 DB의 work가 정한다. payload의 수신자·URL은 쓰지 않는다. bound Issue가 없는
   알림(Issue 연결 전 차단)은 보낼 곳이 없어 `FAILED(no_bound_issue)`로 미전송을 남긴다.
@@ -158,6 +159,12 @@ class OutboxWorker:
         work = tx.one("SELECT issue_number FROM work_items WHERE id = ?", (row["work_id"],))
         return work["issue_number"] if work is not None else None
 
+    def _work_status(self, tx: Tx, row: Any) -> str | None:
+        if row["work_id"] is None:
+            return None
+        work = tx.one("SELECT status FROM work_items WHERE id = ?", (row["work_id"],))
+        return work["status"] if work is not None else None
+
     def _claim(self) -> dict[str, Any] | None:
         with self.store.tx() as tx:
             rows = tx.all(
@@ -167,6 +174,12 @@ class OutboxWorker:
                 (tx.now,),
             )
             for row in rows:
+                if row["event_type"] == "WORK_STARTING":
+                    work_status = self._work_status(tx, row)
+                    if work_status != "WAITING_NOTIFICATION":
+                        detail = {"error": "work_not_waiting", "work_status": work_status}
+                        self._finish(tx, row, "FAILED", detail)
+                        continue
                 route = self.routes.get(row["route_id"])
                 adapter = self.adapters.get(route.adapter) if route is not None else None
                 if route is None or not route.enabled or adapter is None:

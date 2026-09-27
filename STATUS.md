@@ -156,7 +156,6 @@
 - 판단: D80 ⑤ 보충, docs/07 §2에 결과 mount 예외와 파일 크기 상한을 적었다. 프로세스가 죽는 경우(예외가 아닌 종료)는 지금처럼 CHECKING으로 남고 재시작 때 `recover_checking`이 다시 검사한다
 - 남은 일: 이 브랜치는 #48의 수정 전 커밋(`5a52d5a`) 위에 있다. #48·#49가 병합되면 main을 병합해 다시 확인한다. G1 데모 호스트(Linux)에서 결과 폴더 권한(0555)이 컨테이너 uid 10001의 새 항목 생성을 막는지 N06 재확인 때 본다. W11: PR 본문에 "테스트 PASS는 악성 코드 없음이 아님"과 R1 실패 요약(길이 제한)을 보이기. W13·W14: 게이트 실제 소요 시간 기록
 
-
 ### W10 완료 보고 (2026-09-27T12:25Z)
 
 - 상태: UNIT_TESTED (카드 목표 도달, `make test-docker` 포함). 외부 쓰기 없음
@@ -204,6 +203,17 @@
   - 같은 Python 프로세스의 비신뢰 코드는 junit을 위조할 수 있다. 업무 복구 판단은 배포 뒤 verifier가 따로 한다
   - 검사 디렉터리(`checkouts/<proposal>/<n>`)는 run 정리(W19) 전까지 남는다. 데모 호스트의 N06 확인은 G1 뒤에 다시 한다
 - 다음 카드: W11 (fake 부분)
+
+### W26 리뷰 반영 (카드 밖, 2026-09-27T11:49Z)
+
+- 계기: PR #48 리뷰(CHANGES_REQUESTED) — 차단된 work의 시작 알림이 나중에 발송됨(재현). shadow로 60초가 지나 BLOCKED가 된 뒤 G10에서 쓰기를 켜면 "작업 시작 예정" 댓글 다음에 "진행 중단 — START_NOTICE_UNCONFIRMED"가 달렸다(알림 정확성 위반)
+- 수정:
+  1. `Supervisor.expire_start_notices`: 같은 트랜잭션에서 아직 PENDING인 시작 알림을 `FAILED(expired_before_send)`로 닫는다(감사 NOTIFICATION_FAILED). SENDING·UNKNOWN은 그대로 둔다
+  2. `OutboxWorker._claim`: WORK_STARTING은 work가 WAITING_NOTIFICATION일 때만 가져가고, 아니면 보내지 않고 `FAILED(work_not_waiting)`로 닫는다. `on_scope_changed` 같은 다른 차단 경로도 막힌다
+  3. 테스트: 리뷰 재현(shadow → 61초 → expire → 쓰기 켬 → 시작 댓글 0개·차단 댓글 1개), scope 변경으로 멈춘 work의 시작 알림 미발송. 수정 전 2건 실패 확인
+- 실행: `make test` 상당 → Python 3.12.2 1100 passed, 3.14.4 1099 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), `ruff check`·`ruff format --check` PASS. docker·live 미실행
+- 판단: D79 ⑥ 보충(시작하지 않을 work에 시작 예정 알림 금지)
+- 남은 일: #49가 병합되면 이 브랜치에 main을 병합한다. 조정의 본문 hash 정확 일치는 live N12(강제 timeout → FOUND)에서 GitHub의 줄바꿈·끝 공백 보존을 확인한다. T-NOT-01의 workspace·agent 순서는 W28·W13에서 같은 감사에 잇는다(그때까지 Issue #16 열어 둠)
 
 ### W26 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T11:22Z)
 
