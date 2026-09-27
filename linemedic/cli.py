@@ -8,6 +8,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -99,6 +100,29 @@ def build_parser() -> argparse.ArgumentParser:
     bind_parser.add_argument("--note", default="운영자 CLI 연결", help="연결 판단 메모")
     bind_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     bind_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    approve_parser = sub.add_parser(
+        "approve-work", help="work의 정확한 Issue snapshot을 승인 (W25, Control API 호출)"
+    )
+    approve_parser.add_argument("--work-id", required=True)
+    approve_parser.add_argument("--expected-version", required=True, type=int)
+    approve_parser.add_argument(
+        "--expected-snapshot", help="승인할 Issue snapshot hash (생략하면 work가 만든 때의 값)"
+    )
+    approve_parser.add_argument("--note", default="운영자 CLI 승인")
+    retry_parser = sub.add_parser(
+        "retry-work", help="terminal work를 새 generation으로 다시 승인 대기에 올림 (W25)"
+    )
+    retry_parser.add_argument("--work-id", required=True)
+    retry_parser.add_argument("--reason", required=True, help="blocker 해소 확인 메모")
+    retry_parser.add_argument("--expected-version", type=int)
+    cancel_parser = sub.add_parser("cancel-work", help="work 취소 또는 취소 요청 (W25)")
+    cancel_parser.add_argument("--work-id", required=True)
+    cancel_parser.add_argument("--expected-version", type=int)
+    cancel_parser.add_argument("--note", default="운영자 CLI 취소")
+    for command_parser in (approve_parser, retry_parser, cancel_parser):
+        command_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+        command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
     detect_parser = sub.add_parser(
         "detect-once",
@@ -233,24 +257,81 @@ def _issue_sync(args: argparse.Namespace) -> int:
     return 0 if result.error is None and result.mode not in ("busy", "backoff") else 1
 
 
-def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
+def _ops_target(args: argparse.Namespace, command: str) -> tuple[str, dict[str, str]] | None:
     """D48: `/ops/*`에 대응하는 명령은 operator token으로 Control API를 HTTP로 부른다."""
     env = process_env(args.env_file)
     try:
         settings = load_settings(args.config, env)
     except ConfigError as exc:
-        print(f"issue-bind 실패: {exc}", file=sys.stderr)
-        return 2
+        print(f"{command} 실패: {exc}", file=sys.stderr)
+        return None
     token = settings.secrets.get("CONTROL_OPERATOR_TOKEN")
     if not token:
-        print("issue-bind: NOT_CONFIGURED: CONTROL_OPERATOR_TOKEN", file=sys.stderr)
-        return 2
+        print(f"{command}: NOT_CONFIGURED: CONTROL_OPERATOR_TOKEN", file=sys.stderr)
+        return None
     api = settings.config.control_api
-    headers = {"Authorization": f"Bearer {token}"}
+    return f"http://{api.host}:{api.port}", {"Authorization": f"Bearer {token}"}
+
+
+def _print_response(response: httpx.Response) -> int:
     try:
-        with httpx.Client(
-            base_url=f"http://{api.host}:{api.port}", timeout=15.0, transport=transport
-        ) as client:
+        text = json.dumps(response.json(), ensure_ascii=False, indent=2)
+    except ValueError:
+        text = f"HTTP {response.status_code}"
+    print(text, file=sys.stdout if response.status_code == 200 else sys.stderr)
+    return 0 if response.status_code == 200 else 1
+
+
+def _work_command(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
+    """approve-work·retry-work·cancel-work: 지금 work를 읽고 기대 version·snapshot으로 POST한다."""
+    command = args.command
+    target = _ops_target(args, command)
+    if target is None:
+        return 2
+    base_url, headers = target
+    path = f"/ops/work-items/{args.work_id}"
+    try:
+        with httpx.Client(base_url=base_url, timeout=15.0, transport=transport) as client:
+            current = client.get(path, headers=headers)
+            if current.status_code != 200:
+                return _print_response(current)
+            work = current.json()["data"]
+            version = work["version"] if args.expected_version is None else args.expected_version
+            body: dict[str, Any] = {
+                "schema_version": "linemedic.v4",
+                "expected_work_version": version,
+            }
+            if command == "approve-work":
+                body["expected_issue_snapshot_sha256"] = (
+                    args.expected_snapshot or work["issue_snapshot_sha256"]
+                )
+                body["approval_note"] = args.note
+                action = "approve"
+            elif command == "retry-work":
+                body["blocker_resolution_note"] = args.reason
+                action = "retry"
+            else:
+                body["cancel_note"] = args.note
+                action = "cancel"
+            key = f"{command}:{args.work_id}:{version}"  # 같은 명령은 멱등 재전송
+            response = client.post(
+                f"{path}/{action}", json=body, headers={**headers, "Idempotency-Key": key}
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"{command} 실패: Control API에 연결하지 못했다({type(exc).__name__})", file=sys.stderr
+        )
+        return 2
+    return _print_response(response)
+
+
+def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
+    target = _ops_target(args, "issue-bind")
+    if target is None:
+        return 2
+    base_url, headers = target
+    try:
+        with httpx.Client(base_url=base_url, timeout=15.0, transport=transport) as client:
             current = client.get(f"/ops/incidents/{args.incident_id}", headers=headers)
             if current.status_code != 200:
                 print(json.dumps(current.json(), ensure_ascii=False, indent=2), file=sys.stderr)
@@ -353,6 +434,8 @@ def main(argv: list[str] | None = None) -> int:
         return _issue_sync(args)
     if args.command == "issue-bind":
         return _issue_bind(args)
+    if args.command in ("approve-work", "retry-work", "cancel-work"):
+        return _work_command(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

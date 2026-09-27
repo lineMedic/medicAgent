@@ -15,7 +15,7 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -106,3 +106,18 @@ issue-sync:
 issue-bind:
 	@test -n "$(INCIDENT_ID)" -a -n "$(ISSUE_NUMBER)" || { echo "사용법: make issue-bind INCIDENT_ID=INC-... ISSUE_NUMBER=<번호> [EXPECTED_VERSION=] [NOTE=]"; exit 2; }
 	$(PY) -m linemedic.cli issue-bind --incident-id "$(INCIDENT_ID)" --issue-number "$(ISSUE_NUMBER)" $(if $(EXPECTED_VERSION),--expected-version "$(EXPECTED_VERSION)",) $(if $(NOTE),--note "$(NOTE)",)
+
+# work 승인·재시도·취소 (W25): Control API(make start)를 operator token으로 부른다. 같은 명령은 멱등 재전송이다.
+# approve-work는 기대 version이 필요하고, 기대 snapshot을 생략하면 work를 만든 때의 Issue snapshot으로 승인한다
+# (그 뒤 Issue가 바뀌었으면 409 ISSUE_SCOPE_CHANGED: 바뀐 내용을 확인하고 EXPECTED_SNAPSHOT=으로 다시 승인한다).
+approve-work:
+	@test -n "$(WORK_ID)" -a -n "$(EXPECTED_VERSION)" || { echo "사용법: make approve-work WORK_ID=WORK-... EXPECTED_VERSION=<n> [EXPECTED_SNAPSHOT=] [NOTE=]"; exit 2; }
+	$(PY) -m linemedic.cli approve-work --work-id "$(WORK_ID)" --expected-version "$(EXPECTED_VERSION)" $(if $(EXPECTED_SNAPSHOT),--expected-snapshot "$(EXPECTED_SNAPSHOT)",) $(if $(NOTE),--note "$(NOTE)",)
+
+retry-work:
+	@test -n "$(WORK_ID)" -a -n "$(REASON)" || { echo "사용법: make retry-work WORK_ID=WORK-... REASON=<blocker 해소 확인 메모> [EXPECTED_VERSION=]"; exit 2; }
+	$(PY) -m linemedic.cli retry-work --work-id "$(WORK_ID)" --reason "$(REASON)" $(if $(EXPECTED_VERSION),--expected-version "$(EXPECTED_VERSION)",)
+
+cancel-work:
+	@test -n "$(WORK_ID)" || { echo "사용법: make cancel-work WORK_ID=WORK-... [EXPECTED_VERSION=] [NOTE=]"; exit 2; }
+	$(PY) -m linemedic.cli cancel-work --work-id "$(WORK_ID)" $(if $(EXPECTED_VERSION),--expected-version "$(EXPECTED_VERSION)",) $(if $(NOTE),--note "$(NOTE)",)

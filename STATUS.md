@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W25** ([tasks/W25-work-lifecycle.md](tasks/W25-work-lifecycle.md), work 상태·단일 claim·409·approve/retry/cancel — 선행 W06·W22(fake 부분) 충족, 게이트 없이 목표 상태 UNIT_TESTED까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W26** ([tasks/W26-notifications.md](tasks/W26-notifications.md), outbox·GitHub 댓글·시작 게이트·차단 보고 — 선행 W22(fake)·W25 충족. fake로 UNIT_TESTED까지, 실제 댓글 receipt는 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -33,7 +33,7 @@
 | 13 | W22 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 963 passed(W22 테스트 101개 포함: 포트 계약·Fake·HttpGitHub MockTransport 78, catalog·설정 18, doctor 5), `make lint` → PASS, `make test-live` → github smoke 2 skipped(NOT_CONFIGURED G2), 변이 21개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`GITHUB_REPOSITORY(_ID)` / 확인: `make test-live`(github 읽기 계약). G10 + 사용자 허락 — config `github.write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 Issue·댓글 smoke 1회, receipt `evidence/N11-github-smoke.md`, N11로 `github.api_version` 확정 | 2026-09-27T09:33Z |
 | 14 | W23 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2) | `make test` → 1003 passed(W23 테스트 40개: polling 통합 39, 포트 1), `make lint` → PASS, `make test-live` → S5-new 1 skipped(`LINEMEDIC_LIVE_S5` 표시 없음)·github smoke 2 skipped(G2), 변이 30개 모두 테스트 실패로 잡힘. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·`ISSUE_TRUSTED_AUTHOR_IDS` / 확인: `LINEMEDIC_LIVE_S5=1 make test-live` 중 승인된 작성자가 새 Issue 1개 생성 → `evidence/S5-new-issue-detect.md`(감지·생성 시각) | 2026-09-27T10:04Z |
 | 15 | W24 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1036 passed(W24 테스트 33개), `make lint` → PASS, `make test-live` → S4 2 skipped(쓰기 허락·후보 준비 표시 없음), 변이 27개 모두 테스트 실패로 잡힘(W23 변이 30개도 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 S4-new·existing 1회, 사람이 후보 Issue 2개를 만든 뒤 `LINEMEDIC_LIVE_S4_AMBIGUOUS=1`로 S4-ambiguous 1회 → `evidence/S4-issue-live.md`. issue form을 데모 repo에 복사 | 2026-09-27T10:33Z |
-| 16 | W25 | UNIT_TESTED | NOT_CHECKED | | | |
+| 16 | W25 | UNIT_TESTED | UNIT_TESTED | `make test` → 1067 passed(W25 테스트 31개: 경합 7, lifecycle 24), `make lint` → PASS, 경합 시험(스레드 2·4·8, 각자 DB 연결): 활성 work 1·`WORK_STARTING` 1·attempt 최대 1, 변이 20개 모두 테스트 실패로 잡힘 | | 2026-09-27T10:53Z |
 | 17 | W26 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 (G12 선택) | |
 | 18 | W10 | UNIT_TESTED | NOT_CHECKED | | | |
 | 19 | W11 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
@@ -99,6 +99,39 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W25 완료 보고 (2026-09-27T10:53Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음
+- 변경 파일:
+  - `linemedic/control_plane/supervisor.py`:
+    - 트랜잭션 함수 `approve`(현재 snapshot 승인·`WORK_STARTING` intent), `retry`(새 incident·generation, 중복 거절), `cancel`(시작 전 취소·취소 요청), `recheck_scope`, `ensure_work`(다른 incident 연결 기록)
+    - `Supervisor.auto_approve`·`on_scope_changed`·`start_attempt`(시작 게이트, attempt 발급 유일 경로, 슬롯 대기)
+  - `linemedic/control_plane/ops_api.py`: `GET /ops/work-items/{id}`, `POST /ops/work-items/{id}/approve`·`/retry`(authorize)·`/cancel`(operate). 상태 변경과 멱등 기록을 한 트랜잭션에
+  - `linemedic/cli.py`·`Makefile`: `make approve-work WORK_ID= EXPECTED_VERSION=`, `make retry-work WORK_ID= REASON=`, `make cancel-work WORK_ID=`(D48 HTTP, 공용 `_ops_target`)
+  - 테스트: `integration/test_work_claim_race.py`(7), `integration/test_work_lifecycle.py`(24)
+- 실행 (로컬 개발 Mac):
+  - `make test` → 1067 passed, 10 deselected / `make lint` → PASS
+  - 경합: 스레드 2·4·8개가 각자 DB 연결로 같은 Issue에 `ensure_work`+`approve` → 활성 work 1·`WORK_STARTING` 1·나머지 409, 같은 READY work에 `start_attempt` 동시 호출 → attempt 1, 다른 Issue의 READY 둘 → RUNNING 1·대기 1, polling 3개와 로그 route 1개 동시 → 활성 work 1·시작 알림 최대 1
+  - 변이 확인 20개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다):
+    - 승인: snapshot·version·Issue open 확인 제거, 시작 알림 intent 없음, 자동 승인 자격 무시
+    - 재시도: 중복·활성 work·닫힌 Issue 확인 제거, `reopened_from` 누락
+    - 취소: incident를 두고 감, 결과 불명 work 취소 허용
+    - 시작 게이트: 시작 알림 ACCEPTED·scope 재확인·취소 요청·RUNNING 슬롯·READY·incident NEW 확인 제거, deadline 값 틀림
+    - 기타: 다른 incident 연결 기록 안 함, scope 변경에도 계속 진행
+- 수용 기준:
+  - T-STATE-01 / T-ISS-04: 동시 claim·중복 poll·동시 로그 → 활성 work 1, `WORK_STARTING` 1, attempt 최대 1: PASS
+  - T-V4-02: retry 승인 중복 → 새 generation 1개(두 번째는 409 `already_retried`), 같은 키·다른 body → 409: PASS
+  - snapshot hash 불일치 승인 → 409 `ISSUE_SCOPE_CHANGED`, 오래된 version → 409 `STATE_CONFLICT`: PASS
+  - T-ISS-06(일부): closed Issue·요구 변경 → 시작 게이트에서 BLOCKED·충돌 보고, reopen·force-push 없음(사람 PR은 W23): PASS
+  - terminal work에 새 로그 → evidence만 추가, 새 generation 자동 생성 없음: PASS
+  - `start_attempt` 외 경로로 attempt를 만들 수 없음(코드 검색 테스트): PASS
+- 판단: D78(승인 snapshot 비교 대상, scope 변경 상태별 처리, retry 중복 거절, 시작 전 취소의 incident, 슬롯 대기, work 조회 API·CLI 기대 값)
+- 증거: 커밋은 이 보고를 포함한 W25 커밋
+- 남은 일·위험:
+  - 시작 알림 발송·receipt·60초 초과 차단(W26), agent token·workspace·adapter 연결(W28·W13), 시작 게이트의 Issue 재조회(EXT)는 W26·W28
+  - 연결된 incident의 증거는 원래 incident에 남는다(조사 도구에서 연결 incident 조회는 W28)
+- 다음 카드: W26 (fake 부분)
 
 ### W24 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T10:33Z)
 

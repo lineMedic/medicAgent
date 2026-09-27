@@ -9,6 +9,9 @@
 - GET `/ops/issues/candidates/{incident_id}`: binding 후보·match 근거·조회 완전성 (역할 `read`, W24)
 - POST `/ops/incidents/{id}/issue-binding`: 등록 repo의 Issue 번호를 명시적으로 연결
   (역할 `triage`, basis OPERATOR, W24)
+- GET `/ops/work-items/{id}`: work·현재 Issue snapshot·시작 알림 (역할 `read`, W25)
+- POST `/ops/work-items/{id}/approve`·`/retry`(역할 `authorize`), `/cancel`(역할 `operate`) (W25).
+  version CAS·멱등 키를 거치고, 상태 변경과 멱등 기록을 한 트랜잭션에 쓴다
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -21,7 +24,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from linemedic.control_plane import idempotency
+from linemedic.common.ids import is_valid_entity_id
+from linemedic.control_plane import idempotency, supervisor
 from linemedic.control_plane.app import (
     AppContext,
     context,
@@ -55,6 +59,25 @@ class IssueBindingRequest(_Body):
     issue_number: Annotated[int, Field(ge=1)]
     expected_incident_version: Annotated[int, Field(ge=0)]
     decision_note: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class ApproveRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    expected_work_version: Annotated[int, Field(ge=0)]
+    expected_issue_snapshot_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    approval_note: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class RetryRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    expected_work_version: Annotated[int, Field(ge=0)]
+    blocker_resolution_note: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class CancelRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    expected_work_version: Annotated[int, Field(ge=0)]
+    cancel_note: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class EscalateRequest(_Body):
@@ -406,5 +429,189 @@ async def issue_binding(
         key,
         body,
         request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+# ── work (W25) ────────────────────────────────────────────────
+
+
+def _visible_work(tx: Any, operator: OperatorPrincipal, work_id: str) -> Any:
+    """형식 오류·없음·범위 밖은 모두 같은 404다."""
+    if not is_valid_entity_id(work_id, "WORK"):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    work = tx.one("SELECT * FROM work_items WHERE id = ?", (work_id,))
+    if work is None:
+        raise ApiError("RESOURCE_NOT_FOUND")
+    load_visible_incident(tx, operator, work["incident_id"])
+    return work
+
+
+@router.get("/ops/work-items/{work_id}")
+async def get_work_item(
+    work_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+) -> JSONResponse:
+    ctx = context(request)
+
+    def load() -> dict:
+        with ctx.store.read() as tx:
+            work = _visible_work(tx, operator, work_id)
+            issue = tx.one(
+                "SELECT state, snapshot_sha256, updated_at FROM github_issues"
+                " WHERE repository_id = ? AND issue_number = ?",
+                (work["repository_id"], work["issue_number"]),
+            )
+            notice = None
+            if work["start_notification_id"]:
+                notice = tx.one(
+                    "SELECT id, status, receipt_id FROM notifications WHERE id = ?",
+                    (work["start_notification_id"],),
+                )
+        data = {k: work[k] for k in work.keys() if k not in ("details_json", "authorization_json")}
+        data["details"] = _json(work["details_json"])
+        data["authorization"] = _json(work["authorization_json"])
+        data["issue"] = dict(issue) if issue is not None else None
+        data["start_notification"] = dict(notice) if notice is not None else None
+        return data
+
+    data = await run_in_threadpool(load)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _work_command(
+    ctx: AppContext,
+    operator: OperatorPrincipal,
+    work_id: str,
+    path: str,
+    key: str,
+    body: _Body,
+    rid: str,
+    action: Any,
+) -> tuple[int, dict]:
+    """version CAS·멱등 키. 상태 변경과 멱등 기록을 한 트랜잭션에 쓴다(거절이면 둘 다 취소)."""
+    with ctx.store.tx() as tx:
+        work = _visible_work(tx, operator, work_id)
+        scope = {
+            "principal_scope": operator.scope,
+            "method": "POST",
+            "path": path,
+            "run_id": work["run_id"],
+            "key": key,
+        }
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+        if started.outcome is Outcome.REPLAY:
+            assert started.response is not None
+            return started.response["status_code"], started.response["body"]
+        if started.outcome is Outcome.CONFLICT:
+            raise ApiError("IDEMPOTENCY_CONFLICT")
+        if started.outcome is Outcome.IN_FLIGHT:
+            raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+        response = success_body(rid, action(tx))
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post("/ops/work-items/{work_id}/approve")
+async def approve_work(
+    work_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("authorize"))],
+) -> JSONResponse:
+    ctx = context(request)
+    key = idempotency_key(request)
+    body = await read_json_body(request, ApproveRequest)
+
+    def action(tx: Any) -> dict:
+        return supervisor.approve(
+            tx,
+            work_id,
+            body.expected_work_version,
+            body.expected_issue_snapshot_sha256,
+            principal=operator.scope,
+            note=body.approval_note,
+            route_id=ctx.notification_route_id,
+        )
+
+    status_code, payload = await run_in_threadpool(
+        _work_command,
+        ctx,
+        operator,
+        work_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
+        action,
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+@router.post("/ops/work-items/{work_id}/retry")
+async def retry_work(
+    work_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("authorize"))],
+) -> JSONResponse:
+    ctx = context(request)
+    key = idempotency_key(request)
+    body = await read_json_body(request, RetryRequest)
+
+    def action(tx: Any) -> dict:
+        return supervisor.retry(
+            tx,
+            work_id,
+            body.expected_work_version,
+            body.blocker_resolution_note,
+            principal=operator.scope,
+        )
+
+    status_code, payload = await run_in_threadpool(
+        _work_command,
+        ctx,
+        operator,
+        work_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
+        action,
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+@router.post("/ops/work-items/{work_id}/cancel")
+async def cancel_work(
+    work_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("operate"))],
+) -> JSONResponse:
+    ctx = context(request)
+    key = idempotency_key(request)
+    body = await read_json_body(request, CancelRequest)
+
+    def action(tx: Any) -> dict:
+        return supervisor.cancel(
+            tx,
+            work_id,
+            body.expected_work_version,
+            body.cancel_note,
+            principal=operator.scope,
+            route_id=ctx.notification_route_id,
+        )
+
+    status_code, payload = await run_in_threadpool(
+        _work_command,
+        ctx,
+        operator,
+        work_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
+        action,
     )
     return JSONResponse(status_code=status_code, content=payload)
