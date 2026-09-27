@@ -2,6 +2,7 @@
   "$defs": {
     "CheckResult": {
       "additionalProperties": false,
+      "description": "에이전트에게 보이는 검사 한 줄. 저장된 기록의 나머지(경로·container·로그)는 보이지 않는다.",
       "properties": {
         "check": {
           "enum": [
@@ -11,7 +12,16 @@
             "B04",
             "B05",
             "B06",
-            "TEMPLATE"
+            "TEMPLATE",
+            "PATCH_GATE",
+            "PATCH_POLICY",
+            "BASE",
+            "CANDIDATE",
+            "RUNNER",
+            "R0",
+            "R1",
+            "R2",
+            "CREATE_PR"
           ],
           "title": "Check",
           "type": "string"
@@ -32,6 +42,7 @@
         "reason": {
           "anyOf": [
             {
+              "maxLength": 200,
               "type": "string"
             },
             {
@@ -47,7 +58,11 @@
             "EVIDENCE_SCOPE_MISMATCH",
             "SENSITIVE_CONTENT",
             "STATE_CONFLICT",
-            "PROTECTION_UNAVAILABLE"
+            "PROTECTION_UNAVAILABLE",
+            "PATCH_PATH_DENIED",
+            "SOURCE_CHANGED",
+            "REPRO_NOT_FAILING",
+            "REGRESSION_FAILED"
           ],
           "title": "Result",
           "type": "string"
@@ -113,7 +128,11 @@
             "EVIDENCE_SCOPE_MISMATCH",
             "SENSITIVE_CONTENT",
             "STATE_CONFLICT",
-            "PROTECTION_UNAVAILABLE"
+            "PROTECTION_UNAVAILABLE",
+            "PATCH_PATH_DENIED",
+            "SOURCE_CHANGED",
+            "REPRO_NOT_FAILING",
+            "REGRESSION_FAILED"
           ],
           "type": "string"
         },

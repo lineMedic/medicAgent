@@ -37,7 +37,7 @@
 | T-PATCH-01 | 기존 회귀·config·auth 파일 변경 | 거부 | `unit/test_patch_policy.py` | W10 | core |
 | T-PATCH-02 | traversal·symlink·binary·rename patch | 거부 | `unit/test_patch_policy.py` | W10 | core |
 | T-PATCH-03 | 파일 수/100줄 상한 초과 | 거부 | `unit/test_patch_policy.py` | W10 | core |
-| T-REPRO-01 | 새 테스트가 base에서도 통과 | 거부 | `unit/test_repro_judgement.py` + `integration/test_runner_docker.py`(docker) | W10 | core |
+| T-REPRO-01 | 새 테스트가 base에서도 통과 | 거부 | `unit/test_repro_judgement.py` + `integration/test_patch_gate.py`(실제 git·로컬 pytest) + `integration/test_runner_docker.py`(docker) | W10 | core |
 | T-REPRO-02 | 테스트 미수집·import 실패·timeout | 재현으로 불인정 | 위와 같음 | W10 | core |
 | T-REPRO-03 | base 실패, candidate 실패 또는 회귀 실패 | PR 생성 안 함 | 위와 같음 | W10 | core |
 | T-SOURCE-01 | 검사 뒤 PR head 변경 | 기존 검사로 배포 안 함 | `integration/test_release_checks.py` | W12 | core |

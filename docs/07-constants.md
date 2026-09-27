@@ -27,6 +27,9 @@
 | `patch.max_files` | 2 | |
 | `patch.max_changed_lines` | 100 | additions + deletions, header 제외 |
 | `patch.protected_globs` | `tests/regression/**`, `Dockerfile`, `pyproject.toml`, `requirements*`, `setup.*`, `.github/**`, `pytest.ini`, `conftest.py`, `**/conftest.py`, `tox.ini`, `setup.cfg` | 변경 금지 (hash 보호) |
+| `patch.regression_tests` | `tests/regression` | R0·R2에서 실행하는 보호 회귀 테스트 위치 |
+
+`patch.*`는 `config/linemedic.toml`이 아니라 `linemedic/policies/broker_policy.toml`의 `[patch]`에 둔다(D80). 이 파일 바이트의 SHA-256을 제안 검사 기록에 남긴다. glob의 `*`·`?`는 `/`를 넘지 않고 `**`만 여러 단계를 가리킨다.
 
 ## 2. runner
 
@@ -35,7 +38,9 @@
 | `runner.network` | `none` |
 | `runner.user` | non-root UID/GID, 모든 불필요 capability 제거 |
 | `runner.filesystem` | root·checkout read-only, `/tmp`만 크기 제한 tmpfs |
-| `runner.cpus` / `memory` / `pids` | 1 / 512 MiB / 64 |
+| `runner.uid` / `gid` | 10001 / 10001 (runner image의 비루트 사용자, 0 금지) |
+| `runner.tmpfs_mib` | 64 (`/tmp`만 쓸 수 있다) |
+| `runner.cpus` / `memory` / `pids` | 1 / 512 MiB / 64 (swap 없음: `--memory-swap` = memory) |
 | `runner.stage_timeout_seconds` | 60 |
 | `runner.max_log_bytes` | 1048576 (1 MiB) |
 | 금지 | privileged, host network, host PID, Docker socket, host home mount |

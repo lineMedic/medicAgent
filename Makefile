@@ -14,8 +14,10 @@ LIVE := live_github or live_model or live_sandbox or live_smtp
 # 버그 base MES 이미지 (신뢰 레시피 linemedic/runner/mes.Dockerfile, W04)
 MES_IMAGE ?= linemedic-mes:base
 MES_BASE_PYTHON ?= python:3.12-slim
+# 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
+RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -60,6 +62,14 @@ mes-image:
 	docker pull --quiet $(MES_BASE_PYTHON)
 	docker build --build-arg PYTHON_IMAGE=$(MES_BASE_PYTHON) -f linemedic/runner/mes.Dockerfile -t $(MES_IMAGE) l3-mes-api-seed
 	@docker image inspect --format 'mes_image_id={{.Id}}' $(MES_IMAGE)
+	@docker image inspect --format 'base_repo_digests={{json .RepoDigests}}' $(MES_BASE_PYTHON)
+
+# 패치 검사 runner 이미지 (W10): 출력한 runner_image_id를 .env의 RUNNER_IMAGE_ID에 넣는다(태그가 아니라 ID로 고정).
+# 검사할 코드는 넣지 않는다. 보호 pytest 설정(linemedic/runner/pytest-protected.ini)을 image에 넣는다.
+runner-image:
+	docker pull --quiet $(MES_BASE_PYTHON)
+	docker build --build-arg PYTHON_IMAGE=$(MES_BASE_PYTHON) -f linemedic/runner/runner.Dockerfile -t $(RUNNER_IMAGE) linemedic/runner
+	@docker image inspect --format 'runner_image_id={{.Id}}' $(RUNNER_IMAGE)
 	@docker image inspect --format 'base_repo_digests={{json .RepoDigests}}' $(MES_BASE_PYTHON)
 
 scenario-s1:

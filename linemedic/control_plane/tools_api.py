@@ -34,7 +34,7 @@ from linemedic.control_plane.app import (
 )
 from linemedic.control_plane.auth import AgentPrincipal, load_visible_incident
 from linemedic.control_plane.broker import intake
-from linemedic.control_plane.broker.proposals import ProposalStatus
+from linemedic.control_plane.broker.proposals import CHECK_RESULT_FIELDS, ProposalStatus
 from linemedic.control_plane.deploys import deploy_records
 from linemedic.control_plane.errors import ApiError, success_body
 from linemedic.control_plane.symptoms import observed_symptom
@@ -318,7 +318,11 @@ def _proposal(ctx: AppContext, agent: AgentPrincipal, proposal_id: str) -> dict:
             "action_type": payload["action"]["type"],
             "decision": row["decision"],
             "decision_reason": record.get("decision_reason"),
-            "checks": record["checks"],
+            # 저장 기록의 host 경로·container·로그는 빼고 보인다
+            "checks": [
+                {k: v for k, v in check.items() if k in CHECK_RESULT_FIELDS}
+                for check in record["checks"]
+            ],
             "received_at": row["received_at"],
             "submissions_used": incident["submissions"],
             "max_submissions": ctx.max_submissions,

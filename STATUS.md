@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W10** ([tasks/W10-patch-gate-runner.md](tasks/W10-patch-gate-runner.md), 패치 정책·candidate 생성·격리 runner R0/R1/R2 — 선행 W04·W09 충족, 자율성 A, 목표 UNIT_TESTED(`make test-docker` 포함)). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W11** ([tasks/W11-bot-pr-reconcile.md](tasks/W11-bot-pr-reconcile.md), 봇 PR 생성·결과 불명 기록·reconcile CLI — 선행 W10·W24~W26(fake) 충족. FakeGitHub로 UNIT_TESTED까지, 실제 PR은 G2·G10 대기). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -35,7 +35,7 @@
 | 15 | W24 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1036 passed(W24 테스트 33개), `make lint` → PASS, `make test-live` → S4 2 skipped(쓰기 허락·후보 준비 표시 없음), 변이 27개 모두 테스트 실패로 잡힘(W23 변이 30개도 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`와 `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`로 S4-new·existing 1회, 사람이 후보 Issue 2개를 만든 뒤 `LINEMEDIC_LIVE_S4_AMBIGUOUS=1`로 S4-ambiguous 1회 → `evidence/S4-issue-live.md`. issue form을 데모 repo에 복사 | 2026-09-27T10:33Z |
 | 16 | W25 | UNIT_TESTED | UNIT_TESTED | `make test` → 1067 passed(W25 테스트 31개: 경합 7, lifecycle 24), `make lint` → PASS, 경합 시험(스레드 2·4·8, 각자 DB 연결): 활성 work 1·`WORK_STARTING` 1·attempt 최대 1, 변이 20개 모두 테스트 실패로 잡힘 | | 2026-09-27T10:53Z |
 | 17 | W26 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1098 passed(W26 테스트 31개: 알림 25, 시작 게이트 6), `make lint` → PASS, `make test-live` → N12 1 skipped(쓰기 허락 표시 없음), 변이 24개 모두 테스트 실패로 잡힘, live 시험 흐름을 FakeGitHub로 한 번 따라 실행. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`, `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`, `LINEMEDIC_LIVE_NOTIFY_ISSUE=<open Issue 번호>`로 `make test-live` 1회 → `evidence/N12-notification-route.md`(시작 댓글·S6 차단 댓글·강제 timeout 조정·미전송). SMTP는 G12 선택 시에만 | 2026-09-27T11:22Z |
-| 18 | W10 | UNIT_TESTED | NOT_CHECKED | | | |
+| 18 | W10 | UNIT_TESTED | UNIT_TESTED | `make test` → 1293 passed(W10 테스트 195개: 정책 98, 판정 54, runner 단계 13, 게이트·브로커 30), `make test-docker` → 11 passed(W10 실제 컨테이너 7개: R0/R1/R2·비재현·회귀·timeout·OOM·N06 격리), `make lint` → PASS, 변이 79개 중 78개가 테스트 실패로 잡힘(1개는 동등 변이), `evidence/N06-runner-isolation.md`(로컬 개발 Mac) | | 2026-09-27T12:25Z |
 | 19 | W11 | LIVE_VERIFIED | NOT_CHECKED | | G2·G10 | |
 | 20 | W12 | LIVE_VERIFIED | NOT_CHECKED | | G7·G8 | |
 | 21 | W13 | LIVE_VERIFIED | NOT_CHECKED | | G2·G7·G8·G10 | |
@@ -99,6 +99,54 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W10 완료 보고 (2026-09-27T12:25Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달, `make test-docker` 포함). 외부 쓰기 없음
+- 변경 파일:
+  - `linemedic/policies/broker_policy.toml`(새): 패치 정책의 유일한 원본(config `[patch]`를 옮김, docs/07 §1 갱신)
+  - `linemedic/control_plane/broker/patch_policy.py`(새): 정책 로더, diff 해석(git diff의 좁은 부분집합), 경로·파일 형태·상한·보호 경로 규칙, 적용 뒤 tree 재확인·텍스트 확인
+  - `linemedic/control_plane/broker/candidate.py`(새): mirror bare 사본 → 임시 index 적용(작업 트리 없음) → tree 재확인 → 서버 commit → repro tree → 세 tree 안전 추출
+  - `linemedic/control_plane/broker/runner.py`(새):
+    - 고정 image·실행 프로필로 `run_stage`(timeout·로그 상한·정확한 이름 정리), inspect로 실제 적용 값 재확인
+    - 결과 mount의 junit을 symlink를 따르지 않고 읽고 DTD를 거부하는 파서, `judge_r0`·`judge_r1`·`judge_r2`
+  - `linemedic/control_plane/broker/patch_gate.py`(새): 정책 → 기준 base → candidate → image → R0 → R1 → R2 순서와 거절 코드·수정 가능 여부
+  - `linemedic/control_plane/broker/intake.py`: create_pr를 게이트로 교체(트랜잭션 밖 실행, 재확인 뒤 기록, 고칠 수 없는 결과는 즉시 멈춤, W11 전에는 통과해도 멈춤)
+  - `linemedic/control_plane/broker/proposals.py`·`tools_api.py`: W10 검사 이름·코드 추가, 에이전트 보기를 check·result·reason으로 축소. `contracts/api/proposal-status.schema.json` 재생성
+  - `linemedic/integrations/docker.py`: `wait`·`logs_capped`, `DockerError.returncode`, FakeDocker `run_handler`
+  - `linemedic/runner/runner.Dockerfile`·`pytest-protected.ini`(새), `Makefile` `runner-image`, doctor `runner_image`(필수), config `[runner]` uid·gid·tmpfs_mib(격리 항목은 True만)
+  - 테스트:
+    - `unit/test_patch_policy.py`(98, 저장소 파일의 보이지 않는 문자 검사 포함), `unit/test_repro_judgement.py`(54), `unit/test_runner_stage.py`(13)
+    - `integration/test_patch_gate.py`(30), `integration/test_runner_docker.py`(7, docker)
+    - 도우미 `helpers/runner.py`, fixture `fixtures/patches/`(시드에서 `git diff`로 만든 7개)·`fixtures/junit/`(실제 pytest 출력 5개)
+- 실행 (로컬 개발 Mac):
+  - `make test` → 1293 passed, 18 deselected / `make lint` → PASS
+  - `make test-docker` → 11 passed(W10 7개). 올바른 수정은 R0 4 passed → R1 KeyError 1 failure → R2 5 passed, 컨테이너는 남지 않는다
+  - `LINEMEDIC_RECORD_EVIDENCE=1 make test-docker` → `evidence/N06-runner-isolation.md`: 외부 연결·DNS 실패, repo·root 쓰기 실패, /tmp만 쓰기, uid 10001, Docker socket 없음, inspect 값(network none·read-only·cap ALL 제거·no-new-privileges·512 MiB·swap 없음·CPU 1·PID 64·mount 2개)
+  - 변이 확인 79개(각각 넣고 테스트를 돌린 뒤 원래 코드로 되돌렸다). 78개가 테스트 실패로 잡혔다:
+    - 정책: glob `*`가 `/`를 넘음, `..`·`.`·`.git` 단계 허용, 제어 문자·symlink·mode 변경·rename(header 포함)·삭제·binary 허용, 파일 수·줄 수 상한(100 경계 양쪽), 보호 경로·기존 테스트 수정·새 테스트 개수·선언 경로, hunk 줄 수·새 파일 범위, index mode, tree 재확인(보호 blob·경로 집합·mode 양쪽), 텍스트 확인
+    - candidate: tree 재확인·텍스트 확인 호출 제거, 작성자 고정 제거, repro tree가 candidate, 적용 실패를 환경 문제로, base 확인 제거, tar 필터 제거, base SHA 형식
+    - runner: network·read-only·cap-drop·swap·pids·user·readonly mount·noconftest 제거, 제한 시간 무시, timeout 뒤 junit 읽기, 프로필 확인 무시, 같은 이름 정리 제거, symlink 따라감, 일반 파일·DTD·junit 속성 확인 제거, OOM·로그 상한 무시
+    - 판정: R1(exit 0·errors·failure 요구·다른 모듈), Docker 125/126/127, R2(회귀 case·새 테스트·skip·종료 코드), R0(skip·종료 코드)
+    - 게이트·브로커·보기: R0 실패 수정 허용, base 확인 3종, image 확인, 재검사 디렉터리 재사용, 통과·수정 불가 결과의 수정 허용, 이미 끝난 제안 재기록, SOURCE_CHANGED 매핑, 배포 base 선택 2종, 게이트 없음 통과, 에이전트에게 기록 전체, doctor 태그·ID 불일치
+    - 살아남은 1개는 동등 변이다. git env에서 `GIT_CONFIG_GLOBAL=/dev/null`을 빼도 git은 PATH·빈 임시 HOME만 받아 읽을 사용자 설정이 없다(카드가 요구한 명시적 방어로 둔다)
+- 수용 기준:
+  - T-PATCH-01: `tests/regression/*` 수정, `Dockerfile`·`pyproject.toml`·`.github/*`·`conftest.py`(하위 폴더 포함) 변경 → PATCH_PATH_DENIED(protected_path): PASS
+  - T-PATCH-02: `../x`, `/etc/x`, symlink(120000), binary, rename → 거부: PASS
+  - T-PATCH-03: 파일 3개 → too_many_files, 101줄 → too_many_lines(100줄은 통과): PASS
+  - T-REPRO-01: base에서도 통과하는 새 테스트 → REPRO_NOT_FAILING(passed_on_base), 실제 컨테이너 포함: PASS
+  - T-REPRO-02: import 오류(exit 2), 미수집(exit 5), timeout, OOM, skip·xfail만 → 재현 불인정, 실제 컨테이너(import·timeout·OOM) 포함: PASS
+  - T-REPRO-03: R1 통과 뒤 candidate의 새 테스트 실패·보호 회귀 실패 → REGRESSION_FAILED, execution(PR 시도) 0: PASS
+  - docker: 컨테이너 안 외부 연결 실패, inspect로 network none·read-only·자원 제한 확인, N06 runner 부분 evidence 기록: PASS
+- 판단: D80(정책 파일 단일 원본, diff 문법·거부 규칙, 기준 base 3자 일치, 작업 트리 없는 candidate, runner 실행 프로필·inspect 재확인·결과 mount 안전 읽기, 판정 세부, 게이트와 트랜잭션, 에이전트 보기, runner-image·doctor)
+- 증거: 커밋은 이 보고를 포함한 W10 커밋. `evidence/N06-runner-isolation.md`
+- 작업 중 발견: 보이지 않는 문자(`\u200b` 등)를 escape로 쓰려던 코드·테스트에 글자 그대로 들어간 것을 찾아 escape로 바꿨다. 같은 실수를 막으려고 저장소 코드·설정·문서(spec 제외)에 그런 문자가 없는지 보는 테스트를 더했다
+- 남은 일·위험:
+  - 통과한 candidate의 봇 PR 생성과 GitHub baseline 브랜치 재조회는 W11이다(지금은 통과해도 PROTECTION_UNAVAILABLE로 멈춘다)
+  - trusted mirror(`RUNS_DIR/mirror/l3-mes-api.git`)와 run 기준 commit을 준비하는 절차는 run 준비 카드(W13·W19)에서 붙인다. 없으면 PROTECTION_UNAVAILABLE이다
+  - 같은 Python 프로세스의 비신뢰 코드는 junit을 위조할 수 있다. 업무 복구 판단은 배포 뒤 verifier가 따로 한다
+  - 검사 디렉터리(`checkouts/<proposal>/<n>`)는 run 정리(W19) 전까지 남는다. 데모 호스트의 N06 확인은 G1 뒤에 다시 한다
+- 다음 카드: W11 (fake 부분)
 
 ### W26 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T11:22Z)
 

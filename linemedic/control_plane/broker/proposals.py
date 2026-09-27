@@ -122,13 +122,17 @@ class Proposal(_Model):
 # ── 응답 ──────────────────────────────────────────────────────
 
 ProposalId = Annotated[str, Field(pattern=r"^PROP-[0-9A-F]{12}$")]
-# 검사 결과: PASS 또는 거절 코드(docs/03 §5). W10이 패치 검사 코드를 더한다.
+# 검사 결과: PASS 또는 거절 코드(docs/03 §5). 패치 검사 코드(W10)를 포함한다.
 CheckCode = Literal[
     "PASS",
     "EVIDENCE_SCOPE_MISMATCH",
     "SENSITIVE_CONTENT",
     "STATE_CONFLICT",
     "PROTECTION_UNAVAILABLE",
+    "PATCH_PATH_DENIED",
+    "SOURCE_CHANGED",
+    "REPRO_NOT_FAILING",
+    "REGRESSION_FAILED",
 ]
 DecisionReason = Literal[
     "WORK_ORDER_DRAFTED",
@@ -137,7 +141,31 @@ DecisionReason = Literal[
     "SENSITIVE_CONTENT",
     "STATE_CONFLICT",
     "PROTECTION_UNAVAILABLE",
+    "PATCH_PATH_DENIED",
+    "SOURCE_CHANGED",
+    "REPRO_NOT_FAILING",
+    "REGRESSION_FAILED",
 ]
+# 브로커 검사 이름. 패치 게이트(W10): 정책 → 기준 base → candidate → runner image → R0 → R1 → R2
+CheckName = Literal[
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "TEMPLATE",
+    "PATCH_GATE",
+    "PATCH_POLICY",
+    "BASE",
+    "CANDIDATE",
+    "RUNNER",
+    "R0",
+    "R1",
+    "R2",
+    "CREATE_PR",
+]
+CHECK_RESULT_FIELDS = ("check", "result", "reason", "evidence_id")
 
 
 class ProposalReceipt(_Model):
@@ -148,9 +176,11 @@ class ProposalReceipt(_Model):
 
 
 class CheckResult(_Model):
-    check: Literal["B01", "B02", "B03", "B04", "B05", "B06", "TEMPLATE"]
+    """에이전트에게 보이는 검사 한 줄. 저장된 기록의 나머지(경로·container·로그)는 보이지 않는다."""
+
+    check: CheckName
     result: CheckCode
-    reason: str | None = None
+    reason: Annotated[str, Field(max_length=200)] | None = None
     evidence_id: EvidenceId | None = None
 
 

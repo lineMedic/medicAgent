@@ -1,0 +1,27 @@
+diff --git a/app/defects.py b/app/defects.py
+index 0bda5f1..1357b13 100644
+--- a/app/defects.py
++++ b/app/defects.py
+@@ -4,7 +4,7 @@
+ def summarize(lot_id: str, records: list[dict]) -> dict:
+     by_inspector: dict[str, int] = {}
+     for row in records:
+-        inspector = row["inspector_id"]
++        inspector = row.get("inspector_id") or "미지정"
+         by_inspector[inspector] = by_inspector.get(inspector, 0) + 1
+     return {
+         "lot_id": lot_id,
+diff --git a/tests/repro/test_hangs.py b/tests/repro/test_hangs.py
+new file mode 100644
+index 0000000..d061b6e
+--- /dev/null
++++ b/tests/repro/test_hangs.py
+@@ -0,0 +1,8 @@
++import time
++
++from app.defects import summarize
++
++
++def test_hangs_then_fails():
++    time.sleep(30)
++    assert summarize("L3-X", [{"defect_id": "D-2"}])["by_inspector"] == {"미지정": 1}

@@ -13,9 +13,14 @@
   - create_work_order_draft: 승인 템플릿 초안, execution DRAFT_WORK_ORDER,
     WORK_ORDER_DRAFTED/HANDED_OFF, HANDOFF_DRAFTED
   - escalate: ESCALATED/BLOCKED(reason), WORK_BLOCKED(blocker report)
-  - create_pr: 패치 검사(W10) 전이라 REJECTED(PROTECTION_UNAVAILABLE). 가짜 통과 경로를 두지 않는다
-  거절은 제출 예산이 남으면 VALIDATING→INVESTIGATING(수정 1회, 같은 attempt·deadline),
-  아니면 ESCALATED/BLOCKED(VALIDATION_FAILED).
+  - create_pr: 패치 게이트(W10, `patch_gate.py`)를 트랜잭션 밖에서 돌린다
+    (정책 → 기준 base → candidate → R0 → R1 → R2).
+    결과는 다시 연 트랜잭션에서 상태를 재확인하고 쓴다.
+    통과해도 봇 PR 생성(W11) 전에는 candidate만 기록하고 PROTECTION_UNAVAILABLE로 멈춘다.
+    게이트가 없으면(runner image 미설정) PROTECTION_UNAVAILABLE이다. 가짜 통과 경로를 두지 않는다
+  거절은 제출 예산이 남고 에이전트가 고칠 수 있는 사유면 VALIDATING→INVESTIGATING(수정 1회,
+  같은 attempt·deadline), 아니면 ESCALATED/BLOCKED(VALIDATION_FAILED,
+  기준 base 변경은 SOURCE_CHANGED).
 """
 
 import hashlib
@@ -38,9 +43,11 @@ from linemedic.common.sanitize import mask_secrets
 from linemedic.control_plane import audit, idempotency
 from linemedic.control_plane.app import AppContext, safe_validation_errors
 from linemedic.control_plane.auth import AgentPrincipal
+from linemedic.control_plane.broker.patch_gate import GateOutcome, GateRequest, PatchGate
 from linemedic.control_plane.broker.proposals import Proposal, ProposalReceipt
 from linemedic.control_plane.broker.work_order import build_draft
 from linemedic.control_plane.catalog import Catalog
+from linemedic.control_plane.deploys import deploy_records
 from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
 from linemedic.control_plane.knowledge import ManualTemplate
@@ -392,6 +399,7 @@ class Broker:
     templates: dict[str, ManualTemplate]
     route_id: str
     max_submissions: int = 2
+    patch_gate: PatchGate | None = None  # 없으면 create_pr는 PROTECTION_UNAVAILABLE
 
     def run(self, stop: threading.Event, interval_seconds: float = 1.0) -> None:
         """같은 프로세스의 백그라운드 루프(W13 `make start`가 thread로 띄운다. 프로세스당 하나).
@@ -464,15 +472,19 @@ class Broker:
             )
             return dict(row)
 
+    def _case(self, tx: Tx, row: Any) -> _Case:
+        return _Case(
+            row=dict(row),
+            proposal=Proposal.model_validate(json.loads(row["payload_json"])),
+            incident=tx.one("SELECT * FROM incidents WHERE id = ?", (row["incident_id"],)),
+            work=tx.one("SELECT * FROM work_items WHERE id = ?", (row["work_id"],)),
+            record=json.loads(row["checks_json"]),
+        )
+
     def _process(self, row: dict[str, Any]) -> None:
+        request = None
         with self.store.tx() as tx:
-            case = _Case(
-                row=row,
-                proposal=Proposal.model_validate(json.loads(row["payload_json"])),
-                incident=tx.one("SELECT * FROM incidents WHERE id = ?", (row["incident_id"],)),
-                work=tx.one("SELECT * FROM work_items WHERE id = ?", (row["work_id"],)),
-                record=json.loads(row["checks_json"]),
-            )
+            case = self._case(tx, row)
             checks = (
                 ("B03", self._b03_evidence_scope),
                 ("B04", self._b04_existing_execution),
@@ -489,11 +501,82 @@ class Broker:
                 case.record["checks"].append({"check": name, "result": "PASS"})
             action_type = case.proposal.action.type
             if action_type == "create_pr":
-                self._reject(tx, case, "PROTECTION_UNAVAILABLE")  # W10에서 패치 검사로 교체
+                if self.patch_gate is None:
+                    case.record["checks"].append(
+                        {
+                            "check": "PATCH_GATE",
+                            "result": "PROTECTION_UNAVAILABLE",
+                            "reason": "patch_gate_unavailable",
+                        }
+                    )
+                    self._reject(tx, case, "PROTECTION_UNAVAILABLE")
+                    return
+                request = self._gate_request(tx, case)
+                tx.execute(  # B03~B06 결과를 남기고 CHECKING으로 둔 채 트랜잭션을 닫는다
+                    "UPDATE proposals SET checks_json = ? WHERE id = ? AND decision = 'CHECKING'",
+                    (canonical_dumps(case.record), case.row["id"]),
+                )
             elif action_type == "create_work_order_draft":
                 self._draft(tx, case)
             else:
                 self._escalate(tx, case)
+        if request is not None:
+            assert self.patch_gate is not None
+            self._finish_gate(row["id"], self.patch_gate.check(request))  # git·docker: 트랜잭션 밖
+
+    def _gate_request(self, tx: Tx, case: _Case) -> GateRequest:
+        """제안 base를 비교할 run 기준(BASELINE_COMMIT)과 사건 서비스의 최근 배포 관찰 base."""
+        action = case.proposal.action
+        assert action.type == "create_pr"
+        run = tx.one("SELECT config_json FROM demo_runs WHERE id = ?", (case.row["run_id"],))
+        manifest = json.loads(run["config_json"] or "{}") if run is not None else {}
+        deploys = deploy_records(tx, case.row["run_id"], case.incident["service"], "")
+        return GateRequest(
+            run_id=case.row["run_id"],
+            proposal_id=case.row["id"],
+            base_sha=action.base_sha,
+            allowed_base=(manifest.get("runtime_env") or {}).get("baseline_commit"),
+            deploy_base=next((d["base_sha"] for d in reversed(deploys) if d.get("base_sha")), None),
+            diff=action.diff,
+            new_test_path=action.new_test_path,
+            received_at=case.row["received_at"],
+        )
+
+    def _finish_gate(self, proposal_id: str, outcome: GateOutcome) -> None:
+        with self.store.tx() as tx:
+            row = tx.one("SELECT * FROM proposals WHERE id = ?", (proposal_id,))
+            if row is None or row["decision"] != "CHECKING":
+                return  # 이미 다른 경로가 끝냈다
+            case = self._case(tx, row)
+            case.record["checks"].extend(outcome.checks)
+            if outcome.candidate is not None:
+                case.record["candidate"] = outcome.candidate
+            if outcome.passed:
+                # 봇 PR 생성(W11)이 붙기 전에는 통과한 candidate만 기록하고 멈춘다(가짜 PR 없음)
+                case.record["checks"].append(
+                    {
+                        "check": "CREATE_PR",
+                        "result": "PROTECTION_UNAVAILABLE",
+                        "reason": "pr_creation_unavailable",
+                    }
+                )
+                self._reject(
+                    tx,
+                    case,
+                    "PROTECTION_UNAVAILABLE",
+                    revisable=False,
+                    detail="패치 검사를 모두 통과했지만 봇 PR 생성 경로가 아직 없어 멈춘다",
+                )
+                return
+            assert outcome.code is not None
+            last = outcome.checks[-1]["check"] if outcome.checks else "PATCH_GATE"
+            self._reject(
+                tx,
+                case,
+                outcome.code,
+                revisable=outcome.revisable,
+                detail=f"패치 게이트 {last} 단계: {outcome.code}({outcome.reason})",
+            )
 
     # B03~B06: 통과하면 None, 실패하면 (검사 코드, 세부)
 
@@ -554,12 +637,21 @@ class Broker:
             {"proposal_id": case.row["id"], "code": code},
         )
 
-    def _reject(self, tx: Tx, case: _Case, code: str) -> None:
+    def _reject(
+        self,
+        tx: Tx,
+        case: _Case,
+        code: str,
+        *,
+        revisable: bool = True,
+        detail: str | None = None,
+    ) -> None:
+        """거절. `revisable`이 False면(에이전트가 고칠 수 없는 사유) 예산이 남아도 멈춘다."""
         self._decide(tx, case, "REJECTED", "PROPOSAL_REJECTED", code)
         if not case.still_validating():
             return  # 상태가 이미 바뀌었으면 전이하지 않는다
         incident = case.incident
-        if incident["submissions"] < self.max_submissions:
+        if revisable and incident["submissions"] < self.max_submissions:
             transition_incident(  # 수정 1회: 같은 attempt·원래 deadline
                 tx,
                 incident["id"],
@@ -569,18 +661,25 @@ class Broker:
                 details={"proposal_id": case.row["id"], "rejected": code},
             )
             return
+        if revisable:
+            reason_detail = f"제안이 브로커 검사({code})를 통과하지 못했고 제출 예산을 모두 썼다"
+        else:
+            reason_detail = f"에이전트 수정으로 풀 수 없는 브로커 검사 결과({code})라 멈춘다"
+        next_steps = ["거절 사유와 원본 제안을 검토한 뒤 새 작업 승인 여부를 판단"]
+        if code == "PROTECTION_UNAVAILABLE":
+            next_steps.insert(0, "검사 환경(runner image·trusted mirror·run 기준 commit)을 확인")
         _block(
             tx,
             self.route_id,
             incident,
             case.work,
-            reason="VALIDATION_FAILED",
+            reason="SOURCE_CHANGED" if code == "SOURCE_CHANGED" else "VALIDATION_FAILED",
             stage="validation",
-            reason_detail=f"제안이 브로커 검사({code})를 통과하지 못했고 제출 예산을 모두 썼다",
+            reason_detail=f"{reason_detail}. {detail}" if detail else reason_detail,
             evidence_ids=_scoped_evidence(tx, case),
             details={"proposal_id": case.row["id"], "rejected": code},
             attempted=[f"submit_proposal {case.row['id']} → REJECTED({code})"],
-            next_steps=["거절 사유와 원본 제안을 검토한 뒤 새 작업 승인 여부를 판단"],
+            next_steps=next_steps,
         )
 
     def _draft(self, tx: Tx, case: _Case) -> None:

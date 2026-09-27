@@ -1,0 +1,24 @@
+# 브로커 패치 정책 (W10, spec 06 §2, docs/07 §1, D60·D80).
+# 허용 경로·상한·보호 경로의 유일한 원본이다. 이 파일 바이트의 SHA-256을 제안 검사 기록에 남긴다.
+# glob의 `*`·`?`는 경로 구분자 `/`를 넘지 않고, `**`만 여러 단계를 가리킨다(`**/x`는 0단계도 포함).
+schema_version = "linemedic.v4"
+
+[patch]
+allowed_app_file = "app/defects.py"  # 수정만 허용하는 업무 파일(정확히 1개)
+allowed_new_test_glob = "tests/repro/test_*.py"  # 새 파일 1개만 추가 허용
+max_files = 2
+max_changed_lines = 100  # additions + deletions, header 제외
+protected_globs = [
+    "tests/regression/**",
+    "Dockerfile",
+    "pyproject.toml",
+    "requirements*",
+    "setup.*",
+    ".github/**",
+    "pytest.ini",
+    "conftest.py",
+    "**/conftest.py",
+    "tox.ini",
+    "setup.cfg",
+]
+regression_tests = "tests/regression"  # R0·R2에서 실행하는 보호 회귀 테스트 위치
