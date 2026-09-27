@@ -88,9 +88,10 @@ class ContractCase(_Model):
 
 
 class Observation(_Model):
-    samples: Annotated[int, Field(gt=0)]
+    # spec 08 §5 core 하한: 표본 4회(t=0·10·20·30), 관찰 60초. 계약으로 더 약하게 만들 수 없다.
+    samples: Annotated[int, Field(ge=4)]
     interval_seconds: Annotated[int, Field(ge=0)]
-    recurrence_window_seconds: Annotated[int, Field(gt=0)]
+    recurrence_window_seconds: Annotated[int, Field(ge=60)]
     # core 판정 규칙(spec 08 §5)이라 계약으로 끌 수 없다. false를 쓰면 계약 로드가 실패한다.
     require_all_samples: Literal[True]
     require_log_observer_healthy: Literal[True]
@@ -107,7 +108,7 @@ class Contract(_Model):
     contract_id: str
     entry_service: str
     assertions: list[Assertion]
-    cases: list[ContractCase]
+    cases: Annotated[list[ContractCase], Field(min_length=1)]
     observation: Observation
 
 
@@ -402,6 +403,11 @@ class VerificationRun:
             if verdict is not None:
                 return verdict
         if self.next_sample == len(self.offsets) and self.elapsed() >= self.end_seconds:
+            # 표본 응답이 느려 이 step 안에서 시간이 흘렀을 수 있다.
+            # PASS 직전에 관찰 상태를 다시 본다.
+            verdict = self._check_environment()
+            if verdict is not None:
+                return verdict
             return self._finish("PASS", "all_checks_passed")
         return None
 
@@ -426,21 +432,30 @@ class VerificationRun:
         return None
 
     def _take_sample(self) -> VerificationResult | None:
+        """표본 한 번에 모든 case를 호출한다.
+
+        관찰한 반증(틀린 응답)은 다른 case의 무응답보다 우선한다.
+        """
         failures: list[FailedAssertion] = []
+        unanswered: list[str] = []
         for case in self.cases:
             try:
                 response = self.http.get(case.path, case.query)
-            except RequestTimeout as exc:
-                return self._finish("INCONCLUSIVE", "sample_unanswered", f"{case.case_id}: {exc}")
-            except RequestFailed as exc:
-                return self._finish("INCONCLUSIVE", "sample_unanswered", f"{case.case_id}: {exc}")
+            except (RequestTimeout, RequestFailed) as exc:
+                unanswered.append(f"{case.case_id}: {exc}")
+                continue
             failures.extend(evaluate_case(case, response))
-        self.next_sample += 1
-        self.samples_completed += 1
+        if not unanswered:
+            self.next_sample += 1
+            self.samples_completed += 1
+        detail = "; ".join(unanswered) or None
         if failures:
             self.failed = failures
             status_failed = any(failure.assertion == "status" for failure in failures)
-            return self._finish("FAIL", "business_error" if status_failed else "content_mismatch")
+            reason = "business_error" if status_failed else "content_mismatch"
+            return self._finish("FAIL", reason, f"응답 없는 case: {detail}" if detail else None)
+        if unanswered:
+            return self._finish("INCONCLUSIVE", "sample_unanswered", detail)
         return None
 
     def abort(self, detail: str) -> VerificationResult:

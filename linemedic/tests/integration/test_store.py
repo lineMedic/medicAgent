@@ -11,6 +11,7 @@ import pytest
 
 from linemedic.common.config import load_settings
 from linemedic.control_plane import runs
+from linemedic.control_plane import store as store_module
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.store import (
     MigrationError,
@@ -118,6 +119,25 @@ def test_failed_migration_is_rolled_back(tmp_path, fake_clock):
     tables = [r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")]
     assert tables == []
     connection.close()
+
+
+def test_migration_applied_by_another_process_is_skipped(tmp_path, fake_clock, monkeypatch):
+    """두 프로세스가 동시에 처음 migration할 때 늦은 쪽은 트랜잭션 안에서 다시 확인하고 건너뛴다."""
+    db = tmp_path / "race.db"
+    first, second = Store(db, fake_clock).connect(), Store(db, fake_clock).connect()
+    real = store_module.applied_versions
+    reads = {"count": 0}
+
+    def stale_before_transaction(conn):
+        reads["count"] += 1
+        return set() if reads["count"] == 1 else real(conn)  # 첫 읽기는 먼저 적용되기 전 값
+
+    assert migrate(first, fake_clock) == [1]
+    monkeypatch.setattr(store_module, "applied_versions", stale_before_transaction)
+    assert migrate(second, fake_clock) == []
+    assert second.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+    first.close()
+    second.close()
 
 
 def test_db_with_unknown_migration_is_rejected(store, conn):
