@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -180,3 +180,8 @@ rebuild-case-index:
 memory-snapshot:
 	@test -n "$(RUN_ID)" || { echo "사용법: make memory-snapshot RUN_ID=<평가 run> [CUTOFF=<UTC RFC3339>]"; exit 2; }
 	$(PY) -m linemedic.cli memory-snapshot --run-id "$(RUN_ID)" $(if $(CUTOFF),--cutoff "$(CUTOFF)",)
+
+# 읽기 전용 대시보드 (W18): 127.0.0.1에만 bind하고 제어 DB를 읽기 전용으로 연다(쓰기 route·JavaScript 없음).
+# 모르는 값은 "미확인", 해당 없는 값은 "N/A". 같은 읽기 모델을 GET /ops/dashboard(operator read)로도 본다.
+dashboard:
+	$(PY) -m linemedic.dashboard $(if $(RUN_ID),--run-id "$(RUN_ID)",) $(if $(PORT),--port "$(PORT)",)

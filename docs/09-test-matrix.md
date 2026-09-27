@@ -86,6 +86,8 @@ W13 통합: `integration/test_e2e_fake.py`가 `make start`와 같은 조립(`bui
 
 W27 사례 기억: `integration/test_case_memory.py`가 실제 SQLite(FTS5)로 T-MEM-01~05를 본다. 원본 event 행만 도우미로 넣고 노트·색인·snapshot·검색·projection·`case_retrievals`는 제품 코드로 만든다. 그 밖에 FTS 연산자 문자열(`"`·`*`·`NEAR`·`OR`)이 연산자로 해석되지 않음, FTS5 없는 SQLite의 keyword_fallback, 색인 손상·부재 → UNAVAILABLE → 재구축, snapshot 무결성·덮어쓰기 금지·cutoff 시각 비교, 도구·ops·CLI를 확인한다. N13(한국어·오류 토큰)은 `LINEMEDIC_RECORD_EVIDENCE=1 make test`로 `evidence/N13-case-search.md`에 남긴다(품질 주장 없음). fake E2E는 PR 준비(UNVERIFIED) → 업무 검증(VERIFIED_SUCCESS) revision과 origin manual_integration도 확인한다.
 
+W18 화면: `unit/test_dashboard_escape.py`가 Issue 제목·로그 근거·case 본문·운영자 메모의 `<script>`·`<img onerror>`·`javascript:` 링크가 문자열로만 보이는지(T-UI-01), 읽기 전용 연결·127.0.0.1 bind·GET만·script 차단 CSP를 본다. `unit/test_dashboard_readmodel.py`는 docs/11 §5 문구 매핑·금지 표현·미확인/N/A 구분·RESOLVED와 알림 FAILED 동시 표시·타임라인 순서·`GET /ops/dashboard`를, `integration/test_dashboard_process.py`는 실제 `python -m linemedic.dashboard` 프로세스가 답하고 DB 파일을 바꾸지 않는지를 본다. fake E2E는 전체 경로 뒤의 화면(모든 단계 완료·결과 노트·알림 상태)도 확인한다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.

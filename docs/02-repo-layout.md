@@ -118,9 +118,9 @@ linemedic/
 │   ├── manual_proposals/          # [W13] 사람이 작성한 제안 (origin=manual_integration)
 │   └── snapshots/                 # [W27] memory snapshot manifest
 ├── dashboard/
-│   ├── __main__.py                # [W18] 127.0.0.1 읽기 전용 서버 (D49)
-│   ├── readmodel.py               # [W18] 화면·/ops/dashboard 공용 읽기 모델
-│   └── templates/index.html       # [W18]
+│   ├── __main__.py                # [W18] 127.0.0.1 읽기 전용 서버 (D49·D85: mode=ro·GET만·script 차단 CSP)
+│   ├── readmodel.py               # [W18] 화면·/ops/dashboard 공용 읽기 모델(docs/11 §5 문구 매핑, 미확인/N/A)
+│   └── templates/index.html       # [W18] Jinja2 autoescape, JavaScript·링크 없음
 ├── scripts/
 │   ├── host_manifest.py           # [B00]
 │   ├── doctor.py                  # [B00, 카드별 점검 추가]

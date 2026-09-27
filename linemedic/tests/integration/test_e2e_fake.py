@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from linemedic.agent.adapter import ScriptedAdapter
 from linemedic.common.clock import from_rfc3339
 from linemedic.common.config import load_settings
+from linemedic.control_plane import runs
 from linemedic.control_plane.app import create_app
 from linemedic.control_plane.auth import TokenRegistry, host_operator
 from linemedic.control_plane.broker.patch_gate import PatchGate
@@ -32,6 +33,7 @@ from linemedic.control_plane.deploys import record_deploy_observed
 from linemedic.control_plane.main import DEFAULT_MANUAL_PROPOSAL, build_control_plane
 from linemedic.control_plane.state import COUPLED_WORK_STATUS
 from linemedic.control_plane.verifier import agent_performance_verifications
+from linemedic.dashboard import __main__ as dashboard
 from linemedic.factory_sim.scenarios import mes_container_options, prepare_s1_data, resource_names
 from linemedic.integrations.git_fetch import GitFetcher
 from linemedic.integrations.git_push import FakePusher
@@ -78,14 +80,15 @@ class E2E:
         self.runs_dir = tmp_path / "runs"
         self.mirror = self.runs_dir / "mirror" / "l3-mes-api.git"
         shutil.copytree(seed_mirror, self.mirror)
-        insert_run(conn, RUN)
-        manifest = {"routing_scope": f"eval:{RUN}", "runtime_env": {"baseline_commit": self.base}}
-        conn.execute(
-            "UPDATE demo_runs SET config_json = ? WHERE id = ?", (json.dumps(manifest), RUN)
-        )
         settings = load_settings(
             REPO_ROOT / "config" / "linemedic.toml",
             {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": str(REPO_ID)},
+        )
+        insert_run(conn, RUN)
+        manifest = runs.build_manifest(settings, RUN, None)  # make run-new과 같은 모양
+        manifest["runtime_env"]["baseline_commit"] = self.base
+        conn.execute(
+            "UPDATE demo_runs SET config_json = ? WHERE id = ?", (json.dumps(manifest), RUN)
         )
         self.github = FakeGitHub(REPO_ID, REPO, clock=clock, bot_id=BOT, write_enabled=True)
         self.github.branches[f"baseline/{RUN}"] = self.base  # W03·W19가 준비하는 run 기준 브랜치
@@ -421,6 +424,21 @@ def test_manual_proposal_goes_through_the_whole_path(e2e):
     assert success["applicability"]["approved_merge_sha"] == merge_sha
     assert success["applicability"]["image_id"] == identity["image_id"]
     assert success["hypothesis_by"] == "사람이 미리 작성한 제안(검증되지 않은 가설)"
+
+    # 대시보드(W18): 같은 DB를 읽기 전용으로 열어 전체 경로를 그대로 보인다
+    model = dashboard.load_model(e2e.store.path)
+    (card,) = model["works"]
+    assert (card["work_status"], card["incident_status"]) == ("SUCCEEDED", "RESOLVED")
+    assert card["verification_text"] == "지정한 업무 계약·관찰 범위 통과"
+    assert card["start_notice"].startswith("댓글 등록 #")  # github_comment route의 접수
+    assert model["run"]["memory_mode"] == "cold_start" and model["run"]["memory_snapshot"] == "N/A"
+    assert model["run"]["repository"] == f"{REPO} (ID {REPO_ID})"
+    assert all(step["state"] == "done" for step in card["timeline"])
+    assert f"PR #{pr_number}" in {s["name"]: s for s in card["timeline"]}["PR"]["detail"]
+    assert [c["outcome"] for c in card["cases"]] == ["UNVERIFIED", "VERIFIED_SUCCESS"]
+    assert {n["status_text"] for n in card["notifications"]} == {"댓글 등록"}
+    assert card["trace"]["status"].startswith("N/A(사람이 미리 작성한 제안")
+    assert "<script" not in dashboard.render(model).lower()
 
     # workspace·context: base 파일만, credential 없음
     root = e2e.runs_dir / RUN / "workspaces" / started["attempt_id"]
