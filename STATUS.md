@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W04** ([tasks/W04-mes-fixtures.md](tasks/W04-mes-fixtures.md), 합성 MES 서비스·버그 base·fixture·holdout — 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live는 G2·G10 대기다. W03의 시드 push는 W04가 끝난 뒤 G2·사람 허락으로 한다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W05 (1부)** ([tasks/W05-verifier.md](tasks/W05-verifier.md), 독립 업무 verifier와 S1b — 게이트 없이 목표 상태까지 가능). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03 live·시드 push는 G2·G10 대기다.
 
 ## 작업표
 
@@ -23,7 +23,7 @@
 | 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
 | 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
 | 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`. 시드 push는 W04 이후 | 2026-09-27T04:02Z |
-| 6 | W04 | UNIT_TESTED | NOT_CHECKED | | | |
+| 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
 | 7 | W05 (1부) | UNIT_TESTED | NOT_CHECKED | | | |
 | 8 | W06 | UNIT_TESTED | NOT_CHECKED | | | |
 | 9 | W05 (2부) | UNIT_TESTED | NOT_CHECKED | | | |
@@ -99,6 +99,33 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W04 완료 보고 (2026-09-27T04:19Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). docker 마커 시험도 로컬 Docker에서 통과했다
+- 변경 파일:
+  - `l3-mes-api-seed/`: FastAPI MES(`app/main.py`), 버그 base 집계(`app/defects.py`, `row["inspector_id"]` 직접 접근), 로트 로더(`app/data.py`, 로트 ID 형식 검사로 경로 이동 차단), JSON Lines 로그(`app/logging_json.py`), 공개 로트 118·101, 보호 회귀(`tests/regression/`), `tests/repro/.gitkeep`, 업무 규칙만 적은 README. 정답 코드·"미지정" 상수·holdout·시나리오 이름 없음
+  - `linemedic/eval/holdout-defects-v1.json`(L3-HOLDOUT-201 입력·기대값), `linemedic/factory_sim/fixtures/`(빈 로트, 공개 로트는 시드 경로 참조)
+  - `linemedic/runner/mes.Dockerfile`: 신뢰 레시피(의존성 13개 버전 고정·`--no-deps`·`pip check`, `app/`만 복사, 비루트, uvicorn access log 끔)
+  - `linemedic/factory_sim/scenarios.py`: `inject_s1`(internal network·비루트·read-only·capability 제거·자원 상한·데이터 read-only mount, 컨테이너 안에서 로트 118 요청 3회·101 요청 1회), `read_mes_logs`, `stop_s1`(정확한 이름만 정리)
+  - `linemedic/scripts/seed_demo_repo.py`: 작성자·시각·메시지 고정, 사용자 git 설정·hook 미사용, 비어 있지 않은 출력 디렉터리 거부. push 없음
+  - `linemedic/cli.py`(`scenario-s1`), `Makefile`(`mes-image`, `scenario-s1`), DECISIONS.md·ADR.md(D66)
+  - 테스트: `linemedic/tests/unit/test_mes_seed.py`(16개), `linemedic/tests/integration/test_mes_container.py`(docker)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 79 passed, 2 deselected / `make lint` → PASS
+  - `make test-docker` → 1 passed (실제 Docker 28.1.1)
+  - `make mes-image` → `mes_image_id=sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, `base_repo_digests=["python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"]`
+  - `python -m linemedic.scripts.seed_demo_repo --output runs/seed-repo` → commit `19045b62f292dedff24529cab505e6d86a91ed8c`, tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3` (단위 테스트에서 두 번 만들어 같은 값 확인)
+  - `python -m linemedic.cli scenario-s1 --run-id bad-id` → 종료 코드 1(run_id 형식 거부). 시험 뒤 남은 linemedic 컨테이너·network 0개
+- 테스트: fixture 무결성(7·3·5건, 키 없는 record 2·0·3, defect_id 고유, "key 없음" 문자열 없음), holdout 기대값과 업무 규칙 일치, 118 → 500 + D57(+`top_frame_line`) 필드 로그(`KeyError`·`inspector_id`·`app.defects:summarize`, 비밀·절대 경로 없음), 101 정확 집계·404·400·healthz, 빈 로트 API, 보호 회귀가 버그 base에서 통과(subprocess pytest), 시드에 정답·holdout·시나리오 이름 없음, 레시피가 `app/`만 복사·버전 고정, 시드 이력 결정성, 비어 있지 않은 출력 거부, `inject_s1` 격리 옵션·요청 순서·holdout 미포함, 잘못된 run_id·이미지 없음 거부, `stop_s1` 정확한 이름
+- 판단:
+  - D66: 줄 번호를 `top_frame_line`으로 분리하고 로트 파일 형식을 `{lot_id, records}`로 정했다
+  - `inject_s1`은 internal network라 호스트 port를 열지 않고, 요청을 컨테이너 안에서 자기 자신에게 보낸다. W05·W12의 verifier가 MES에 닿는 경로는 그 카드에서 정해야 한다
+  - `make mes-image`는 base image를 먼저 pull한다. Docker Desktop BuildKit이 빌드 중 받은 base를 로컬 목록에 남기지 않아 digest를 조회할 수 없었기 때문이다
+  - starlette TestClient가 httpx 사용 경고(StarletteDeprecationWarning)를 낸다. 동작에는 영향이 없어 그대로 두었다
+- 증거: 커밋은 이 보고를 포함한 W04 커밋. 이미지 ID·digest·시드 SHA는 위 실행 결과 그대로다
+- 남은 일·위험: W03의 시드 push는 G2 이후 사람 허락으로 진행하고 그때 원격 main SHA를 `BASELINE_COMMIT`으로 기록한다. 데모 호스트(G1)에서 이미지를 다시 빌드해 ID를 기록해야 한다
+- 다음 카드: W05 (1부)
 
 ### W03 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T04:02Z)
 

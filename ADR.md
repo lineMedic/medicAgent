@@ -106,6 +106,7 @@
 | D63 | 저장소·문서 루트 이름은 `lineMedic`. GitHub 생성 목표는 조직 `lineMedic`의 공개 저장소 `lineMedic/lineMedic` | 기반 | 로컬 이름 유효; GitHub 게시 대상은 D64로 대체 |
 | D64 | GitHub 게시 대상은 사용자 지정 `lineMedic/medicAgent`. 로컬 루트·제품·패키지·데모 대상 이름은 유지 | 기반 | 유효 (D63의 GitHub 게시 대상 대체) |
 | D65 | `config_hash`는 설정 파일 + 설정 키에 대응하는 env만 포함. 호스트·run 식별 env는 `RuntimeEnv`로 분리해 해시에서 제외 | 기반 | 유효 (D52 구체화) |
+| D66 | MES 로그에 `top_frame_line` 추가(`top_frame`은 줄 번호 없음), 로트 파일 형식 `{lot_id, records}` | 입력 | 유효 (D57 확장) |
 
 ## 3. 주제별 보기
 

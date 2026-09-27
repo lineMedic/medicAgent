@@ -1,0 +1,17 @@
+{
+  "lot_id": "L3-0927-101",
+  "records": [
+    {
+      "defect_id": "D-101-001",
+      "inspector_id": "I-01"
+    },
+    {
+      "defect_id": "D-101-002",
+      "inspector_id": "I-01"
+    },
+    {
+      "defect_id": "D-101-003",
+      "inspector_id": "I-02"
+    }
+  ]
+}
