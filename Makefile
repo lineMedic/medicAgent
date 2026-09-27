@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -138,9 +138,20 @@ notification-reconcile:
 	@test -n "$(NOTIFICATION_ID)" || { echo "사용법: make notification-reconcile NOTIFICATION_ID=NOT-..."; exit 2; }
 	$(PY) -m linemedic.cli notification-reconcile --notification-id "$(NOTIFICATION_ID)"
 
-# 결과 불명 execution 조정 (W11): CREATE_PR(W11)·CREATE_ISSUE(W24)를 외부 조회로만 확인한다. 새로 만들지 않는다.
+# 결과 불명 execution 조정 (W11): CREATE_PR(W11)·CREATE_ISSUE(W24)·DEPLOY(W12)를 외부 조회로만 확인한다.
+# 새로 만들거나 다시 배포하지 않는다.
 # CREATE_PR은 봇 작성·head 브랜치·candidate SHA·base·marker가 모두 맞는 PR 1개만 채택한다(PR_OPENED).
 # PR·브랜치가 모두 없음이 확인되면 ESCALATED, 그 밖(충돌·불완전·브랜치만 남음)은 기록만 한다.
+# DEPLOY는 이번 image ID·execution 라벨의 MES가 실행 중이면 새 업무 검증을 시작하고(VERIFYING),
+# 없거나 다른 것이 실행 중이면 ESCALATED, docker 조회 실패는 기록만 한다.
 reconcile:
 	@test -n "$(RUN_ID)" -a -n "$(EXECUTION_ID)" || { echo "사용법: make reconcile RUN_ID=<run> EXECUTION_ID=EXE-..."; exit 2; }
 	$(PY) -m linemedic.cli reconcile --run-id "$(RUN_ID)" --execution-id "$(EXECUTION_ID)"
+
+# 배포 승인 (W12·G8): 사람이 GitHub에서 리뷰·머지한 PR의 최종 merge SHA를 지정해 배포를 승인한다.
+# 에이전트는 이 명령을 실행하지 않는다. spec 11 §5 체크리스트를 보여 주고 터미널에서 approve를 입력해야 보낸다.
+# 서버가 merged=true·최종 merge SHA·PR head·리뷰·tree·지금 MES image를 다시 확인하고, 통과하면 exact SHA를
+# 재검사·빌드·기동한 뒤 업무 검증을 한다. 진행은 make reconcile·GET /ops/executions/{id}로 본다.
+approve-release:
+	@test -n "$(RUN_ID)" -a -n "$(INCIDENT_ID)" -a -n "$(WORK_ID)" -a -n "$(PR_NUMBER)" -a -n "$(MERGE_SHA)" -a -n "$(EXPECTED_IMAGE_ID)" || { echo "사용법: make approve-release RUN_ID= INCIDENT_ID= WORK_ID= PR_NUMBER= MERGE_SHA= EXPECTED_IMAGE_ID= [PROPOSAL_ID=] [NOTE=]"; exit 2; }
+	$(PY) -m linemedic.cli approve-release --run-id "$(RUN_ID)" --incident-id "$(INCIDENT_ID)" --work-id "$(WORK_ID)" --pr-number "$(PR_NUMBER)" --merge-sha "$(MERGE_SHA)" --expected-image-id "$(EXPECTED_IMAGE_ID)" $(if $(PROPOSAL_ID),--proposal-id "$(PROPOSAL_ID)",) $(if $(NOTE),--note "$(NOTE)",)

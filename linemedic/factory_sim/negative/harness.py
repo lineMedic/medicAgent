@@ -13,7 +13,6 @@
 """
 
 import json
-import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -25,38 +24,35 @@ from linemedic.control_plane.observer import ContainerObserver, RecurrenceSignat
 from linemedic.control_plane.store import Store
 from linemedic.control_plane.verifier import (
     DEFAULT_CONTRACT,
-    EVAL_DIR,
+    PROBER_IMAGE,
     FixtureGuard,
     HttpClient,
     ProberHttp,
-    RequestFailed,
-    RequestTimeout,
     VerificationRun,
     drive,
     load_contract,
     persist_result,
+    prober_options,
     resolve_cases,
+    wait_until_healthy,
 )
 from linemedic.factory_sim.scenarios import (
-    BUG_LOT,
     DEFAULT_MES_IMAGE,
-    NORMAL_LOT,
-    SEED_LOTS_DIR,
+    HOLDOUT_FIXTURE,
     mes_container_options,
+    write_contract_data,
 )
 from linemedic.integrations.docker import CliDocker, DockerPort
 from linemedic.tests.helpers.demo_states import prepare_verifying_incident
 
 NEGATIVE_DIR = Path(__file__).resolve().parent
 S1B_IMAGE = "linemedic-mes:s1b-negative"
-PROBER_IMAGE = "python:3.12-slim"
 ORIGIN = "human_injected_negative"
-HOLDOUT = EVAL_DIR / "holdout-defects-v1.json"
+HOLDOUT = HOLDOUT_FIXTURE
 # S1 사건의 오류 signature. 관찰 구간에 같은 오류가 다시 나면 재발로 센다.
 S1_SIGNATURE = RecurrenceSignature(
     error_type="KeyError", top_frame="app.defects:summarize", path="/defects/summary"
 )
-HEALTH_TIMEOUT_SECONDS = 30.0
 DEFAULT_ROUTE_ID = "github-issue-primary"
 DEMO_PURPOSE = "verifier_negative_test"
 DEMO_FINGERPRINT = "verifier-negative:defect-summary-v1"
@@ -77,57 +73,12 @@ def resource_names(run_id: str) -> dict[str, str]:
 def prepare_data(runs_dir: Path, run_id: str) -> tuple[Path, list[Path]]:
     """공개 로트와 holdout **입력**만 MES 데이터로 둔다. 기대값은 넣지 않는다."""
     data_dir = runs_dir / run_id / "verify-negative" / "mes-data"
-    lots = data_dir / "lots"
-    lots.mkdir(parents=True, exist_ok=True)
-    files = []
-    for lot_id in (BUG_LOT, NORMAL_LOT):
-        target = lots / f"{lot_id}.json"
-        shutil.copyfile(SEED_LOTS_DIR / f"{lot_id}.json", target)
-        files.append(target)
-    holdout_input = json.loads(HOLDOUT.read_text(encoding="utf-8"))["input"]
-    target = lots / f"{holdout_input['lot_id']}.json"
-    target.write_text(
-        json.dumps(holdout_input, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    files.append(target)
-    return data_dir, files
-
-
-def prober_options(name: str, run_id: str, network: str) -> list[str]:
-    return [
-        "--name",
-        name,
-        "--label",
-        f"linemedic.run_id={run_id}",
-        "--label",
-        "linemedic.role=prober",
-        "--network",
-        network,
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--user",
-        "65534:65534",
-        "--pids-limit",
-        "32",
-        "--memory",
-        "128m",
-    ]
+    return data_dir, write_contract_data(data_dir)
 
 
 def wait_healthy(http: HttpClient, clock: Clock, sleep: Callable[[float], None]) -> None:
-    deadline = clock.monotonic() + HEALTH_TIMEOUT_SECONDS
-    while True:
-        try:
-            if http.get("/healthz", {}).status == 200:
-                return
-        except (RequestTimeout, RequestFailed):
-            pass
-        if clock.monotonic() >= deadline:
-            raise HarnessError("S1b MES가 제한 시간 안에 준비되지 않았다")
-        sleep(0.5)
+    if not wait_until_healthy(http, clock, sleep):
+        raise HarnessError("S1b MES가 제한 시간 안에 준비되지 않았다")
 
 
 def _active_run(store: Store, run_id: str) -> None:

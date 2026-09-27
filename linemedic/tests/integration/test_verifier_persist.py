@@ -21,6 +21,8 @@ from linemedic.control_plane.verifier import (
     VerificationResult,
     agent_performance_verifications,
     persist_result,
+    register_running,
+    unfinished_result,
 )
 from linemedic.tests.helpers.db_rows import (
     count,
@@ -184,6 +186,74 @@ def test_same_result_cannot_be_persisted_twice(store, conn, seeded):
     with pytest.raises((sqlite3.IntegrityError, TransitionDenied, StateConflict)):
         persist(store, result, seeded["incident"], version=1)
     assert count(conn, "verifications") == 1 and count(conn, "notifications") == 1
+
+
+def register(store, result, incident, *, origin="agent_release", run_id=RUN):
+    with store.tx() as tx:
+        register_running(
+            tx,
+            verification_id=result.verification_id,
+            run_id=run_id,
+            incident_id=incident,
+            execution_id=None,
+            origin=origin,
+            contract_id=result.contract_id,
+            contract_sha256=result.contract_sha256,
+            target=result.target,
+        )
+
+
+def test_running_row_becomes_the_final_verdict(store, conn, seeded):  # W12
+    result = make_result("PASS")
+    register(store, result, seeded["incident"])
+    running = row(conn, "verifications", result.verification_id)
+    assert (running["verdict"], running["ended_at"]) == ("RUNNING", None)
+    assert json.loads(running["result_json"]) == {"target": result.target}
+    persist(store, result, seeded["incident"])
+    final = row(conn, "verifications", result.verification_id)
+    assert (final["verdict"], final["ended_at"]) == ("PASS", result.ended_at)
+    assert json.loads(final["result_json"])["resolved_written"] is True
+    assert count(conn, "verifications") == 1
+    with pytest.raises((sqlite3.IntegrityError, TransitionDenied, StateConflict)):
+        persist(store, result, seeded["incident"], version=1)  # 최종 판정은 다시 쓰지 않는다
+
+
+@pytest.mark.parametrize("change", [{"origin": "manual_integration"}, {"incident": "other"}])
+def test_running_row_of_another_verification_is_not_overwritten(store, conn, seeded, change):
+    other = insert_incident(conn, RUN, "VERIFYING")
+    result = make_result("FAIL")
+    register(
+        store,
+        result,
+        other if change.get("incident") else seeded["incident"],
+        origin=change.get("origin", "agent_release"),
+    )
+    with pytest.raises(ValueError):
+        persist(store, result, seeded["incident"])
+    assert row(conn, "verifications", result.verification_id)["verdict"] == "RUNNING"
+    assert row(conn, "incidents", seeded["incident"])["status"] == "VERIFYING"
+
+
+def test_unfinished_running_verification_closes_inconclusive(store, conn, seeded):
+    result = make_result("PASS")
+    register(store, result, seeded["incident"])
+    running = row(conn, "verifications", result.verification_id)
+    closed = unfinished_result(
+        running, samples_required=4, ended_at="2026-09-27T00:02:00.000000Z", detail="restart"
+    )
+    assert (closed.verdict, closed.reason, closed.samples_completed) == (
+        "INCONCLUSIVE",
+        "verifier_error",
+        0,
+    )
+    assert (closed.observation_complete, closed.elapsed_seconds, closed.detail) == (
+        False,
+        120.0,
+        "restart",
+    )
+    assert closed.target == result.target
+    persist(store, closed, seeded["incident"])
+    assert row(conn, "incidents", seeded["incident"])["status"] == "ESCALATED"
 
 
 def test_invalid_inputs_are_rejected(store, conn, seeded):

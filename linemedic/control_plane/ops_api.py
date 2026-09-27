@@ -17,8 +17,11 @@
   (역할 `reconcile`, W26). 다시 보내지 않는다
 - GET `/ops/executions/{id}`: 외부 실행 intent·결과·조정 기록 (역할 `read`, W11)
 - POST `/ops/executions/{id}/reconcile`: UNKNOWN execution을 외부 조회로만 조정
-  (역할 `reconcile`, W11). 새 PR·Issue를 만들지 않는다.
+  (역할 `reconcile`, W11). 새 PR·Issue를 만들거나 다시 배포하지 않는다.
   body의 run_id가 execution의 run과 같아야 한다
+- POST `/ops/releases`: 사람이 PR·최종 merge SHA·지금 MES image를 명시한 배포 승인
+  (역할 `approve`, W12). 사전 검사 1~7을 통과하면 DEPLOY INTENDED를 기록하고 202를 돌려준다.
+  배포·검증은 백그라운드로 진행하고 `GET /ops/executions/{id}`로 본다. 거부는 상태·외부 변경 없음
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
@@ -47,6 +50,7 @@ from linemedic.control_plane.codes import RUN_ID_PATTERN, BlockerCode
 from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
 from linemedic.control_plane.notifications import outbox, templates
+from linemedic.control_plane.release import ReleaseRefused, ReleaseRequest, identity_chain
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
 
 router = APIRouter()
@@ -95,6 +99,19 @@ class ReconcileRequest(_Body):
 class ExecutionReconcileRequest(_Body):
     schema_version: Literal["linemedic.v4"]
     run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+
+
+class ReleaseBody(_Body):
+    schema_version: Literal["linemedic.v4"]
+    run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+    incident_id: Annotated[str, Field(pattern=r"^INC-[0-9A-F]{12}$")]
+    work_id: Annotated[str, Field(pattern=r"^WORK-[0-9A-F]{12}$")]
+    proposal_id: Annotated[str, Field(pattern=r"^PROP-[0-9A-F]{12}$")]
+    pr_number: Annotated[int, Field(ge=1)]
+    approved_merge_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    expected_incident_version: Annotated[int, Field(ge=0)]
+    expected_current_image_id: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+    approval_note: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class EscalateRequest(_Body):
@@ -750,11 +767,15 @@ async def get_execution(
     def load() -> dict:
         with ctx.store.read() as tx:
             execution = _visible_execution(tx, operator, execution_id)
-        data = {
-            k: execution[k] for k in execution.keys() if k not in ("request_json", "result_json")
-        }
-        data["request"] = _json(execution["request_json"])
-        data["result"] = _json(execution["result_json"])
+            data = {
+                k: execution[k]
+                for k in execution.keys()
+                if k not in ("request_json", "result_json")
+            }
+            data["request"] = _json(execution["request_json"])
+            data["result"] = _json(execution["result_json"])
+            if execution["operation"] == "DEPLOY":  # W12: 검사 → 승인 → 실행 대상 연결
+                data["identity_chain"] = identity_chain(tx, execution_id)
         return data
 
     data = await run_in_threadpool(load)
@@ -823,6 +844,74 @@ async def reconcile_execution(
         key,
         body,
         request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+RELEASES_PATH = "/ops/releases"
+
+
+def _release(
+    ctx: AppContext, operator: OperatorPrincipal, key: str, body: ReleaseBody, rid: str
+) -> tuple[int, dict]:
+    if ctx.release_executor is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    with ctx.store.read() as tx:
+        incident = load_visible_incident(tx, operator, body.incident_id)
+        if incident["run_id"] != body.run_id:
+            raise ApiError("RESOURCE_NOT_FOUND")
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": RELEASES_PATH,
+        "run_id": body.run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    request = ReleaseRequest(
+        run_id=body.run_id,
+        incident_id=body.incident_id,
+        work_id=body.work_id,
+        proposal_id=body.proposal_id,
+        pr_number=body.pr_number,
+        approved_merge_sha=body.approved_merge_sha,
+        expected_incident_version=body.expected_incident_version,
+        expected_current_image_id=body.expected_current_image_id,
+        approval_note=body.approval_note,
+        principal=operator.scope,
+        idempotency_key=key,
+    )
+    try:
+        data = ctx.release_executor.approve(request)  # 외부 조회는 트랜잭션 밖
+    except ReleaseRefused as exc:  # 부작용 없는 거부: 같은 키로 다시 시도할 수 있다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise ApiError(exc.code, exc.details) from None
+    response = success_body(rid, data)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=202, body=response)
+    return 202, response
+
+
+@router.post(RELEASES_PATH)
+async def approve_release(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("approve"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, ReleaseBody)
+    status_code, payload = await run_in_threadpool(
+        _release, context(request), operator, key, body, request_id(request)
     )
     return JSONResponse(status_code=status_code, content=payload)
 

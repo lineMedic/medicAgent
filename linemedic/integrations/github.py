@@ -16,6 +16,8 @@
 - `HttpGitHub`: httpx 동기 client. base URL·API 버전 헤더는 config, credential은 env
   (`GITHUB_BROKER_CREDENTIAL`). API 버전은 N11에서 확정하기 전에는 보내지 않는다.
 - `FakeGitHub`: 메모리 상태·페이지네이션·PR 섞인 Issue 목록·장애 주입(`fail_next`).
+- W12 배포 승인 사전 검사용 조회: PR 리뷰 목록, commit의 tree, branch에 걸린 ruleset 규칙.
+  머지·승인·보호 변경 호출은 없다.
 """
 
 import dataclasses
@@ -46,6 +48,7 @@ MAX_ERROR_MESSAGE_CHARS = 200
 _REPO_PART = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 _OWNER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
+_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SINCE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _NEXT_LINK = re.compile(r'<[^>]*>\s*;\s*rel="next"')
 
@@ -149,6 +152,12 @@ def _branch(value: Any) -> str:
     return value
 
 
+def _sha(value: Any) -> str:
+    if not isinstance(value, str) or not _SHA.fullmatch(value):
+        raise ValueError("commit SHA는 소문자 16진 40자여야 한다")
+    return value
+
+
 def _head_filter(value: Any) -> str:
     owner, sep, branch = value.partition(":") if isinstance(value, str) else ("", "", "")
     if not sep or not _OWNER.fullmatch(owner):
@@ -235,6 +244,12 @@ class GitHubPort(Protocol):
     def get_pull(self, number: int) -> GitHubResponse: ...
 
     def get_branch_head(self, branch: str) -> GitHubResponse: ...
+
+    def list_pull_reviews(self, number: int, *, page: int = 1) -> GitHubResponse: ...
+
+    def get_commit(self, sha: str) -> GitHubResponse: ...
+
+    def get_branch_rules(self, branch: str) -> GitHubResponse: ...
 
     def create_pull(
         self, head: str, base: str, title: str, body: str
@@ -338,6 +353,21 @@ class GitHubBase:
     def get_branch_head(self, branch: str) -> GitHubResponse:
         """브랜치가 가리키는 commit(`object.sha`). 없으면 NotFound(W11)."""
         return self._send("GET", f"{self._repo}/git/ref/heads/{_branch(branch)}")
+
+    def list_pull_reviews(self, number: int, *, page: int = 1) -> GitHubResponse:
+        """PR 리뷰 목록(작성자·상태·리뷰한 `commit_id`). 오래된 것부터(W12)."""
+        path = f"{self._repo}/pulls/{_number(number)}/reviews"
+        params = {"per_page": 100, "page": _bounded_int(page, 1, 10_000, "page")}
+        return self._send("GET", path, params=params)
+
+    def get_commit(self, sha: str) -> GitHubResponse:
+        """git commit 객체(`sha`·`tree.sha`·`parents`). 없으면 NotFound(W12)."""
+        return self._send("GET", f"{self._repo}/git/commits/{_sha(sha)}")
+
+    def get_branch_rules(self, branch: str) -> GitHubResponse:
+        """branch에 적용되는 ruleset 규칙 목록. 기존 branch protection은 들어 있지 않다(W12)."""
+        path = f"{self._repo}/rules/branches/{_branch(branch)}"
+        return self._send("GET", path, params={"per_page": 100})
 
     # 쓰기
 
@@ -576,6 +606,9 @@ class FakeGitHub(GitHubBase):
         self.comments: dict[int, list[dict[str, Any]]] = {}
         self.pulls: dict[int, dict[str, Any]] = {}
         self.branches: dict[str, str] = {}  # branch → commit SHA (push·준비로만 바뀐다)
+        self.reviews: dict[int, list[dict[str, Any]]] = {}  # PR 번호 → 리뷰(오래된 것부터)
+        self.commits: dict[str, dict[str, Any]] = {}  # SHA → git commit 객체(`tree.sha`)
+        self.branch_rules: dict[str, list[dict[str, Any]]] = {}  # branch → ruleset 규칙
         self.requests: list[FakeRequest] = []
         self._failures: list[_Failure] = []
         self._next_number = 1
@@ -717,6 +750,11 @@ class FakeGitHub(GitHubBase):
         rest = request.path[len(prefix) :]
         if request.method == "GET" and rest.startswith("/git/ref/heads/"):
             return self._get_branch_head(rest[len("/git/ref/heads/") :])
+        if request.method == "GET" and rest.startswith("/git/commits/"):
+            return self._get_commit(rest[len("/git/commits/") :])
+        if request.method == "GET" and rest.startswith("/rules/branches/"):
+            branch = rest[len("/rules/branches/") :]
+            return GitHubResponse(200, [dict(rule) for rule in self.branch_rules.get(branch, [])])
         key = (request.method, re.sub(r"/\d+", "/{n}", rest))
         number = int(match.group(1)) if (match := re.search(r"/(\d+)", rest)) else 0
         handlers: dict[tuple[str, str], Callable[[], GitHubResponse]] = {
@@ -731,6 +769,7 @@ class FakeGitHub(GitHubBase):
             ("GET", "/pulls"): lambda: self._list_pulls(request.params),
             ("POST", "/pulls"): lambda: self._create_pull(request.body or {}),
             ("GET", "/pulls/{n}"): lambda: self._get_pull(number),
+            ("GET", "/pulls/{n}/reviews"): lambda: self._list_reviews(number, request.params),
         }
         handler = handlers.get(key)
         if handler is None:
@@ -827,7 +866,7 @@ class FakeGitHub(GitHubBase):
             "base": {"ref": base},
         }
         pull.pop("pull_request")
-        pull["merged"] = False
+        pull.update(merged=False, merge_commit_sha=None)
         self.pulls[issue["number"]] = pull
         return pull
 
@@ -844,6 +883,7 @@ class FakeGitHub(GitHubBase):
             "head": {"ref": body["head"], "label": label, "sha": self.branches[body["head"]]},
             "base": {"ref": body["base"], "sha": self.branches[body["base"]]},
             "merged": False,
+            "merge_commit_sha": None,  # 머지 전 test merge commit은 테스트가 넣는다
         }
         pull.pop("pull_request")
         self.pulls[issue["number"]] = pull
@@ -862,3 +902,50 @@ class FakeGitHub(GitHubBase):
             "object": {"sha": self.branches[branch], "type": "commit"},
         }
         return GitHubResponse(200, ref)
+
+    # W12: 사람 리뷰·머지 흉내(테스트 준비용, 요청 기록에 남지 않는다)
+
+    def add_review(
+        self, number: int, *, reviewer_id: int, state: str = "APPROVED", commit_id: str
+    ) -> dict[str, Any]:
+        review = {
+            "id": self._id(),
+            "user": {"login": f"user{reviewer_id}", "id": reviewer_id, "type": "User"},
+            "state": state,
+            "commit_id": commit_id,
+            "submitted_at": _gh_time(self.clock),
+        }
+        self.reviews.setdefault(number, []).append(review)
+        return review
+
+    def add_commit(self, sha: str, tree: str, parents: Sequence[str] = ()) -> None:
+        self.commits[sha] = {
+            "sha": sha,
+            "tree": {"sha": tree},
+            "parents": [{"sha": parent} for parent in parents],
+        }
+
+    def merge_pull(self, number: int, merge_sha: str, tree: str) -> dict[str, Any]:
+        """사람의 squash 머지: base 브랜치가 merge commit을 가리키고 PR은 merged·closed가 된다."""
+        pull = self.pulls[number]
+        base = pull["base"]["ref"]
+        self.add_commit(merge_sha, tree, [self.branches[base]])
+        self.branches[base] = merge_sha
+        now = _gh_time(self.clock)
+        pull.update(
+            merged=True, merge_commit_sha=merge_sha, state="closed", merged_at=now, closed_at=now
+        )
+        self.issues[number].update(state="closed", closed_at=now, updated_at=now)
+        return pull
+
+    def _list_reviews(self, number: int, params: Mapping[str, Any]) -> GitHubResponse:
+        if number not in self.pulls:
+            raise NotFound(404, "Not Found")
+        reviews, page = self.reviews.get(number, []), params["page"]
+        chunk = reviews[(page - 1) * 100 : page * 100]
+        return GitHubResponse(200, chunk, has_next=page * 100 < len(reviews))
+
+    def _get_commit(self, sha: str) -> GitHubResponse:
+        if sha not in self.commits:
+            raise NotFound(404, "Not Found")
+        return GitHubResponse(200, self.commits[sha])

@@ -37,7 +37,8 @@ linemedic/
 ├── integrations/
 │   ├── docker.py                  # [W05] DockerPort, CliDocker, FakeDocker (D47)
 │   ├── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
-│   └── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
+│   ├── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
+│   └── git_fetch.py               # [W12] 승인한 merge commit 하나만 신뢰 mirror로 fetch(GitFetcher)
 ├── control_plane/
 │   ├── app.py                     # [W06] FastAPI app factory, 라우터 등록, body 파서
 │   ├── auth.py                    # [W06] token → principal(agent/operator), scope 검사
@@ -79,7 +80,7 @@ linemedic/
 │   │   ├── search.py              # [W27] exact + FTS5/fallback, 필터 후 top_k
 │   │   ├── snapshot.py            # [W27] 불변 manifest
 │   │   └── projection.py          # [W27] history evidence projection
-│   ├── release.py                 # [W12] exact SHA 릴리스
+│   ├── release.py                 # [W12] exact SHA 승인 배포: 사전 검사 1~7·INTENDED·lock, 재검사·빌드·기동·inspect, 검증 연결, DEPLOY 조정·재시작
 │   ├── observer.py                # [W05] 로그 스트림 연속성·container/image 불변 관찰
 │   └── verifier.py                # [W05] 업무 계약 판정
 ├── agent/                         # 제품 runtime 에이전트 쪽 (개발 지침을 넣지 않는다)
@@ -131,6 +132,7 @@ linemedic/
     ├── helpers/demo_states.py     # [W05] 테스트·demo 전용 상태 준비 helper (운영 API 아님)
     ├── helpers/runner.py          # [W10] docker 옵션→inspect 흉내, 로컬 pytest runner (테스트 전용)
     ├── helpers/pr_world.py        # [W11] 제안→게이트→봇 PR·조정 시험 world (테스트 전용)
+    ├── helpers/release_world.py   # [W12] 사람 리뷰·squash 머지 흉내·가짜 MES로 배포·검증 시험 world (테스트 전용)
     └── fixtures/                  # [W10] 테스트용 patch·junit XML (에이전트 workspace에 넣지 않음)
 ```
 
