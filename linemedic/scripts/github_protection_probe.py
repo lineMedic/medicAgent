@@ -4,6 +4,8 @@
 G10(쓰기 활성화)과 사용자의 명시적 허락을 받은 뒤에만 `--confirm-write`로 실행한다.
 
 시험 순서
+0. setup·봇 credential로 repo를 조회해 숫자 ID가 `GITHUB_REPOSITORY_ID`와 같은지 확인한다.
+   다르거나 조회하지 못하면 아무것도 쓰지 않고 끝낸다(전용 데모 repo 밖 쓰기 방지).
 1. setup credential로 main에서 `baseline/r-probe-<UTC>` 브랜치를 만든다.
 2. 봇 credential로 그 브랜치에 파일을 직접 쓴다 → 거절돼야 한다.
 3. 봇 credential로 `probe/r-probe-<UTC>` 브랜치와 변경 커밋을 만들고
@@ -40,6 +42,7 @@ from linemedic.scripts.github_setup_check import (
     REQUIRED_ENV,
     CheckResult,
     GitHubReader,
+    check_repository,
     missing_env,
 )
 
@@ -69,6 +72,11 @@ def probe_names(clock: Clock) -> dict[str, str]:
 
 def plan(names: dict[str, str]) -> list[dict[str, str]]:
     return [
+        {
+            "step": "0",
+            "credential": "GITHUB_SETUP_CREDENTIAL, GITHUB_BROKER_CREDENTIAL",
+            "action": "repo 조회 → 숫자 ID가 GITHUB_REPOSITORY_ID와 다르면 쓰지 않고 FAIL",
+        },
         {
             "step": "1",
             "credential": "GITHUB_SETUP_CREDENTIAL",
@@ -132,6 +140,7 @@ def run_probe(
         "schema_version": "linemedic.v4",
         "started_at": to_rfc3339(clock.utc_now()),
         "repository": env.get("GITHUB_REPOSITORY") or None,
+        "repository_id": env.get("GITHUB_REPOSITORY_ID") or None,
         "names": names,
         "created": {},
         "checks": [],
@@ -142,9 +151,11 @@ def run_probe(
     if missing:
         record.update(verdict="NOT_CONFIGURED", reason="필수 env 미설정", missing_env=missing)
         return record
-    full = env["GITHUB_REPOSITORY"]
-    if not REPO_FULL_NAME_RE.fullmatch(full):
-        record.update(verdict="FAIL", reason="GITHUB_REPOSITORY 형식 오류")
+    full, raw_id = env["GITHUB_REPOSITORY"], env["GITHUB_REPOSITORY_ID"]
+    if not REPO_FULL_NAME_RE.fullmatch(full) or not raw_id.isdigit():
+        record.update(
+            verdict="FAIL", reason="GITHUB_REPOSITORY 또는 GITHUB_REPOSITORY_ID 형식 오류"
+        )
         return record
     bot, setup = env["GITHUB_BROKER_CREDENTIAL"], env["GITHUB_SETUP_CREDENTIAL"]
     base = f"/repos/{full}"
@@ -154,6 +165,14 @@ def run_probe(
     github = GitHubReader(client, api_version)
     checks: list[CheckResult] = []
     try:
+        # 첫 쓰기 전에 이름이 가리키는 repo가 등록된 숫자 ID의 repo인지 두 credential로 확인한다
+        for label, token in (("setup", setup), ("bot", bot)):
+            status, body = github.get(base, token)
+            _expect(status, {200}, f"repo 조회 ({label})")
+            identity = check_repository(body, int(raw_id), full)
+            if identity.status != "PASS":
+                raise ProbeError(identity.status, f"{identity.detail} ({label}) — 쓰지 않았다")
+
         status, body = github.get(f"{base}/git/ref/heads/main", setup)
         _expect(status, {200}, "main ref 조회")
         sha = (body or {}).get("object", {}).get("sha")

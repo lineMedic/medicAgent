@@ -10,6 +10,7 @@ import pytest
 
 from linemedic.common.canonical_json import (
     MAX_JSON_BYTES,
+    MAX_JSON_DEPTH,
     StrictJSONError,
     canonical_dumps,
     loads_strict,
@@ -371,11 +372,31 @@ def test_host_manifest_uses_null_for_missing_tools_and_no_env_dump():
 
 
 def test_loads_strict_rejects_deeply_nested_json_as_strict_error():
-    """아주 깊은 중첩은 RecursionError가 아니라 StrictJSONError로 거부한다(검증에서 발견)."""
+    """아주 깊은 중첩은 인터프리터와 무관하게 StrictJSONError로 거부한다.
+
+    Python 3.14의 json은 이 입력을 RecursionError 없이 파싱하므로 깊이 상한으로 막는다.
+    """
     deep = b"[" * 60_000 + b"]" * 60_000
     assert len(deep) <= 131072
-    with pytest.raises(StrictJSONError):
+    with pytest.raises(StrictJSONError, match="depth"):
         loads_strict(deep)
+
+
+def test_loads_strict_depth_limit_boundary():
+    at_limit = b'{"a":[' * (MAX_JSON_DEPTH // 2) + b"1" + b"]}" * (MAX_JSON_DEPTH // 2)
+    assert isinstance(loads_strict(at_limit), dict)
+    over = MAX_JSON_DEPTH + 1
+    with pytest.raises(StrictJSONError, match="depth"):
+        loads_strict(b"[" * over + b"]" * over)
+    with pytest.raises(StrictJSONError, match="depth"):
+        loads_strict(b'{"a":' * over + b"1" + b"}" * over)
+
+
+def test_loads_strict_depth_ignores_brackets_inside_strings():
+    brackets = "[{" * 100
+    assert loads_strict(json.dumps({"s": brackets}).encode()) == {"s": brackets}
+    escaped = '\\"' + "[" * 100  # 이스케이프된 따옴표 뒤의 괄호도 문자열 안이다
+    assert loads_strict(json.dumps([escaped]).encode()) == [escaped]
 
 
 @pytest.mark.parametrize(

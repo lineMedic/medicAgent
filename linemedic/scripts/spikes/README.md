@@ -33,7 +33,7 @@ V4-CP0에서 runtime을 **하나** 고르기 위한 실측 절차다. 원본: [t
     --output evidence/spikes/N01-model-tool-call.json
 ```
 
-- 스크립트는 가짜 `get_incident` 도구 1개로 tool call → 결과 재입력 → 구조화 제안까지 확인하고, 모델 ID·request ID·지연·token(없으면 null)을 JSON으로 남긴다.
+- 스크립트는 가짜 `get_incident` 도구 1개로 tool call → 결과 재입력 → 구조화 제안까지 확인하고, 요청한 모델 ID와 응답 본문의 모델(`response_model`)·request ID·지연·token(없으면 null)을 JSON으로 남긴다. 실패한 호출도 상태 코드·request ID·오류 본문(앞 500자)을 `calls`에 남긴다.
 - 종료 코드: PASS 0, FAIL·INCONCLUSIVE 1, 필수 env 없음 2(`NOT_CONFIGURED`).
 - 통과 증거: tool → 결과 재입력 → 제안 성공 1회. 결과 JSON과 함께 `evidence/spikes/N01-model-tool-call.md`를 위 양식으로 쓴다.
 - 미달 시: 접근 가능한 다른 Nemotron 후보로 **한 번** 교체하고 변경을 기록한다. `NVIDIA_MODEL_ID`는 N01에서 실제 확인한 값으로만 확정한다.
