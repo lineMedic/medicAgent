@@ -26,6 +26,7 @@ from linemedic.control_plane import main as control_main
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.log_store import FileLogStore
+from linemedic.control_plane.memory import snapshot as memory_snapshot
 from linemedic.control_plane.observer import ObserverError
 from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.control_plane.store import Store, StoreError
@@ -203,6 +204,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stop_parser.add_argument("--run-id", required=True)
     stop_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+
+    rebuild_parser = sub.add_parser(
+        "rebuild-case-index",
+        help="PUBLISHED 사례 노트로 검색 색인을 다시 만든다 (W27, Control API, outcome 불변)",
+    )
+    rebuild_parser.add_argument("--run-id", help="생략하면 제어 DB의 활성 run")
+    rebuild_parser.add_argument("--db", type=Path, help="활성 run을 읽을 제어 DB 경로")
+    rebuild_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    rebuild_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    snapshot_parser = sub.add_parser(
+        "memory-snapshot",
+        help="memory_assisted 평가용 사례 snapshot manifest를 만든다 (W27, 덮어쓰지 않음)",
+    )
+    snapshot_parser.add_argument("--run-id", required=True, help="이 snapshot을 쓸 평가 run")
+    snapshot_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+    snapshot_parser.add_argument("--cutoff", help="이 시각(UTC RFC3339) 이전 기록만. 생략하면 지금")
+    snapshot_parser.add_argument(
+        "--output-dir", type=Path, default=memory_snapshot.SNAPSHOT_DIR, help="manifest 폴더"
+    )
+    snapshot_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    snapshot_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
     run_parser = sub.add_parser(
         "run-new", help="제어 DB migration 후 새 run을 활성으로 기록 (W06: DB 부분, W19에서 완성)"
@@ -655,6 +677,83 @@ def _detect_once(args: argparse.Namespace) -> int:
     return 0
 
 
+def _active_run_id(db_path: Path) -> str | None:
+    if not db_path.is_file():
+        return None
+    with Store(db_path, SystemClock()).read() as tx:
+        row = runs.active_run(tx)
+    return row["id"] if row is not None else None
+
+
+def _rebuild_case_index(
+    args: argparse.Namespace, transport: httpx.BaseTransport | None = None
+) -> int:
+    """`POST /ops/cases/rebuild-index`(역할 maintenance). run을 생략하면 제어 DB의 활성 run."""
+    target = _ops_target(args, "rebuild-case-index")
+    if target is None:
+        return 2
+    base_url, headers = target
+    run_id = args.run_id or _active_run_id(
+        args.db or runs.default_db_path(process_env(args.env_file))
+    )
+    if run_id is None:
+        print("rebuild-case-index 실패: 활성 run이 없다(먼저 make run-new)", file=sys.stderr)
+        return 2
+    stamp = SystemClock().utc_now().strftime("%Y%m%dT%H%M%S")
+    try:
+        with httpx.Client(base_url=base_url, timeout=60.0, transport=transport) as client:
+            response = client.post(
+                "/ops/cases/rebuild-index",
+                json={"schema_version": "linemedic.v4", "run_id": run_id},
+                headers={**headers, "Idempotency-Key": f"rebuild-case-index:{run_id}:{stamp}"},
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"rebuild-case-index 실패: Control API에 연결하지 못했다({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return 2
+    return _print_response(response)
+
+
+def _memory_snapshot(args: argparse.Namespace) -> int:
+    """제어 DB의 사례 노트로 manifest를 만들어 쓰고, 대상 run의 감사 기록에 남긴다."""
+    env = process_env(args.env_file)
+    db_path = args.db or runs.default_db_path(env)
+    if not db_path.is_file():
+        print(f"memory-snapshot 실패: 제어 DB가 없다: {db_path}", file=sys.stderr)
+        return 2
+    try:
+        settings = load_settings(args.config, env)
+        store = Store(db_path, SystemClock())
+        store.migrate()
+        with store.tx() as tx:
+            if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (args.run_id,)) is None:
+                print(f"memory-snapshot 실패: 없는 run이다: {args.run_id}", file=sys.stderr)
+                return 2
+            snapshot = memory_snapshot.build_snapshot(
+                tx,
+                run_id=args.run_id,
+                cutoff=args.cutoff,
+                repository_id=settings.config.repository.id,
+                terms=eval_identifiers(),
+            )
+            path = memory_snapshot.write_snapshot(snapshot, args.output_dir)
+            memory_snapshot.record_snapshot(tx, snapshot, path)
+    except (ConfigError, StoreError, memory_snapshot.SnapshotError) as exc:
+        print(f"memory-snapshot 실패: {exc}", file=sys.stderr)
+        return 2
+    counts = snapshot.manifest["counts"]
+    print(
+        json.dumps(
+            {"snapshot_id": snapshot.snapshot_id, "path": str(path), **counts},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "version":
@@ -705,6 +804,10 @@ def main(argv: list[str] | None = None) -> int:
         return _start(args)
     if args.command == "stop":
         return _stop(args)
+    if args.command == "rebuild-case-index":
+        return _rebuild_case_index(args)
+    if args.command == "memory-snapshot":
+        return _memory_snapshot(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

@@ -84,9 +84,11 @@ W12 배포: `integration/test_release_checks.py`가 사전 검사 거부(T-SOURC
 
 W13 통합: `integration/test_e2e_fake.py`가 `make start`와 같은 조립(`build_control_plane`)으로 S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안(ScriptedAdapter) → 게이트 → 봇 PR → (사람) 머지 → (사람) 배포 승인 → verifier PASS → 결과 댓글을 돌고, receipt < attempt 시작·결합 전이 표 일치·origin manual_integration을 확인한다. `integration/test_attempts.py`는 attempt 실행(workspace·context·token·결과별 종료·deadline·재시작), `integration/test_control_plane.py`는 조립·기동 복구·pid 파일과 실제 `start`·`stop` 프로세스를 본다.
 
+W27 사례 기억: `integration/test_case_memory.py`가 실제 SQLite(FTS5)로 T-MEM-01~05를 본다. 원본 event 행만 도우미로 넣고 노트·색인·snapshot·검색·projection·`case_retrievals`는 제품 코드로 만든다. 그 밖에 FTS 연산자 문자열(`"`·`*`·`NEAR`·`OR`)이 연산자로 해석되지 않음, FTS5 없는 SQLite의 keyword_fallback, 색인 손상·부재 → UNAVAILABLE → 재구축, snapshot 무결성·덮어쓰기 금지·cutoff 시각 비교, 도구·ops·CLI를 확인한다. N13(한국어·오류 토큰)은 `LINEMEDIC_RECORD_EVIDENCE=1 make test`로 `evidence/N13-case-search.md`에 남긴다(품질 주장 없음). fake E2E는 PR 준비(UNVERIFIED) → 업무 검증(VERIFIED_SUCCESS) revision과 origin manual_integration도 확인한다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
-PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27), `PRAGMA foreign_key_check` 빈 결과.
+PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.
 
 DDL이 강제하지 못하는 것(cross-row 도메인 검사, 권한, start receipt와 generation 결합, 409 응답, reconcile)은 위 §2·§3 테스트로 확인한다.
 

@@ -1,7 +1,8 @@
 """에이전트 도구 `/tools/*` (W07: get_incident·search_logs·get_deploys, spec 03 §2).
 
 W08: query_equipment_metrics·get_knowledge. W09: submit_proposal·get_proposal.
-나머지는 W27·W28(search_cases·get_bound_issue)에서 더한다.
+W27: search_cases(고정 snapshot 안의 과거 사례, history projection evidence로 인용).
+나머지는 W28(get_bound_issue)에서 더한다.
 
 - agent token의 run·incident·attempt·work가 지금 사건과 맞고 work가 RUNNING일 때만 답한다.
   아니면 없는 사건과 같은 404다(T-AUTH-02).
@@ -12,6 +13,7 @@ W08: query_equipment_metrics·get_knowledge. W09: submit_proposal·get_proposal.
 """
 
 import json
+import sqlite3
 from datetime import timedelta
 from typing import Annotated, Any
 
@@ -277,6 +279,40 @@ async def get_knowledge(
     reject_unknown_query(request, frozenset({"q"}))
     data = await run_in_threadpool(_knowledge, context(request), _agent(request), incident_id, q)
     return JSONResponse(content=success_body(request_id(request), data))
+
+
+def _search_cases(
+    ctx: AppContext, agent: AgentPrincipal, incident_id: str, q: str | None, limit: int
+) -> tuple[dict, list[str]]:
+    """W27: memory mode·snapshot 안에서 사례를 찾고 결과마다 현재 incident에 projection을 만든다."""
+    if ctx.case_search is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    try:
+        result = ctx.case_search.search(
+            run_id=agent.run_id,
+            incident_id=incident_id,
+            work_id=agent.work_id,
+            q=q,
+            limit=limit,
+            authorize=lambda tx: load_visible_incident(tx, agent, incident_id),
+        )
+    except sqlite3.Error:  # 검색 실패를 기록하지도 못했다(DB 자체 오류)
+        raise ApiError("DEPENDENCY_UNAVAILABLE") from None
+    return result.data, result.evidence_ids
+
+
+@router.get("/tools/incidents/{incident_id}/cases/search")
+async def search_cases(
+    incident_id: str,
+    request: Request,
+    q: Annotated[str | None, Query(max_length=LOG_QUERY_MAX_CHARS)] = None,
+    limit: Annotated[int, Query(ge=1, le=5)] = 5,
+) -> JSONResponse:
+    reject_unknown_query(request, frozenset({"q", "limit"}))
+    data, evidence_ids = await run_in_threadpool(
+        _search_cases, context(request), _agent(request), incident_id, q, limit
+    )
+    return JSONResponse(content=success_body(request_id(request), data, evidence_ids))
 
 
 @router.post(intake.PROPOSALS_PATH)

@@ -132,10 +132,10 @@ def test_migration_applied_by_another_process_is_skipped(tmp_path, fake_clock, m
         reads["count"] += 1
         return set() if reads["count"] == 1 else real(conn)  # 첫 읽기는 먼저 적용되기 전 값
 
-    assert migrate(first, fake_clock) == [1]
+    assert migrate(first, fake_clock) == [1, 2]
     monkeypatch.setattr(store_module, "applied_versions", stale_before_transaction)
     assert migrate(second, fake_clock) == []
-    assert second.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+    assert second.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
     first.close()
     second.close()
 

@@ -22,11 +22,15 @@
 - POST `/ops/releases`: 사람이 PR·최종 merge SHA·지금 MES image를 명시한 배포 승인
   (역할 `approve`, W12). 사전 검사 1~7을 통과하면 DEPLOY INTENDED를 기록하고 202를 돌려준다.
   배포·검증은 백그라운드로 진행하고 `GET /ops/executions/{id}`로 본다. 거부는 상태·외부 변경 없음
+- POST `/ops/cases/rebuild-index`: PUBLISHED 노트 revision 전부로 사례 검색 색인을 다시 만든다
+  (역할 `maintenance`, W27). 노트·outcome은 바꾸지 않는다. body의 run_id는 활성 run이어야 한다
+- GET `/ops/cases/{note_id}`: 노트 revision·series·source·검증 수준 (역할 `read`, W27)
 
 force-resolve·임의 상태 PATCH는 만들지 않는다.
 """
 
 import json
+import re
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -35,7 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from linemedic.common.ids import is_valid_entity_id
-from linemedic.control_plane import idempotency, supervisor
+from linemedic.control_plane import audit, idempotency, supervisor
 from linemedic.control_plane.app import (
     AppContext,
     context,
@@ -49,6 +53,7 @@ from linemedic.control_plane.auth import OperatorPrincipal, load_visible_inciden
 from linemedic.control_plane.codes import RUN_ID_PATTERN, BlockerCode
 from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
+from linemedic.control_plane.memory import builder as case_builder
 from linemedic.control_plane.notifications import outbox, templates
 from linemedic.control_plane.release import ReleaseRefused, ReleaseRequest, identity_chain
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
@@ -112,6 +117,11 @@ class ReleaseBody(_Body):
     expected_incident_version: Annotated[int, Field(ge=0)]
     expected_current_image_id: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
     approval_note: Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class CaseIndexRebuildRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
 
 
 class EscalateRequest(_Body):
@@ -935,3 +945,91 @@ async def reconcile_notification(
         request_id(request),
     )
     return JSONResponse(status_code=status_code, content=payload)
+
+
+# ── 사례 기억 (W27) ─────────────────────────────────────────────
+
+CASE_REBUILD_PATH = "/ops/cases/rebuild-index"
+NOTE_ID_RE = re.compile(r"^CASE-[0-9A-F]{12}-R[1-9][0-9]{0,5}$")
+
+
+def _rebuild_case_index(
+    ctx: AppContext, operator: OperatorPrincipal, key: str, body: CaseIndexRebuildRequest, rid: str
+) -> tuple[int, dict]:
+    """색인은 파생물이다. DB 안에서만 다시 만들고 멱등 기록과 같은 트랜잭션에 쓴다."""
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": CASE_REBUILD_PATH,
+        "run_id": body.run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        if tx.one("SELECT 1 FROM demo_runs WHERE id = ? AND active = 1", (body.run_id,)) is None:
+            raise ApiError("STATE_CONFLICT", {"reason": "run_not_active"})
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+        if started.outcome is Outcome.REPLAY:
+            assert started.response is not None
+            return started.response["status_code"], started.response["body"]
+        if started.outcome is Outcome.CONFLICT:
+            raise ApiError("IDEMPOTENCY_CONFLICT")
+        if started.outcome is Outcome.IN_FLIGHT:
+            raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+        result = case_builder.rebuild_index(tx)
+        audit.append(
+            tx,
+            body.run_id,
+            None,
+            Actor.OPERATOR,
+            "CASE_INDEX_REBUILT",
+            {**result, "requested_by": operator.scope},
+        )
+        response = success_body(rid, result)
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post(CASE_REBUILD_PATH)
+async def rebuild_case_index(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("maintenance"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, CaseIndexRebuildRequest)
+    status_code, payload = await run_in_threadpool(
+        _rebuild_case_index, context(request), operator, key, body, request_id(request)
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+def _case_view(ctx: AppContext, operator: OperatorPrincipal, note_id: str) -> dict:
+    if not NOTE_ID_RE.fullmatch(note_id):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    with ctx.store.read() as tx:
+        note = tx.one("SELECT * FROM case_notes WHERE id = ?", (note_id,))
+        if note is None:
+            raise ApiError("RESOURCE_NOT_FOUND")
+        load_visible_incident(tx, operator, note["source_incident_id"])
+        series = tx.all(
+            "SELECT id, revision, outcome, phase, publish_status, observed_at, created_at"
+            " FROM case_notes WHERE series_id = ? ORDER BY revision",
+            (note["series_id"],),
+        )
+    data = {k: note[k] for k in note.keys() if k != "payload_json"}
+    data["payload"] = _json(note["payload_json"])
+    data["series"] = [dict(row) for row in series]
+    data["latest_revision"] = series[-1]["revision"]
+    return data
+
+
+@router.get("/ops/cases/{note_id}")
+async def get_case(
+    note_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+) -> JSONResponse:
+    reject_unknown_query(request)
+    data = await run_in_threadpool(_case_view, context(request), operator, note_id)
+    return JSONResponse(content=success_body(request_id(request), data))

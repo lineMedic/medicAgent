@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -167,3 +167,16 @@ start:
 stop:
 	@test -n "$(RUN_ID)" || { echo "사용법: make stop RUN_ID=<run>"; exit 2; }
 	$(PY) -m linemedic.cli stop --run-id "$(RUN_ID)"
+
+# 사례 검색 색인 재구축 (W27): PUBLISHED 사례 노트 revision 전부로 FTS5 색인을 지우고 다시 만든다.
+# 노트·outcome은 바꾸지 않는다. Control API(make start)와 maintenance 역할 operator token을 쓴다.
+# RUN_ID를 생략하면 제어 DB의 활성 run. FTS5가 없는 SQLite면 keyword_fallback이라고만 답한다.
+rebuild-case-index:
+	$(PY) -m linemedic.cli rebuild-case-index $(if $(RUN_ID),--run-id "$(RUN_ID)",)
+
+# memory snapshot (W27): memory_assisted 평가 run을 시작하기 전에 사례 corpus를 고정한다.
+# series별 cutoff 이전 최신 PUBLISHED revision만 넣고, 이 run의 결과·미래 revision·평가 식별자가 든 노트는 뺀다.
+# linemedic/eval/snapshots/MEM-*.json에 쓰고(덮어쓰지 않음) MEMORY_SNAPSHOT_PATH로 make start에 넘긴다.
+memory-snapshot:
+	@test -n "$(RUN_ID)" || { echo "사용법: make memory-snapshot RUN_ID=<평가 run> [CUTOFF=<UTC RFC3339>]"; exit 2; }
+	$(PY) -m linemedic.cli memory-snapshot --run-id "$(RUN_ID)" $(if $(CUTOFF),--cutoff "$(CUTOFF)",)

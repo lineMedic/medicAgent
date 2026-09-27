@@ -3,7 +3,9 @@
 한 프로세스·한 활성 run에서 Control API(uvicorn)와 루프를 함께 돌린다.
 
 - 루프(thread): MES 로그 감지(W07, 상시), Issue poll(W23), incident → Issue(W24), outbox(W26),
-  supervisor(시작 알림 만료·attempt 실행·만료, W25·W26·W13), broker(W09~W11)
+  supervisor(시작 알림 만료·attempt 실행·만료, W25·W26·W13), broker(W09~W11),
+  case builder(원본 event → 사례 노트, W27)
+- 사례 검색(W27): config `memory.mode`. memory_assisted면 `MEMORY_SNAPSHOT_PATH`의 manifest를 읽는다
 - 기동 복구(자동 재실행 없음): 끝나지 않은 API 요청·SENDING 알림 → UNKNOWN,
   CREATE_ISSUE·CREATE_PR·DEPLOY INTENDED/RUNNING → UNKNOWN, CHECKING 제안 → 다시 검사,
   끊긴 attempt → 이관, RUNNING 검증 → INCONCLUSIVE
@@ -43,6 +45,8 @@ from linemedic.control_plane.issue_router import IssueRouter
 from linemedic.control_plane.issue_sync import IssueSync
 from linemedic.control_plane.knowledge import KnowledgeBase, load_manual_templates
 from linemedic.control_plane.log_store import FileLogStore
+from linemedic.control_plane.memory.builder import CaseBuilder
+from linemedic.control_plane.memory.search import CaseSearch
 from linemedic.control_plane.metrics_store import FileMetricsStore
 from linemedic.control_plane.notifications.github_comment import GitHubCommentAdapter
 from linemedic.control_plane.notifications.worker import OutboxWorker
@@ -50,6 +54,7 @@ from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.control_plane.release import ReleaseExecutor
 from linemedic.control_plane.store import Store
 from linemedic.control_plane.supervisor import AttemptRuntime, Supervisor
+from linemedic.control_plane.verifier import DEFAULT_CONTRACT, load_contract
 from linemedic.factory_sim.scenarios import MES_SERVICE, resource_names
 from linemedic.integrations.docker import DockerError, DockerPort
 from linemedic.integrations.git_fetch import CommitFetcher
@@ -90,6 +95,7 @@ class ControlPlane:
     docker: DockerPort
     container: str
     detector: Detector | None = None
+    cases: CaseBuilder | None = None
     sync: IssueSync | None = None
     router: IssueRouter | None = None
     worker: OutboxWorker | None = None
@@ -144,6 +150,9 @@ class ControlPlane:
     def broker_once(self) -> list[str]:
         return self.broker.process_pending(keep_going=True)
 
+    def cases_once(self) -> list[str]:
+        return self.cases.process_pending() if self.cases else []
+
     def step(self) -> dict[str, Any]:
         """모든 루프를 한 번씩 순서대로 돈다."""
         return {
@@ -153,6 +162,7 @@ class ControlPlane:
             "outbox": self.outbox_once(),
             "supervisor": self.supervise_once(),
             "broker": self.broker_once(),
+            "cases": self.cases_once(),
         }
 
     # thread 루프
@@ -164,6 +174,7 @@ class ControlPlane:
             ("outbox", self.outbox_once, LOOP_INTERVAL_SECONDS),
             ("supervisor", self.supervise_once, LOOP_INTERVAL_SECONDS),
             ("broker", self.broker_once, LOOP_INTERVAL_SECONDS),
+            ("cases", self.cases_once, LOOP_INTERVAL_SECONDS),
         ]
         threads = [_loop(name, body, interval, stop) for name, body, interval in loops]
         if self.sync is not None:
@@ -303,6 +314,17 @@ def build_control_plane(
     reconciler = ExecutionReconciler(
         store, opener=opener, issue_router=router, route_id=route_id, release=release
     )
+    terms = eval_identifiers()
+    contract, contract_sha256 = load_contract(DEFAULT_CONTRACT)
+    case_search = CaseSearch.from_config(
+        store,
+        config.memory,
+        contract_id=contract.contract_id,
+        contract_sha256=contract_sha256,
+        related_services=catalog.related_services,
+        terms=terms,
+    )
+    features["memory"] = case_search.describe()
     tools = config.tools
     context = AppContext(
         store=store,
@@ -325,6 +347,7 @@ def build_control_plane(
         outbox_worker=worker,
         execution_reconciler=reconciler,
         release_executor=release,
+        case_search=case_search,
     )
     return ControlPlane(
         run_id=run_id,
@@ -336,6 +359,7 @@ def build_control_plane(
         docker=docker,
         container=resource_names(run_id)["container"],
         detector=detector,
+        cases=CaseBuilder(store, terms=terms),
         sync=sync,
         router=router,
         worker=worker,

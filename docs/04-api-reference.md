@@ -133,6 +133,13 @@ URL·원격 저장소·이미지 태그는 서버 catalog에서 정한다. princ
 
 - `evidence_id`는 현재 incident에 새로 만든 history projection이다(원본 note ID·hash·source event를 projection에 남김).
 - cold_start이면 `status: "DISABLED"`, `hits: []`. 검색 실패는 `UNAVAILABLE`로, 결과 없음(`NO_HIT`)과 구분한다.
+- 구현(W27, D84)이 더 주는 필드:
+  - hit: `revision`·`origin`·`seed`·`match`(exact·keyword)·`failure_conditions`(assertion·field만, 기대·실제 값 없음)·`limitations`·`observed_at`
+  - data: `query_tokens`(D54로 정규화한 토큰)·`input_set_changed`(snapshot에 있지만 쓸 수 없는 노트 수: 철회·hash 불일치·없음)·`notice`(비신뢰 기록 안내)
+  - `UNAVAILABLE`이면 `reason`: snapshot_missing·snapshot_invalid·index_missing·`db_error:<종류>`
+- `applicability_warning`은 기록의 source·contract가 지금과 같다고 확인될 때만 `null`이다. 다르거나 확인할 수 없으면 무엇이 다른지 적는다.
+- `q`가 없으면 현재 incident의 signature·관찰 증상으로 찾는다. 과거 run의 evidence ID는 hit에 넣지 않는다.
+- `POST /ops/cases/rebuild-index` body는 `{schema_version, run_id}`(활성 run)다. 결과는 `{engine, indexed}`이고 FTS5가 없으면 `keyword_fallback`, 0이다.
 
 ## 6. 계약 테스트 (core)
 

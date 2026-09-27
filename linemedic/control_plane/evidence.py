@@ -13,7 +13,8 @@ from linemedic.common.ids import new_id
 from linemedic.control_plane.redaction import clean_value
 from linemedic.control_plane.store import Tx
 
-KINDS = frozenset({"log_error", "equipment_metric"})  # W27에서 종류를 더한다
+# history_projection(W27): 권한·snapshot을 확인한 과거 사례를 현재 사건이 인용하게 만든 읽기 투영
+KINDS = frozenset({"log_error", "equipment_metric", "history_projection"})
 MAX_STRING_CHARS = 2048
 MAX_PAYLOAD_BYTES = 16384
 MAX_LOG_EVIDENCE_PER_INCIDENT = 20  # 도구 응답·제안 근거 상한(20)과 같게 둔다

@@ -45,12 +45,12 @@ linemedic/
 │   ├── errors.py                  # [W06] 오류 외피·코드·HTTP 매핑
 │   ├── store.py                   # [W06] 연결·BEGIN IMMEDIATE·CAS·bounded SQLITE_BUSY retry
 │   ├── migrations/0001_init.sql   # [W06] spec 04 §5 DDL 원문 + schema_migrations
-│   ├── migrations/0002_case_search_fts5.sql  # [W27] FTS5 (지원 시)
+│   ├── migrations/0002_case_search_fts5.sql  # [W27] FTS5 case_search (없으면 적용 기록만, keyword_fallback)
 │   ├── state.py                   # [W06] incident·work 전이 표, 주체 권한, 결합 전이
 │   ├── idempotency.py             # [W06] api_requests, body hash 409
 │   ├── audit.py                   # [W06] audit_events INSERT, [W19] JSONL export
 │   ├── detector.py                # [W07] 로그 → signature → problem_fingerprint → incident
-│   ├── evidence.py                # [W07] evidence 저장·정제·조회
+│   ├── evidence.py                # [W07] evidence 저장·정제·조회, [W27] history_projection 종류
 │   ├── tools_api.py               # [W07] /tools/* 라우터 (W08·W09·W27·W28에서 도구 추가)
 │   ├── ops_api.py                 # [W06] /ops/* 라우터 (카드별 endpoint 추가)
 │   ├── runs.py                    # [W06] demo_runs, run manifest, [W19] run-new/archive/reset
@@ -77,10 +77,11 @@ linemedic/
 │   │   ├── github_comment.py      # [W26] send/reconcile adapter
 │   │   └── smtp.py                # [W26, G12 선택 시만]
 │   ├── memory/
-│   │   ├── builder.py             # [W27] event → case note
-│   │   ├── search.py              # [W27] exact + FTS5/fallback, 필터 후 top_k
-│   │   ├── snapshot.py            # [W27] 불변 manifest
-│   │   └── projection.py          # [W27] history evidence projection
+│   │   ├── builder.py             # [W27] 원본 event → case note(outcome·revision·정제·색인), 철회·색인 재구축
+│   │   ├── search.py              # [W27] exact + FTS5/fallback, 필터 후 top_k, case_retrievals 기록
+│   │   ├── snapshot.py            # [W27] 불변 manifest(series 최신 PUBLISHED, 내용 hash ID)
+│   │   ├── projection.py          # [W27] history evidence projection
+│   │   └── text.py                # [W27] 검색 텍스트·D54 질의 정규화
 │   ├── release.py                 # [W12] exact SHA 승인 배포: 사전 검사 1~7·INTENDED·lock, 재검사·빌드·기동·inspect, 검증 연결, DEPLOY 조정·재시작
 │   ├── observer.py                # [W05] 로그 스트림 연속성·container/image 불변 관찰
 │   └── verifier.py                # [W05] 업무 계약 판정

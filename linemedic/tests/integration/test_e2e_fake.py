@@ -401,6 +401,27 @@ def test_manual_proposal_goes_through_the_whole_path(e2e):
         ("DEPLOY", "SUCCEEDED"),
     }
 
+    # 사례 기억(W27): PR 준비(UNVERIFIED) → 업무 검증(VERIFIED_SUCCESS)이 같은 series의 revision
+    assert len(plane.cases_once()) == 2 and plane.cases_once() == []
+    notes = [
+        dict(r)
+        for r in e2e.conn.execute(
+            "SELECT id, supersedes_id, outcome, phase, origin, publish_status, source_event_key,"
+            " payload_json FROM case_notes ORDER BY revision"
+        )
+    ]
+    assert [(n["outcome"], n["phase"], n["origin"]) for n in notes] == [
+        ("UNVERIFIED", "review", "manual_integration"),
+        ("VERIFIED_SUCCESS", "verification", "manual_integration"),
+    ]
+    assert notes[1]["supersedes_id"] == notes[0]["id"]
+    assert {n["publish_status"] for n in notes} == {"PUBLISHED"}
+    assert notes[1]["source_event_key"] == f"verification:{verification['id']}:final"
+    success = json.loads(notes[1]["payload_json"])
+    assert success["applicability"]["approved_merge_sha"] == merge_sha
+    assert success["applicability"]["image_id"] == identity["image_id"]
+    assert success["hypothesis_by"] == "사람이 미리 작성한 제안(검증되지 않은 가설)"
+
     # workspace·context: base 파일만, credential 없음
     root = e2e.runs_dir / RUN / "workspaces" / started["attempt_id"]
     assert (root / "repo" / "app" / "defects.py").is_file() and not (
@@ -415,8 +436,10 @@ def test_step_is_quiet_without_incidents_and_features_are_reported(e2e):
     plane = e2e.plane
     assert plane.features["github"].startswith("on") and plane.features["release"] == "on"
     assert plane.features["agent"].startswith("on: scripted")
+    assert plane.features["memory"].startswith("on: cold_start")
     step = plane.step()
     assert step["route"] == [] and step["outbox"] == [] and step["broker"] == []
+    assert step["cases"] == []
     assert step["supervisor"] == {
         "start_notices_expired": [],
         "attempts_closed": [],
