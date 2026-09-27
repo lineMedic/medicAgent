@@ -66,10 +66,11 @@ scenario-s1:
 	@test -n "$(RUN_ID)" || { echo "사용법: make scenario-s1 RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
 	$(PY) -m linemedic.cli scenario-s1 --run-id "$(RUN_ID)"
 
-# S1b 거짓 정상 시험 (W05, trusted harness 전용). S1b 이미지를 만들어 verifier를 돌리고
-# 결과를 runs/<RUN_ID>/verifications/에 저장한다. FAIL/content_mismatch일 때만 종료 코드 0.
+# S1b 거짓 정상 시험 (W05, trusted harness 전용). make run-new가 만든 활성 run에서 S1b 이미지로
+# verifier를 돌리고 제어 DB(verifications·incident ESCALATED)와 runs/<RUN_ID>/verifications/에 기록한다.
+# FAIL/content_mismatch이고 사건이 ESCALATED일 때만 종료 코드 0.
 verify-negative:
-	@test -n "$(RUN_ID)" || { echo "사용법: make verify-negative RUN_ID=r-YYYYMMDD-HHMMSS-xxxx"; exit 2; }
+	@test -n "$(RUN_ID)" || { echo "사용법: make verify-negative RUN_ID=<make run-new가 만든 활성 run>"; exit 2; }
 	$(PY) -m linemedic.cli verify-negative --run-id "$(RUN_ID)" --mes-image "$(MES_IMAGE)"
 
 # 새 run (W06: 제어 DB migration과 demo_runs 활성 전환·manifest 기록. baseline 브랜치 등은 W19).
