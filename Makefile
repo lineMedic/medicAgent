@@ -177,6 +177,8 @@ rebuild-case-index:
 # memory snapshot (W27): memory_assisted 평가 run을 시작하기 전에 사례 corpus를 고정한다.
 # series별 cutoff 이전 최신 PUBLISHED revision만 넣고, 이 run의 결과·미래 revision·평가 식별자가 든 노트는 뺀다.
 # linemedic/eval/snapshots/MEM-*.json에 쓰고(덮어쓰지 않음) MEMORY_SNAPSHOT_PATH로 make start에 넘긴다.
+# G9: 사람이 고른다. LIST=1로 후보만 보고(쓰지 않음), NOTES=<ID,ID> 또는 NOTES_FILE=<파일>로 고른 노트만 넣는다.
+# 사람 제안(manual_integration)·S1b 주입(human_injected_negative) 노트는 고른 경우에만 들어간다.
 memory-snapshot:
-	@test -n "$(RUN_ID)" || { echo "사용법: make memory-snapshot RUN_ID=<평가 run> [CUTOFF=<UTC RFC3339>]"; exit 2; }
-	$(PY) -m linemedic.cli memory-snapshot --run-id "$(RUN_ID)" $(if $(CUTOFF),--cutoff "$(CUTOFF)",)
+	@test -n "$(RUN_ID)" || { echo "사용법: make memory-snapshot RUN_ID=<평가 run> [CUTOFF=<UTC RFC3339>] (LIST=1 | NOTES=<ID,ID> | NOTES_FILE=<파일>)"; exit 2; }
+	$(PY) -m linemedic.cli memory-snapshot --run-id "$(RUN_ID)" $(if $(CUTOFF),--cutoff "$(CUTOFF)",) $(if $(LIST),--list,) $(if $(NOTES),--notes "$(NOTES)",) $(if $(NOTES_FILE),--notes-file "$(NOTES_FILE)",)
