@@ -402,6 +402,19 @@
   - '관련 실패' 기준(질의 토큰 2개 겹침)은 휴리스틱이다. unicode61은 한국어 형태소·조사를 처리하지 않는다
 - 다음 카드: W18 (대시보드, 자율성 A). W14의 A 부분은 팀 판단으로 먼저 고를 수 있다
 
+### W26 조정 CLI 멱등 키 수정 (카드 밖, 2026-09-27T16:45Z)
+
+- 계기: W11 완료 보고의 작업 중 발견 — `make notification-reconcile`의 멱등 키가 알림 ID로 고정돼 INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 돌아왔다. W27 진행 중 main에서 따로 고쳤다
+- 수정:
+  - `linemedic/control_plane/ops_api.py`: `GET /ops/notifications/{id}`(read, 목록과 같은 필드, 형식 오류·없음·범위 밖은 같은 404). 목록과 한 건 조회가 같은 열·정제 함수(`_notification_item`)를 쓴다
+  - `linemedic/cli.py`: 알림을 먼저 읽고 키를 `notification-reconcile:<id>:<updated_at>`로 만든다(W11 `make reconcile`과 같은 방식). 읽기가 200이 아니면 그 응답을 출력하고 조정하지 않는다
+- 실행 (로컬 개발 Mac, mock — live 아님):
+  - Python 3.12.2: `make test` 1391 passed, 18 deselected
+  - `make lint`(ruff check·format --check) PASS, `make api-schema` 변경 없음
+  - 새 테스트 `test_cli_notification_reconcile_retries_after_inconclusive`(첫 조정 댓글 조회 timeout → INCONCLUSIVE → 두 번째 호출이 새 키로 FOUND·ACCEPTED, 댓글 1개 유지)가 수정 전 CLI에서 실패하는 것을 먼저 확인했다. `test_ops_get_notification` 추가
+- 판단: D79 ⑨ 추가, ADR 요약·docs/04 API 표·tasks/W26 만들 파일 갱신(카드는 AGENTS.md 공개 계약 규칙에 따라 후속 커밋으로)
+- 남은 일: 없음. W26 상태(live G2·G10 대기)는 바꾸지 않는다
+
 ### W13 중단 보고 — live 부분 G2·G7·G8·G10 대기 (2026-09-27T15:54Z)
 
 - 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10). FakeGitHub·FakeDocker·로컬 git 원격과 실제 SQLite·git로 전체 경로를 한 번 통과했고, GitHub에는 읽지도 쓰지도 않았다
@@ -540,7 +553,7 @@
   - live(G2·G10): 전용 repo 봇 PR 1개, head SHA = candidate SHA, 리뷰어가 봇이 아님: NOT_RUN (G2·G10, 시드 push·baseline 브랜치 필요)
 - 판단: D81(역할·트랜잭션 경계, 생성 직전 재조회와 멈춤 blocker, 재사용 기준, push 분류·credential 전달, 결과별 전이·side effect, 본문 템플릿·closing keyword, 조정 규칙, 실행 조회·조정 API·CLI 키)
 - 증거: 커밋은 이 보고를 포함한 W11 커밋. live PR 기록은 실제 실행 전이라 없다
-- 작업 중 발견(W26 범위, 고치지 않음): `make notification-reconcile`은 멱등 키가 알림 ID로 고정돼, INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 돌아온다. W11 `make reconcile`은 갱신 시각을 키에 넣어 이 문제를 피했다. W26은 소유 브랜치에서 고치는 것을 제안한다
+- 작업 중 발견(W26 범위, 고치지 않음): `make notification-reconcile`은 멱등 키가 알림 ID로 고정돼, INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 돌아온다. W11 `make reconcile`은 갱신 시각을 키에 넣어 이 문제를 피했다. W26은 소유 브랜치에서 고치는 것을 제안한다 → 2026-09-27T16:45Z 수정(위 "W26 조정 CLI 멱등 키 수정")
 - 남은 일·위험:
   - live 봇 PR은 시드 push(W03)와 run별 `baseline/<run>` 브랜치(W19·W13)가 있어야 한다. W13 실제 run에서 PR 번호·head SHA·리뷰어를 기록한다
   - push 전송 오류는 모두 UNKNOWN으로 봐 운영자 조정이 늘 수 있다(D81 대가). 브랜치만 남은 경우는 사람이 정리한다
