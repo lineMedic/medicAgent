@@ -44,7 +44,7 @@
 | 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
 | 25 | W16 | LIVE_VERIFIED | UNIT_TESTED (fake host 경로. sandbox 안 실제 에이전트 3회: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G10) | `make test` → 1687 passed(W16 테스트 3개: S2-lite fake E2E 2(기본·recent-deploy), 코드 경로 없는 서비스의 create_pr 거절 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 4개 모두 잡힘. GitHub·모델 호출 없음 | BLOCKED_ON_HUMAN: W15의 G5 준비와 W14 runtime(G3·G4) 뒤, G2·G10 + 사용자 허락(데모 repo Issue·댓글) / 확인: 기본 2회·recent-deploy 1회를 각자 새 run(`make run-new` → `make scenario-s2-lite RUN_ID= [RECENT_DEPLOY=1]`)으로 → run-record에 도구 호출·제안 category·action·초안 필드, 코드·배포 칸 N/A | 2026-09-28T00:57Z |
 | 26 | W28 | LIVE_VERIFIED | UNIT_TESTED (fake 부분. 실제 모델 문맥(N14)·S5-new·S7 live: BLOCKED_ON_HUMAN G3~G5, 그리고 G2·G10) | `make test` → 1697 passed(W28 테스트 10개: 문맥·초기 검색·정책·도구·증거 범위·T-MEM-06 9, S5-new fake E2E 1, 그리고 S1 fake E2E에 초기 검색 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 2개는 테스트를 보강한 뒤 다시 확인). 모델·GitHub 호출 없음 | BLOCKED_ON_HUMAN: G3~G5 — W14 runtime·W15 sandbox 뒤 / G2·G10 + 사용자 허락 — 데모 repo Issue / 확인: S5-new 실제 1회, S7 cold_start 1회 + memory_assisted 1회(같은 모델·예산·base) → N14 evidence(사례 projection이 모델 context와 tool trace에 전달됐는지) | 2026-09-28T01:18Z |
-| 27 | W17 | LIVE_VERIFIED | UNIT_TESTED (S3-B 결정론·S3-C 판정·호스트 대조. S3-A·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3) | `make test` → 1721 passed(W17 테스트 24개: S3-B 표 14, S3-C 판정·sink·호스트 대조·쓰기 프로브·공격 memo·CLI 10), `make test-docker` → 13 passed, `make lint` → PASS, 변이 12개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `evidence/S3-B-broker.md`(14행 PASS) | BLOCKED_ON_HUMAN: G3·G5 — S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행 → IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부 / G5 — OpenShell `SandboxProbe` 구현 뒤 `make security-test RUN_ID=`로 S3-C(호스트 대조·금지·허용·거절 기록) → `runs/<run>/security/` | 2026-09-28T01:32Z |
+| 27 | W17 | LIVE_VERIFIED | UNIT_TESTED (S3-B 결정론·S3-C 판정·호스트 대조. S3-A·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3) | `make test` → 1721 passed(W17 테스트 24개: S3-B 표 14, S3-C 판정·sink·호스트 대조·쓰기 프로브·공격 memo·CLI 10), `make test-docker` → 13 passed, `make lint` → PASS, 변이 12개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `evidence/S3-B-broker.md`(14행 PASS). PR #62 리뷰 반영(S3-C 판정·요청별 본문 대조): `make test` → 1738 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G3·G5 — S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행 → IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부 / G5 — OpenShell `SandboxProbe` 구현 뒤 `make security-test RUN_ID=`로 S3-C(호스트 대조·금지·허용·거절 기록) → `runs/<run>/security/` | 2026-09-28T04:00Z |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
 | 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
@@ -99,6 +99,24 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W17 리뷰 반영 — S3-C 판정과 요청별 도달 대조 (2026-09-28T04:00Z)
+
+- 범위: PR #62 리뷰 [P1] 2건
+  - `judge()`가 금지 요청의 성공 여부를 보지 않아, HTTP 200을 받은 금지 요청도 같은 정책의 다른 거절 기록이 있으면 DENIED_CONFIRMED가 됐다
+  - sink 도달 판단이 같은 기록 파일·같은 canary를 1초 앞까지 찾아, 요청을 보내지 않은 sandbox도 직전 호스트 대조 기록 때문에 ALLOWED_UNEXPECTEDLY가 됐다
+- 변경: `security_probe.py`
+  - 금지 요청이 성공 응답을 받았으면 ALLOWED_UNEXPECTEDLY(`sandbox_request_succeeded`)
+  - 요청마다 본문을 고정 canary + 무작위 nonce로 달리 하고(`request_payload`), sink가 남긴 본문 SHA-256이 그 요청의 hash와 같을 때만 도달로 센다(`sink_received(payload=)`). 결과 파일에 요청별 `payload_sha256`을 남긴다
+  - `SandboxProbe.send_forbidden(url, payload)`: 받은 본문을 그대로 보낸다(G5 구현 계약). mock sink는 바꾸지 않았다
+  - D91·docs/09 문구 갱신
+- 테스트: `unit/test_security_probe.py`
+  - 성공한 금지 요청 판정
+  - 요청을 보내지 않은 sandbox probe로 절차 전체 → DENIED_CONFIRMED(수정 전 FAIL: 호스트 기록을 도달로 셈)
+  - 실제로 보낸 sandbox probe → ALLOWED_UNEXPECTEDLY
+  - 호스트 대조의 요청별 hash 대조
+- 실행: `make test` → 1738 passed, 21 deselected / `make lint` → PASS (로컬 개발 Mac). sandbox·OpenShell 호출 없음
+- 남은 일: 없음(이 지적 범위). S3-A·S3-C sandbox 쪽은 기존대로 G3·G5 대기. 이 수정은 아래 stack(#63~#65)에 병합이 필요하다
 
 ### W17 중단 보고 — S3-B·S3-C 판정 완료, S3-A·sandbox 대조 대기 (2026-09-28T01:32Z)
 
