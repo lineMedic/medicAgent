@@ -24,7 +24,7 @@ host가 원본 이벤트에서 검증 수준별 case note를 만들고(PR-only�
   - 정제(비밀·개인정보·자유 입력 위험 내용) 실패 시 `DRAFT`로 남김. 성공 시 `PUBLISHED` + FTS insert를 **같은 트랜잭션**에서
   - 후속 결과는 같은 series의 새 revision(`supersedes_id`). 잘못된 자료는 `RETRACTED` + 이유(삭제 없음)
   - S1b는 `origin=human_injected_negative`로 저장, agent 성능 cohort와 분리. seed 사례는 `seed=true`
-- `linemedic/control_plane/memory/snapshot.py` — `make memory-snapshot RUN_ID=`: 허용 note ID·revision·content hash·created_at·cutoff·scope·선택 기준·seed 여부를 불변 manifest(`eval/snapshots/MEM-*.json`)로 저장. 현재 run의 결과·미래 revision·holdout은 넣지 않는다
+- `linemedic/control_plane/memory/snapshot.py` — `make memory-snapshot RUN_ID=`: 허용 note ID·revision·content hash·created_at·cutoff·scope·선택 기준·seed 여부를 불변 manifest(`eval/snapshots/MEM-*.json`)로 저장. 현재 run의 결과·미래 revision·holdout은 넣지 않는다. G9: `LIST=1`로 후보만 출력하고 사람이 고른 note ID(`NOTES=`·`NOTES_FILE=`)만 넣는다(사람 제안·S1b 노트는 고른 경우에만, D84 ⑤)
 - `linemedic/control_plane/memory/search.py`
   - mode `cold_start` → `DISABLED`, 결과 없음
   - mode `memory_assisted` → snapshot의 정확한 revision만 대상. ACL·repo·service·publish·snapshot membership 필터를 **top_k 선택 전에** SQL로 적용 → exact `problem_fingerprint` 조회 + FTS5 BM25(질의는 D54 토큰화·따옴표·OR·파라미터 바인딩) → outcome별 후보 병합, 관련 실패/차단 사례가 있으면 최소 1건 포함(무관한 실패를 억지로 넣지 않음) → top_k ≤ 5, snippet ≤ 2,000자 → source/contract가 현재와 다르면 `applicability_warning`
