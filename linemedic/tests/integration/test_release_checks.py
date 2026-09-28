@@ -408,6 +408,21 @@ def test_release_lock_blocks_another_release_in_the_run(world):
     assert len(world.github.requests) == before and world.docker.calls == []  # 조회 전에 거부
 
 
+@pytest.mark.parametrize("command", ["scenario-s1", "scenario-s2-lite"])
+def test_release_lock_blocks_fault_injection(world, tmp_path, monkeypatch, capsys, command):
+    """배포·검증 중에는 장애 주입을 하지 않는다(spec 08 §2, PR #57 리뷰에서 W13으로 넘긴 항목)."""
+    with world.store.tx() as tx:
+        release._hold(tx, RUN, "EXE-0000000000EE")
+    injected = []
+    monkeypatch.setattr(cli.scenarios, "inject_s1", lambda *a, **k: injected.append(a))
+    monkeypatch.setattr(cli.scenarios, "inject_s2_lite", lambda *a, **k: injected.append(a))
+    argv = [command, "--run-id", RUN, "--db", str(world.store.path)]
+    assert cli.main([*argv, "--env-file", str(tmp_path / "none.env")]) == 2
+    assert injected == []
+    err = capsys.readouterr().err
+    assert "EXE-0000000000EE" in err and "make reconcile" in err
+
+
 def test_catalog_must_register_the_repository_for_this_service(world):
     world.merge()
     world.executor.catalog = Catalog.from_config(CONFIG)  # 등록 repo 없음(G2 전)
