@@ -241,6 +241,9 @@ class MemoryConfig(_Model):
     snippet_max_chars: PositiveInt
     query_max_tokens: PositiveInt
     snapshot_path: str | None = None
+    # 초기 사례 검색이 UNAVAILABLE일 때(W28, spec 02 §3):
+    # stop이면 attempt를 멈추고, proceed면 UNAVAILABLE을 표시한 채 진행한다
+    on_unavailable: Literal["proceed", "stop"] = "stop"
 
 
 class DetectorConfig(_Model):

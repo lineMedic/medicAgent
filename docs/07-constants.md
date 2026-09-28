@@ -113,6 +113,7 @@ Docker 종료 코드 125/126/127은 Docker·호출 실패로 따로 분류한다
 | `memory.top_k` | 최대 5 |
 | `memory.snippet_max_chars` | 2000 |
 | `memory.query_max_tokens` | 16 (D54) |
+| `memory.on_unavailable` | `stop` — 초기 사례 검색 UNAVAILABLE이면 attempt를 시작하지 않는다(LOOKUP_INCOMPLETE). `proceed`는 표시한 채 진행 (D90) |
 | `detector.dedupe` | 같은 fingerprint 60초 안 3회 |
 
 설정 YAML 예시 원문: issue_intake는 [spec 15 §2](../spec/docs/15-issue-intake-workflow.md), notifications는 [spec 16 §1](../spec/docs/16-notifications.md).

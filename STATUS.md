@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W28의 fake 부분(문맥·`get_bound_issue`·초기 검색·T-MEM-06)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60). 다음은 W17의 게이트 없는 부분(S3-B 결정론 시험·공격 memo·mock sink·S3-C 판정)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -43,7 +43,7 @@
 | 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
 | 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
 | 25 | W16 | LIVE_VERIFIED | UNIT_TESTED (fake host 경로. sandbox 안 실제 에이전트 3회: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G10) | `make test` → 1687 passed(W16 테스트 3개: S2-lite fake E2E 2(기본·recent-deploy), 코드 경로 없는 서비스의 create_pr 거절 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 4개 모두 잡힘. GitHub·모델 호출 없음 | BLOCKED_ON_HUMAN: W15의 G5 준비와 W14 runtime(G3·G4) 뒤, G2·G10 + 사용자 허락(데모 repo Issue·댓글) / 확인: 기본 2회·recent-deploy 1회를 각자 새 run(`make run-new` → `make scenario-s2-lite RUN_ID= [RECENT_DEPLOY=1]`)으로 → run-record에 도구 호출·제안 category·action·초안 필드, 코드·배포 칸 N/A | 2026-09-28T00:57Z |
-| 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
+| 26 | W28 | LIVE_VERIFIED | UNIT_TESTED (fake 부분. 실제 모델 문맥(N14)·S5-new·S7 live: BLOCKED_ON_HUMAN G3~G5, 그리고 G2·G10) | `make test` → 1697 passed(W28 테스트 10개: 문맥·초기 검색·정책·도구·증거 범위·T-MEM-06 9, S5-new fake E2E 1, 그리고 S1 fake E2E에 초기 검색 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 2개는 테스트를 보강한 뒤 다시 확인). 모델·GitHub 호출 없음 | BLOCKED_ON_HUMAN: G3~G5 — W14 runtime·W15 sandbox 뒤 / G2·G10 + 사용자 허락 — 데모 repo Issue / 확인: S5-new 실제 1회, S7 cold_start 1회 + memory_assisted 1회(같은 모델·예산·base) → N14 evidence(사례 projection이 모델 context와 tool trace에 전달됐는지) | 2026-09-28T01:18Z |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1632 passed(W19 테스트 26개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T18:11Z |
@@ -99,6 +99,55 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W28 중단 보고 — fake 부분 완료, 실제 모델 문맥·S5-new·S7 live 대기 (2026-09-28T01:18Z)
+
+- 상태: UNIT_TESTED (fake 부분: 문맥 구성·초기 사례 검색·`get_bound_issue`·memory 필드·T-MEM-06·S5-new fake E2E. 실제 모델 문맥(N14)·S5-new·S7 live: BLOCKED_ON_HUMAN G3~G5, 그리고 G2·G10). 모델·GitHub는 부르지 않았다
+- 착수 근거: 선행 W14(목표 상태)는 게이트 대기다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 변경 파일:
+  - `linemedic/control_plane/supervisor.py`: host 초기 사례 검색
+    - 시작 게이트 뒤, workspace를 만들기 전에 host가 한 번 검색한다(`requested_by=supervisor`, 도구 예산 밖)
+    - 결과를 context `memory`와 trace에 넣는다: mode·snapshot·retrieval·상태·note ID·projection evidence ID·비신뢰 표시
+    - UNAVAILABLE이면 `memory.on_unavailable`(stop)에 따라 시작하지 않는다(LOOKUP_INCOMPLETE). proceed면 표시한 채 진행
+  - `linemedic/common/config.py`·`config/linemedic.toml`: `memory.on_unavailable = "stop"`
+  - `linemedic/control_plane/tools_api.py`
+    - `get_incident`에 `memory`(mode·snapshot·host 초기 검색 retrieval·`history_status`)
+    - `get_bound_issue`(새): 묶인 Issue만. repo·번호·상태·snapshot 일치 여부·work, 제목·본문·라벨은 정제한 비신뢰 자료
+  - `linemedic/control_plane/main.py`: `make start` 조립에서 검색기를 attempt runtime에 연결
+  - `linemedic/agent/trace.py`: trace `memory`(N14 준비), `linemedic/agent/prompts/tools.md`: 두 도구 설명
+  - 테스트
+    - `integration/test_agent_context.py`(새, 9): T-MEM-06 포함
+    - `integration/test_e2e_fake.py`: S5-new E2E 1개, S1 E2E에 초기 검색 확인
+    - `tests/helpers/case_world.py`(새): `test_case_memory.py`의 사례 시험 세계를 옮겨 같이 쓴다
+    - `tests/helpers/attempt_world.py`: 사건 필드·config를 받고 자기 Issue를 고른다
+- 실행 (로컬 개발 Mac, fake adapter·FakeGitHub — 데모 호스트 아님):
+  - `make test` → 1697 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - 변이 15개 모두 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다). 처음 살아남은 2개는 테스트를 보강한 뒤 다시 확인했다
+    - 에이전트의 추가 검색을 초기 검색으로 보임
+    - 승인 snapshot 비교를 고정
+  - 잡힌 변이: stop 정책 무시, proceed도 멈춤, 기록자 표시 없음, projection 안 넘김, 비신뢰 표시 없음, memory 고정값, 차단 코드, memory 필드 없음, 링크·멘션 무력화 없음, 예산 밖 조회, trace memory 없음, `make start` 검색기 연결 없음
+- 수용 기준:
+  - 유효한 binding과 ACCEPTED 시작 알림 없이 workspace·패치가 생기지 않는다(INV-12): PASS(W13·W26 시작 게이트, S5-new E2E에서 시작 댓글 receipt 시각 < attempt 시작)
+  - memory_assisted run의 문맥·trace에 사례 note ID(projection evidence ID)가 들어가고 cold_start에는 없다: fake PASS
+    - 제안이 projection을 인용하면 허용, 과거 run 증거는 EVIDENCE_SCOPE_MISMATCH
+    - 실제 모델 제안의 인용: NOT_RUN
+  - 사례 source·contract가 다르면 경고가 문맥에 있고 현재 검사를 그대로 한다: 경고는 W27 검색 결과 그대로 문맥에 들어간다(PASS). 검사 생략 경로 없음
+  - PR-only·권한 차단 사례를 성공/오답으로 해석한 표현이 없다: 사례 outcome 문구는 W27 그대로(T-MEM-01)
+  - 결과 알림 4종이 다른 메시지로 발송·기록된다(FR-24): fake E2E로 PR_READY·RECOVERY_VERIFIED(S1), HANDOFF_DRAFTED(S2-lite), WORK_BLOCKED(S5-new)
+  - T-MEM-06: PASS
+    - 로그 path로 들어온 지시·URL·주소가 과거 사례 요약에 남아도 문맥에는 비신뢰 자료로만 들어가고 URL은 무력화된다
+    - agent token으로 `/ops` 불가, 알림 route·수신자 불변, 알림 본문에 그 텍스트 없음
+- 판단: D90(초기 검색 시점·예산 밖, 문맥 memory 필드, UNAVAILABLE 정책과 차단 코드, get_incident memory, get_bound_issue 반환·정제·예산, trace memory, T-MEM-06 시험 방식)
+- 증거: 커밋은 이 보고를 포함한 W28 커밋(push·PR). N14·S5-new·S7 live 기록은 게이트 전이라 없다
+- 작업 중 발견:
+  - W27 사례 요약에는 과거 제안의 가설이 들어가지 않는다. 주입 경로는 로그 path(사건 endpoint) → 요약이라 T-MEM-06을 그 경로로 시험했다
+  - 사례 본문 속 수신자 주소는 가리지 않는다(비밀 형태가 아니다). 보내지 않는 것은 알림 route가 보장한다
+  - `attempt_world`가 첫 번째 mirror Issue를 골라, 다른 Issue가 먼저 있으면 시작 댓글이 엉뚱한 Issue로 갔다(시험 도우미 결함, 고쳤다)
+- 남은 일·위험:
+  - G3~G5 뒤: 실제 모델로 S5-new 1회, S7 cold_start 1회 + memory_assisted 1회(같은 모델·예산·base)
+  - N14로 사례 projection이 실제 모델 context와 tool trace에 전달됐는지 evidence에 남긴다. 저장만 되고 전달되지 않았으면 "RAG 동작"이라고 쓰지 않는다
+  - 기본 `stop`은 memory 증명이 필요 없는 run도 검색 장애에 멈춘다. run마다 config로 정한다
+- 다음 카드: 맡긴 순서대로 W17의 게이트 없는 부분(S3-B 결정론 시험·공격 memo·mock sink·S3-C 판정)
 
 ### W16 중단 보고 — fake host 경로 완료, sandbox 안 실제 에이전트 대기 (2026-09-28T00:57Z)
 

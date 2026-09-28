@@ -34,12 +34,12 @@
 
 | 도구 | 메서드·경로 | 요청 | 반환·제한 | 카드 |
 |---|---|---|---|---|
-| `get_incident` | GET `/tools/incidents/{incident_id}` | — | 사건·특징·배포 identity·work·Issue ref·시작 알림·memory mode·증거 ID | W07 (W28에서 필드 추가) |
+| `get_incident` | GET `/tools/incidents/{incident_id}` | — | 사건·특징·배포 identity·work·Issue ref·시작 알림·증거 ID, `memory`(mode·snapshot·host 초기 검색 retrieval·`history_status`) | W07 (W28에서 필드 추가) |
 | `search_logs` | GET `/tools/incidents/{incident_id}/logs` | `q` 선택, `limit` 1~20 | 사건 ±30분 정제본, 64 KiB 상한. 정규식·shell 없음 | W07 |
 | `get_deploys` | GET `/tools/incidents/{incident_id}/deploys` | — | 등록 서비스의 최근 24시간 배포, 현재 base SHA | W07 |
 | `get_knowledge` | GET `/tools/incidents/{incident_id}/knowledge` | `q` 선택 | 허용된 정적 매뉴얼·런북 절. 과거 사례 아님. URL fetch 없음 | W08 |
 | `query_equipment_metrics` | GET `/tools/incidents/{incident_id}/equipment/{equipment_id}/metrics` | — | 등록 설비, 최대 30분·60 sample, baseline·품질 | W08 |
-| `get_bound_issue` | GET `/tools/incidents/{incident_id}/issue` | — | 서버가 확정한 repo·Issue·work·snapshot·상태. 임의 repo 검색 아님 | W28 |
+| `get_bound_issue` | GET `/tools/incidents/{incident_id}/issue` | — | 서버가 확정한 repo(ID·이름)·Issue 번호·상태·현재 snapshot과 승인 snapshot 일치 여부·work(ID·generation·상태). 제목·본문·라벨은 정제한 **비신뢰 자료**(비밀·평가 식별자 가림, 링크·멘션 무력화, 본문 4000자). 임의 repo 검색 아님, 도구 예산 계산 | W28 |
 | `search_cases` | GET `/tools/incidents/{incident_id}/cases/search` | `q` 선택, `limit` 1~5 | 현재 scope와 고정 snapshot 안의 사례(§5) | W27·W28 |
 | `submit_proposal` | POST `/tools/proposals` | §3 union | **202 접수**(실행 성공 아님), proposal ID | W09 |
 | `get_proposal` | GET `/tools/proposals/{proposal_id}` | — | 해당 사건 제안의 decision·거절 사유·정제 결과 | W09 |
