@@ -459,21 +459,44 @@ def cancel(
 # ── 시작 알림 게이트 (W26) ─────────────────────────────────────
 
 
-def on_start_notice_accepted(tx: Tx, notification: Any) -> str:
+def start_wait_exceeded(created_at: str | None, now: str, start_wait_seconds: float) -> bool:
+    """시작 알림을 만든 뒤 `start_wait_seconds`가 지났는가(D83 ⑥).
+
+    발송 전(outbox)·receipt 저장·만료 검사가 같은 기준을 쓴다. supervisor 루프가 attempt 실행으로
+    멈춰 있어도 60초 게이트가 지켜지게 한다.
+    """
+    if created_at is None:
+        return True
+    elapsed = (from_rfc3339(now) - from_rfc3339(created_at)).total_seconds()
+    return elapsed > start_wait_seconds
+
+
+def on_start_notice_accepted(tx: Tx, notification: Any, start_wait_seconds: float) -> str:
     """필수 route의 시작 알림 receipt가 저장됐다. 그 work가 아직 알림 대기면 READY로 옮긴다.
 
-    이미 BLOCKED·CANCELLED 등으로 끝난 work는 되살리지 않는다(늦게 온 receipt).
+    - 이미 BLOCKED·CANCELLED 등으로 끝난 work는 되살리지 않는다(늦게 온 receipt)
+    - 대기 시간(`start_wait_seconds`)이 지난 뒤 저장된 receipt도 READY로 올리지 않는다. work는
+      알림 대기에 남고 다음 `expire_start_notices`가 멈춘다(만료 검사가 늦게 돌아도 게이트 유지)
     """
     work = tx.one("SELECT * FROM work_items WHERE id = ?", (notification["work_id"],))
     if work is None or work["start_notification_id"] != notification["id"]:
         return "not_start_notice"
+    late = None
     if work["status"] != "WAITING_NOTIFICATION":
+        late = "work_not_waiting"
+    elif start_wait_exceeded(notification["created_at"], tx.now, start_wait_seconds):
+        late = "start_wait_exceeded"
+    if late is not None:
         _audit(
             tx,
             work,
             Actor.NOTIFIER,
             "LATE_START_RECEIPT",
-            {"notification_id": notification["id"], "work_status": work["status"]},
+            {
+                "notification_id": notification["id"],
+                "work_status": work["status"],
+                "reason": late,
+            },
         )
         return "late"
     transition_work(
@@ -583,6 +606,8 @@ class Supervisor:
         아직 보내지 않은(PENDING) 시작 알림은 같은 트랜잭션에서 `FAILED(expired_before_send)`로
         닫는다. 시작하지 않을 work에 "작업 시작 예정" 댓글이 나중에 달리지 않게 한다.
         SENDING·UNKNOWN은 이미 나갔을 수 있으므로 그대로 두고 조정 결과는 감사만 남긴다.
+        대기 시간이 지난 뒤 저장된 receipt(ACCEPTED인데 work가 아직 알림 대기)도 멈춘다. 제시간
+        receipt는 저장과 같은 트랜잭션에서 READY가 되므로 여기 남은 ACCEPTED는 늦은 것뿐이다(D83 ⑥).
         """
         blocked = []
         now = self.clock.utc_now()
@@ -596,20 +621,16 @@ class Supervisor:
                 (self.run_id, self.run_id),
             )
             for row in rows:
-                if row["notice_status"] == "ACCEPTED":
-                    continue
-                created = row["notice_created_at"]
-                expired = created is None or (now - from_rfc3339(created)).total_seconds() > (
-                    self.start_wait_seconds
+                expired = start_wait_exceeded(
+                    row["notice_created_at"], to_rfc3339(now), self.start_wait_seconds
                 )
                 if not expired and row["notice_status"] != "FAILED":
                     continue
                 work = _work(tx, row["work_id"])
-                reason = (
-                    "시작 알림 실패"
-                    if row["notice_status"] == "FAILED"
-                    else "시작 알림 대기 시간 초과"
-                )
+                reason = {
+                    "FAILED": "시작 알림 실패",
+                    "ACCEPTED": "대기 시간이 지난 뒤 시작 알림 접수",
+                }.get(row["notice_status"] or "", "시작 알림 대기 시간 초과")
                 self._block(
                     tx,
                     work,
