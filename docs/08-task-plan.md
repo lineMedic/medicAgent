@@ -144,7 +144,7 @@ W19 (W06·W11) ─────────────────────�
 | `make notification-reconcile NOTIFICATION_ID=` | W26 |
 | `make reconcile RUN_ID= EXECUTION_ID=` | W11 |
 | `make approve-release RUN_ID= INCIDENT_ID= WORK_ID= PR_NUMBER= MERGE_SHA= EXPECTED_IMAGE_ID=` | W12 |
-| `make rebuild-case-index` · `make memory-snapshot RUN_ID=` | W27 |
+| `make rebuild-case-index` · `make memory-snapshot RUN_ID= (LIST=1 \| NOTES=)` | W27 |
 | `make security-test RUN_ID=` | W17 |
 | `make export-run RUN_ID=` · `make reset RUN_ID=` | W19 |
 | `make evaluate SUITE=` | W20 |

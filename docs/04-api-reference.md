@@ -92,7 +92,7 @@ category ↔ action 대응과 근거 개수 규칙은 [03-domain-model.md §4](0
 | POST `/ops/executions/{id}/reconcile` | operator reconcile | 외부 상태 읽기·기록만. 새 변경 금지(다시 배포하지 않음). body `{schema_version, run_id}`(execution의 run과 같아야 함) | W11·W12 |
 | POST `/ops/incidents/{id}/escalate` | operator | 중단 이유 기록. RESOLVED 전이 없음 | W06 |
 | POST `/ops/runs` | operator demo | 새 run 준비(DB·manifest). body `current_run_id`가 지금 활성 run과 다르면 409. 기준 브랜치는 만들지 않는다(host CLI `make run-new CREATE_BASELINE=1`) | W19 |
-| POST `/ops/runs/{id}/archive` | operator demo | 신규 작업 중단(run 비활성)·미해결 확인·증거 export. 삭제 아님(컨테이너·workspace 정리는 host CLI `make reset`) | W19 |
+| POST `/ops/runs/{id}/archive` | operator demo | 신규 작업 중단(run 비활성)·미해결 확인·증거 export. 삭제 아님(컨테이너·workspace 정리는 host CLI `make reset`). 배포·검증 lock 중이면 409 `release_locked`(아무것도 하지 않음) | W19 |
 
 ### 최소 요청 body
 
