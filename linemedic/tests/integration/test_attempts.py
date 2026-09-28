@@ -17,6 +17,7 @@ import threading
 import pytest
 
 from linemedic.agent.adapter import AttemptResult
+from linemedic.common.ids import new_id
 from linemedic.control_plane import audit, supervisor
 from linemedic.control_plane.attempts import attempt_origin
 from linemedic.control_plane.auth import AgentPrincipal
@@ -375,15 +376,23 @@ def test_no_retry_when_the_server_already_accepted_a_submission(world):
     assert world.incident()["status"] == "VALIDATING"
 
 
-def test_no_retry_after_a_server_recorded_submit_call(world):
-    """사건이 아직 조사 중이어도 이 attempt의 제출 호출 기록이 있으면 다시 부르지 않는다."""
+@pytest.mark.parametrize(
+    ("event_type", "extra"),
+    [
+        ("TOOL_CALL", {"call": 1}),
+        ("TOOL_CALL_REFUSED", {"reason": "tool_budget_exhausted", "budget": 15, "used": 15}),
+    ],
+    ids=["accepted_call", "refused_call"],
+)
+def test_no_retry_after_a_server_recorded_submit_call(world, event_type, extra):
+    """사건이 아직 조사 중이어도 이 attempt의 제출 호출 기록(거절도)이 있으면 다시 부르지 않는다."""
 
     def submit_call_then_timeout(call):
         with world.store.tx() as tx:
             audit.append(
-                tx, RUN, world.incident_id, "agent", "TOOL_CALL",
+                tx, RUN, world.incident_id, "agent", event_type,
                 {"attempt_id": call["ids"][3], "tool": "submit_proposal",
-                 "budget_exempt": False, "call": 1},
+                 "budget_exempt": False, **extra},
             )  # fmt: skip
         return AttemptResult(
             "error", "fake", "manual_integration", detail="model_timeout", retryable=True
@@ -392,6 +401,80 @@ def test_no_retry_after_a_server_recorded_submit_call(world):
     world.adapter.behavior = submit_call_then_timeout
     world.sup.run_ready()
     assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+
+
+def test_no_retry_when_this_attempt_already_has_a_proposal_row(world):
+    """호출 기록이 없어도 이 attempt의 제안 행이 있으면 다시 부르지 않는다(거절돼 조사로 돌아옴)."""
+
+    def rejected_then_timeout(call):
+        run_id, incident_id, work_id, attempt_id = call["ids"]
+        with world.store.tx() as tx:
+            tx.execute(
+                "INSERT INTO proposals (id, run_id, incident_id, work_id, attempt_id,"
+                " idempotency_key, body_sha256, decision, received_at, payload_json, checks_json)"
+                " VALUES (?, ?, ?, ?, ?, 'key-1', ?, 'REJECTED', ?, '{}', '{}')",
+                (new_id("PROP"), run_id, incident_id, work_id, attempt_id, "0" * 64, tx.now),
+            )
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = rejected_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+    # 사건은 같은 attempt로 조사 중이었다(그래서 attempt를 닫았다): 제안 행만으로 막혔다
+    assert world.blocked()["blocker_code"] == "MODEL_UNAVAILABLE"
+
+
+def test_no_retry_when_the_incident_moved_to_another_attempt(world):
+    """사건이 조사 중이어도 다른 attempt로 넘어갔으면 다시 부르지 않는다."""
+
+    def moved_then_timeout(call):
+        with world.store.tx() as tx:
+            tx.execute(
+                "UPDATE incidents SET attempt_id = ? WHERE id = ?",
+                (new_id("ATT"), world.incident_id),
+            )
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = moved_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+    assert world.incident()["status"] == "INVESTIGATING"  # 상태가 아니라 attempt로 막혔다
+
+
+@pytest.mark.parametrize(
+    ("tool", "same_attempt"),
+    [("search_logs", True), ("submit_proposal", False)],
+    ids=["read_call_in_this_attempt", "submit_in_another_attempt"],
+)
+def test_read_calls_and_other_attempts_do_not_block_the_retry(world, tool, same_attempt):
+    """조회 도구 호출이나 다른 attempt의 제출 기록은 '제출 있음'으로 세지 않는다."""
+    results = iter(
+        [
+            AttemptResult(
+                "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+            ),
+            AttemptResult("no_proposal", "fake", "manual_integration", detail="no_evidence"),
+        ]
+    )
+
+    def call_then_timeout(call):
+        attempt_id = call["ids"][3] if same_attempt else new_id("ATT")
+        with world.store.tx() as tx:
+            audit.append(
+                tx, RUN, world.incident_id, "agent", "TOOL_CALL",
+                {"attempt_id": attempt_id, "tool": tool, "budget_exempt": False, "call": 1},
+            )  # fmt: skip
+        return next(results)
+
+    world.adapter.behavior = call_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 2
+    (retry,) = world.audit("ATTEMPT_RETRY")
+    assert retry["detail"] == "model_timeout"
 
 
 def test_attempt_trace_records_identity_tools_and_tokens(world):
