@@ -21,8 +21,8 @@
 - `linemedic/control_plane/notifications/templates.py` — 이벤트 7종 본문(한국어, [spec 16 §7](../spec/docs/16-notifications.md) 문체). 각 본문에 "이 메시지가 뜻하지 않는 것"을 명시(예: PR_READY는 "업무 복구 미확인"). blocker report 렌더러(필드 10개, [docs/03 §5](../docs/03-domain-model.md)) — **모델 없이** host 기록만으로 완성. 링크는 등록 repo의 Issue·PR URL만 서버가 구성, 모델 출력의 URL·`@mention`·수신 주소는 무력화
 - `linemedic/control_plane/supervisor.py` 추가 — 시작 게이트: `WAITING_NOTIFICATION`에서 필수 route ACCEPTED → READY. `start_wait_seconds`(60) 초과 또는 명확한 실패 → BLOCKED(`START_NOTICE_UNCONFIRMED`) + incident ESCALATED + `WORK_BLOCKED` intent. `start_attempt()` 가드에 "start_notification_id가 같은 generation·필수 route·ACCEPTED" 조건을 채운다
 - `linemedic/control_plane/notifications/smtp.py` — **G12에서 SMTP를 고른 경우에만** 같은 send/reconcile 계약으로
-- `ops_api.py` 추가 — `GET /ops/notifications`(수신 주소 비노출), `POST /ops/notifications/{id}/reconcile`
-- CLI·Makefile — `make notification-reconcile NOTIFICATION_ID=`
+- `ops_api.py` 추가 — `GET /ops/notifications`(수신 주소 비노출), `GET /ops/notifications/{id}`(목록과 같은 필드, 없음·범위 밖 같은 404), `POST /ops/notifications/{id}/reconcile`
+- CLI·Makefile — `make notification-reconcile NOTIFICATION_ID=`. 알림을 먼저 읽어 멱등 키를 `notification-reconcile:<id>:<updated_at>`로 만든다(INCONCLUSIVE 뒤 재호출은 새로 조회, D79 ⑨)
 - 테스트: `integration/test_start_gate.py`, `integration/test_notifications.py`, `live/test_notification_live.py`
 
 ## 구현 단계

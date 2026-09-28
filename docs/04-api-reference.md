@@ -84,6 +84,7 @@ category ↔ action 대응과 근거 개수 규칙은 [03-domain-model.md §4](0
 | POST `/ops/work-items/{id}/cancel` | operator | 취소 요청. 외부 결과 불명이면 바로 CANCELLED로 만들지 않음 | W25 |
 | POST `/ops/work-items/{id}/retry` | operator authorize | blocker 해소 확인 → 새 incident·generation, 새 시작 알림 | W25 |
 | GET `/ops/notifications` | operator read | outbox·receipt·실패. 수신 주소 비노출 | W26 |
+| GET `/ops/notifications/{id}` | operator read | 한 알림(목록과 같은 필드). 조정 CLI가 갱신 시각을 멱등 키에 넣으려고 먼저 읽음 | W26 |
 | POST `/ops/notifications/{id}/reconcile` | operator reconcile | provider 기록 읽기·상태 조정. 재발송 금지 | W26 |
 | POST `/ops/cases/rebuild-index` | operator maintenance | PUBLISHED 노트로 index 재구축. outcome 불변 | W27 |
 | GET `/ops/cases/{note_id}` | operator read | revision·source·검증 수준 | W27 |
