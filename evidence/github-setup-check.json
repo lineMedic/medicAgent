@@ -1,7 +1,7 @@
 {
   "check": "github_setup",
   "schema_version": "linemedic.v4",
-  "checked_at": "2026-09-28T08:40:59.489592Z",
+  "checked_at": "2026-09-28T09:04:08.799104Z",
   "repository": "lineMedic/l3-mes-api",
   "repository_id": "1392050186",
   "verdict": "FAIL",
@@ -13,8 +13,8 @@
     },
     {
       "name": "merge_settings",
-      "status": "INCONCLUSIVE",
-      "detail": "머지 설정 필드가 응답에 없음 (관리자 권한 credential로 조회 필요)"
+      "status": "FAIL",
+      "detail": "squash만 허용해야 함 (allow_squash_merge=True, allow_merge_commit=True, allow_rebase_merge=True)"
     },
     {
       "name": "bot_identity",
@@ -34,9 +34,9 @@
   ],
   "observed": {
     "merge_settings": {
-      "allow_squash_merge": null,
-      "allow_merge_commit": null,
-      "allow_rebase_merge": null
+      "allow_squash_merge": true,
+      "allow_merge_commit": true,
+      "allow_rebase_merge": true
     },
     "bot_identity": {
       "kind": "user",

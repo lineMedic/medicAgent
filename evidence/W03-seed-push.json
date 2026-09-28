@@ -1,7 +1,7 @@
 {
   "action": "seed_push",
   "schema_version": "linemedic.v4",
-  "started_at": "2026-09-28T08:41:46.845035Z",
+  "started_at": "2026-09-28T09:03:48.666420Z",
   "repository": "lineMedic/l3-mes-api",
   "repository_id": "1392050186",
   "commit": "19045b62f292dedff24529cab505e6d86a91ed8c",
@@ -9,9 +9,10 @@
   "target": "refs/heads/main",
   "credential": "GITHUB_SETUP_CREDENTIAL",
   "push": {
-    "status": "UNKNOWN",
-    "detail": "git_exit_128: fatal: unable to access 'https://github.com/lineMedic/l3-mes-api.git/': The requested URL returned error: 403"
+    "status": "PUSHED",
+    "detail": "new_branch"
   },
-  "verdict": "INCONCLUSIVE",
-  "reason": "push 결과 불명 — 다시 push하지 않고 원격 main을 조회해 확인한다"
+  "verdict": "PASS",
+  "reason": "원격 main = 시드 커밋 (new_branch)",
+  "baseline_commit": "19045b62f292dedff24529cab505e6d86a91ed8c"
 }
