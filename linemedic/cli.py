@@ -891,15 +891,19 @@ def _reset(args: argparse.Namespace, docker: Any = None) -> int:
     if local is None:
         return 2
     store, runs_dir = local
-    result = runs.reset(
-        store,
-        args.run_id,
-        runs_dir=runs_dir,
-        clock=SystemClock(),
-        principal="operator:host-cli",
-        docker=docker if docker is not None else CliDocker(),
-        terms=eval_identifiers(),
-    )
+    try:
+        result = runs.reset(
+            store,
+            args.run_id,
+            runs_dir=runs_dir,
+            clock=SystemClock(),
+            principal="operator:host-cli",
+            docker=docker if docker is not None else CliDocker(),
+            terms=eval_identifiers(),
+        )
+    except runs.RunError as exc:  # 배포·검증 lock 등: 정지·export·정리를 하지 않았다
+        print(f"reset 실패: {exc}", file=sys.stderr)
+        return 2
     result["unresolved"] = {key: len(items) for key, items in result["unresolved"].items()}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 1 if result["cleanup"] and result["cleanup"]["errors"] else 0

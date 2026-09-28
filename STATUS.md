@@ -46,7 +46,7 @@
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
-| 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1632 passed(W19 테스트 26개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T18:11Z |
+| 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
 | 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
 | 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
 | 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
@@ -99,6 +99,23 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W19 리뷰 반영 (카드 밖, 2026-09-27T21:45Z)
+
+- 계기: PR #57 리뷰(수정 요청). reset이 W12 배포·검증 lock(`release.lock_holder`)을 보지 않았다. 승인 배포 뒤 업무 검증 중에도 이 run의 MES(검증 대상)를 지웠다(spec 08 §2 "reset을 막는 run-level lock" 위반, STATUS에 W19로 넘겨 둔 항목)
+- 변경 파일:
+  - `linemedic/control_plane/runs.py`
+    - `archive()` 첫 트랜잭션에서 lock을 확인한다. 있으면 정지·export·정리 없이 `RunError(code=release_locked, details.holder_execution_id)`
+    - `RunError`에 `code`·`details`를 둔다
+  - `linemedic/control_plane/ops_api.py`: `POST /ops/runs/{id}/archive`는 lock이면 멱등 기록을 abandon하고 409 `STATE_CONFLICT`(`release_locked`)를 준다
+  - `linemedic/cli.py`: `make reset`은 `RunError`를 잡아 exit 2와 `make reconcile` 안내를 낸다
+  - 테스트: `integration/test_reset_archive.py`(+3: reset 거부·lock 해제 뒤 진행, API 409·같은 키 재시도, CLI exit 2)
+  - 기록: DECISIONS D86 ⑨, ADR 요약, docs/04 archive 행, tasks/W19 archive 줄, 이 보고, W19 행
+- 실행 (로컬 개발 Mac, Python 3.14.7, mock):
+  - 새 테스트 3개는 수정 전 코드에서 실패했다(reset 진행·API 200·CLI 0)
+  - fake 전체 → 1635 passed / ruff check·format → PASS
+  - 정리 코드(`cleanup`)는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
+- 남은 일: 장애 주입의 같은 lock 확인은 #53(W13)에 반영했다. 이 브랜치는 옛 #53·#55 head 위에 있어 그 수정 커밋을 병합으로 받아야 한다
 
 ### W13 리뷰 반영 (카드 밖, 2026-09-27T21:15Z)
 

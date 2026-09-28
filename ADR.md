@@ -126,7 +126,7 @@
 | D83 | 사람 제안 통합: adapter 계약(credential 키워드)·ScriptedAdapter, 게이트 뒤 workspace·context·token, adapter thread·deadline 강제·결과별 attempt 종료·만료·재시작 이관, attempt origin(PR 본문·배포 검증), make start 조립(기능별 끄기)·루프·기동 복구·신호·pid 파일·make stop, 시작 알림 60초를 발송 전·receipt 저장·만료 검사에서 시간으로 강제, 배포 lock 중 장애 주입 거부 | 입력 | 유효 (spec 05 §1·§10, spec 11 §4 구체화) |
 | D84 | 사례 기억: 원본 event 5종·키, VERIFIED_SUCCESS 도메인 검사(PASS·관찰·image·contract·DEPLOY·merge SHA), series·revision·정제 실패 DRAFT·철회, FTS5 색인 파생물(재구축 DROP·재생성, 없으면 keyword_fallback), snapshot manifest(series 최신 PUBLISHED·제외 규칙·내용 hash ID·덮어쓰기 없음), 필터 후 top_k·outcome 묶음 병합·관련 실패 포함·UNAVAILABLE 구분·적용 조건 경고, history projection 재사용, search_cases·rebuild-index·case 조회 | 사례 기억·검색 | 유효 (spec 17, spec 04 §5.1·§6 구체화) |
 | D85 | 대시보드: 화면·/ops/dashboard 공용 읽기 모델, 값 출처(run manifest·DB), 미확인/N/A 기준, docs/11 §5 매핑·표 밖 상태 문구·금지 표현 대조, 타임라인 9단계, 알림은 상태만, 127.0.0.1·mode=ro·query_only·GET만·autoescape·script 차단 CSP, INV-01 표시 전용 예외(SELECT 전용 확인) | 보안 | 유효 (spec 13 §1·§2, spec 07 §3, D49 구체화) |
-| D86 | run 수명 주기: manifest identity·memory·baseline, 기준 브랜치(CREATE_BASELINE·G2·G10, repo ID 확인·이동 없음·실패 시 run 없음), 정지=active=0·루프 반복마다 확인, supervisor·broker·outbox run 범위, archive(정지→미해결→export→정리), export(private 원본·shared 정제·run-record·hash), 라벨·정확한 ID·한 경로만 정리(prune 없음), reset은 안내, /ops/runs·archive | 기반 | 유효 (spec 11 §3·§7·§9, spec 04 §9 구체화) |
+| D86 | run 수명 주기: manifest identity·memory·baseline, 기준 브랜치(CREATE_BASELINE·G2·G10, repo ID 확인·이동 없음·실패 시 run 없음), 정지=active=0·루프 반복마다 확인, supervisor·broker·outbox run 범위, archive(정지→미해결→export→정리), export(private 원본·shared 정제·run-record·hash), 라벨·정확한 ID·한 경로만 정리(prune 없음), reset은 안내, /ops/runs·archive, 배포 lock 중 archive·reset 거부 | 기반 | 유효 (spec 11 §3·§7·§9, spec 04 §9 구체화) |
 
 ## 3. 주제별 보기
 
