@@ -21,7 +21,7 @@ from linemedic.common.config import (
     load_settings,
     process_env,
 )
-from linemedic.control_plane import detector, run_export, runs, security_probe
+from linemedic.control_plane import detector, release, run_export, runs, security_probe
 from linemedic.control_plane import main as control_main
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.issue_sync import IssueSync
@@ -304,6 +304,22 @@ def _run_store(db_path: Path, run_id: str) -> Store | None:
     return store if _run_manifest(store, run_id) is not None else None
 
 
+def _release_locked(store: Store | None, run_id: str, command: str) -> bool:
+    """배포·업무 검증 중(W12 run lock)이면 장애를 주입하지 않는다(spec 08 §2, D83 ⑥)."""
+    if store is None:
+        return False
+    with store.read() as tx:
+        holder = release.lock_holder(tx, run_id)
+    if holder is None:
+        return False
+    print(
+        f"{command} 실패: 이 run은 배포·업무 검증 중이다(execution {holder}). 끝나거나"
+        f" 결과 불명이면 조정한 뒤 다시 한다: make reconcile RUN_ID={run_id} EXECUTION_ID={holder}",
+        file=sys.stderr,
+    )
+    return True
+
+
 def _scenario_s2_lite(args: argparse.Namespace) -> int:
     env = process_env(args.env_file)
     db_path = args.db or runs.default_db_path(env)
@@ -313,6 +329,8 @@ def _scenario_s2_lite(args: argparse.Namespace) -> int:
             f"scenario-s2-lite 실패: 제어 DB에 활성 run이 없다: {args.run_id} (먼저 make run-new)",
             file=sys.stderr,
         )
+        return 2
+    if _release_locked(store, args.run_id, "scenario-s2-lite"):
         return 2
     try:
         settings = load_settings(args.config, env)
@@ -1016,6 +1034,8 @@ def main(argv: list[str] | None = None) -> int:
         runs_dir = Path(env.get("RUNS_DIR") or "runs")
         db_path = args.db or runs.default_db_path(env)
         store = _run_store(db_path, args.run_id)
+        if _release_locked(store, args.run_id, "scenario-s1"):
+            return 2
         base_sha = env.get("BASELINE_COMMIT") or None
         try:
             result = scenarios.inject_s1(
