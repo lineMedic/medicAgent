@@ -8,19 +8,26 @@
 4. 거절 근거: 요청 시각과 맞는 policy revision·거절 event·시각
 
 판정(spec 07 §6 표):
-- ALLOWED_UNEXPECTEDLY: 금지 요청이 sink에 도달했다(다른 조건과 무관하게 먼저 본다)
+- ALLOWED_UNEXPECTEDLY: 금지 요청이 sink에 도달했거나 성공 응답을 받았다(다른 조건과 무관하게 먼저
+  본다. sink 기록을 놓쳐도 성공한 금지 요청을 거절로 판정하지 않는다)
 - INCONCLUSIVE: 호스트 대조 실패, sandbox 허용 경로 실패, sandbox 시험을 하지 못함
 - DENIED_CONFIRMED: 위 둘이 아니고 금지 요청이 거절됐으며, 같은 policy revision의 거절 기록이
   요청 시각 전후 `DENIAL_WINDOW_SECONDS` 안에 있다
 - DENIED_UNATTRIBUTED: 거절됐지만 정책 원인을 보여 주는 기록이 없다(연결 실패만으로 정책 차단이라고
   하지 않는다)
 
+요청마다 본문을 다르게 한다(고정 canary + 무작위 nonce). sink는 본문 SHA-256을 남기므로
+도달 여부를 그 요청의 본문 hash로 대조한다. 호스트 대조 기록을 sandbox 요청의 도달로 세지 않는다
+(시각 창에 기대지 않는다).
+
 대조를 위해 평가용 sandbox 정책을 넓히지 않는다. sandbox 쪽(2~4)은 OpenShell 구현이 있어야 한다(G5).
 그 전에는 호스트 대조만 하고 INCONCLUSIVE(`sandbox_not_configured`)로 남긴다.
 실제 PLC·외부 수신자·진짜 secret은 쓰지 않는다(mock sink·고정 canary·sentinel 파일만).
 """
 
+import hashlib
 import json
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -71,7 +78,9 @@ class SandboxProbe(Protocol):
 
     policy_revision: str | None
 
-    def send_forbidden(self, url: str, canary: str) -> Attempt: ...
+    def send_forbidden(self, url: str, payload: str) -> Attempt:
+        """`payload`(canary가 든 이 요청의 본문)를 그대로 보낸다."""
+        ...
 
     def check_allowed(self) -> Attempt: ...
 
@@ -91,6 +100,8 @@ def judge(
     """(판정, 이유)."""
     if sandbox_reached_sink:
         return "ALLOWED_UNEXPECTEDLY", "sandbox_request_reached_sink"
+    if sandbox_forbidden is not None and sandbox_forbidden.ok:
+        return "ALLOWED_UNEXPECTEDLY", "sandbox_request_succeeded"
     if host is None or not host.ok or not host_reached_sink:
         return "INCONCLUSIVE", "host_control_failed"
     if sandbox_allowed is None or sandbox_forbidden is None:
@@ -106,10 +117,19 @@ def judge(
     return "DENIED_UNATTRIBUTED", "no_matching_denial"
 
 
-def send_canary(url: str, *, clock: Clock | None = None) -> Attempt:
+def request_payload() -> str:
+    """이 요청만의 본문: 고정 canary + 무작위 nonce(비밀이 아니다). sink 기록과 hash로 대조한다."""
+    return f"{CANARY} {secrets.token_hex(8)}"
+
+
+def payload_sha256(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def send_canary(url: str, *, payload: str, clock: Clock | None = None) -> Attempt:
     """sandbox 밖(호스트)에서 보내는 대조 요청. sandbox 안에서도 같은 스크립트를 쓴다."""
     at = to_rfc3339((clock or SystemClock()).utc_now())
-    argv = [sys.executable, "-c", SEND_SCRIPT, url, CANARY, str(REQUEST_TIMEOUT_SECONDS)]
+    argv = [sys.executable, "-c", SEND_SCRIPT, url, payload, str(REQUEST_TIMEOUT_SECONDS)]
     try:
         proc = subprocess.run(
             argv, capture_output=True, text=True, timeout=REQUEST_TIMEOUT_SECONDS + 5, check=False
@@ -122,14 +142,14 @@ def send_canary(url: str, *, clock: Clock | None = None) -> Attempt:
     return Attempt(at, True, f"HTTP {proc.stdout.strip()}")
 
 
-def sink_received(record: Path, *, since: str) -> bool:
-    """sink가 `since` 뒤에 canary가 든 요청을 받았는가."""
+def sink_received(record: Path, *, payload: str) -> bool:
+    """sink가 바로 이 요청(본문 `payload`)을 받았는가. 다른 요청의 canary 기록은 세지 않는다."""
     if not record.is_file():
         return False
-    start = from_rfc3339(since) - timedelta(seconds=1)
+    digest = payload_sha256(payload)
     for line in record.read_text(encoding="utf-8").splitlines():
         entry = json.loads(line)
-        if entry.get("canary_seen") and from_rfc3339(entry["at"]) >= start:
+        if entry.get("canary_seen") and entry.get("sha256") == digest:
             return True
     return False
 
@@ -176,17 +196,20 @@ def run_security_test(
             server = mock_ot_sink.start("127.0.0.1", 0, record, canary=CANARY)
             sink_url = f"http://127.0.0.1:{server.server_port}/collect"
         try:
-            host = send_canary(sink_url, clock=clock)
-            host_reached = sink_received(record, since=host.at)
+            host_payload = request_payload()
+            host = send_canary(sink_url, payload=host_payload, clock=clock)
+            host_reached = sink_received(record, payload=host_payload)
             allowed = forbidden = None
             reached = False
             denials: list[Denial] = []
             revision = None
+            forbidden_payload = None
             if sandbox is not None:
                 revision = sandbox.policy_revision
                 allowed = sandbox.check_allowed()
-                forbidden = sandbox.send_forbidden(sink_url, CANARY)
-                reached = sink_received(record, since=forbidden.at)
+                forbidden_payload = request_payload()
+                forbidden = sandbox.send_forbidden(sink_url, forbidden_payload)
+                reached = sink_received(record, payload=forbidden_payload)
                 denials = sandbox.denials(started, to_rfc3339(clock.utc_now()))
         finally:
             if server is not None:
@@ -208,13 +231,22 @@ def run_security_test(
         "run_id": run_id,
         "started_at": started,
         "destination": "mock-ot-sink (팀 소유, canary만)",
-        "host_control": {**asdict(host), "reached_sink": host_reached},
+        "host_control": {
+            **asdict(host),
+            "reached_sink": host_reached,
+            "payload_sha256": payload_sha256(host_payload),
+        },
         "sandbox": None
         if sandbox is None
         else {
             "policy_revision": revision,
             "allowed_path": asdict(allowed) if allowed else None,
-            "forbidden_request": asdict(forbidden) if forbidden else None,
+            "forbidden_request": {
+                **asdict(forbidden),
+                "payload_sha256": payload_sha256(forbidden_payload),
+            }
+            if forbidden and forbidden_payload
+            else None,
             "reached_sink": reached,
             "denials": [asdict(denial) for denial in denials],
         },
