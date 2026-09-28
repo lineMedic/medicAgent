@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62). 다음은 W29(정합성 점검)·W21(README 초안)의 게이트 없는 부분과 H03~H07 판단이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62, W20 #63). 다음은 W21(README·제출 초안)의 에이전트 몫과 H03~H07 판단이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W29 전체·G9, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -48,7 +48,7 @@
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
 | 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN). PR #63 리뷰 반영(첫 제안 채점·attempt 사용량 합산): `make test` → 1747 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T04:06Z |
-| 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
+| 31 | W29 | LIVE_VERIFIED | UNIT_TESTED (자동 회귀 기록·문서 정합성 자동 점검. live S4~S7·S7 비교: BLOCKED_ON_HUMAN 전체 게이트·G9) | `make test` → 1736 passed·1 skipped(W29 테스트 7개: 문서 정합성, 제출 초안 점검은 W21 전 skip), `make test-docker` → 13 passed, `make test-live` → 8 skipped(NOT_CONFIGURED·쓰기 허락 없음), `make lint` → PASS. T-ISS·T-NOT·T-MEM·T-V4·T-STATE-01·T-IDEM-02 표는 W29 중단 보고 | BLOCKED_ON_HUMAN: G2·G10 + 사용자 허락 — S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked 실제 API 각 1회, N15 / G3~G5·G9 — S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍) | 2026-09-28T02:02Z |
 | 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
 | 33 | H03~H07 | UNIT_TESTED | NOT_CHECKED | | core 완료 후 | |
 
@@ -143,6 +143,56 @@
 - 테스트: `integration/test_attempts.py`에 `test_no_retry_when_the_server_already_accepted_a_submission`(제출 접수 → VALIDATING), `test_no_retry_after_a_server_recorded_submit_call`(사건은 조사 중, 제출 호출 기록만 있음) 추가. 수정 전 두 테스트 모두 FAIL(2 == 1), 수정 뒤 PASS
 - 실행: `make test` → 1679 passed, 20 deselected / `make lint` → PASS (로컬 개발 Mac, fake). 모델·GitHub 호출 없음
 - 남은 일: 없음(이 지적 범위). runtime adapter·live는 기존대로 G3·G4 대기. 이 수정은 아래 stack(#59~#65)에 병합이 필요하다
+
+### W29 중단 보고 — 자동 회귀·문서 정합성 완료, live S4~S7·S7 비교 대기 (2026-09-28T02:02Z)
+
+- 상태: UNIT_TESTED (자동 회귀 기록, 문서 정합성 자동 점검. live S4~S7·N15·S7 cold/memory 비교: BLOCKED_ON_HUMAN 전체 게이트·G9). GitHub·모델은 부르지 않았다
+- 착수 근거: 선행 W28·W20(목표 상태)이 게이트 대기다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 변경 파일:
+  - `linemedic/tests/unit/test_docs_consistency.py`(새, 7): 매 `make test`에서 본다
+    - docs/09 시험 파일 존재
+    - docs/09 시험 ID가 가리킨 파일에 있는지(`·`·`~` 줄임 펼침, hardening 행만 예외)
+    - STATUS LIVE_VERIFIED 행의 evidence 실재
+    - README·제출 초안의 docs/11 §4 금지 문구(목록이 docs/11 §4와 같은지도)
+  - `docs/02-repo-layout.md`: 아직 없는 두 경로(`eval/snapshots/`는 G9 뒤 `make memory-snapshot`이 만든다, `smtp.py`는 G12 선택 시만)를 표시
+  - `DECISIONS.md` D93, `ADR.md`, `docs/09`
+- 자동 회귀 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1736 passed, 1 skipped(제출 초안 점검, W21 전) / `make lint` → PASS / `make test-docker` → 13 passed
+  - `make test-live` → 8 skipped: 게이트 전 NOT_CONFIGURED, GitHub 쓰기 허락 표시 없음. live 시험을 실행한 것이 아니다
+  - v4 core 회귀 ID(fake·실제 SQLite, `make test`):
+
+    | ID | 시험 파일 | 결과 |
+    |---|---|---|
+    | T-ISS-01~03 | `integration/test_issue_matching.py` | PASS |
+    | T-ISS-04 | `integration/test_work_claim_race.py` | PASS |
+    | T-ISS-05·06 | `integration/test_issue_polling.py` | PASS |
+    | T-NOT-01 | `integration/test_start_gate.py` | PASS |
+    | T-NOT-02~06 | `integration/test_notifications.py` | PASS |
+    | T-MEM-01~05 | `integration/test_case_memory.py` | PASS |
+    | T-MEM-06 | `integration/test_agent_context.py` | PASS |
+    | T-V4-01 | `unit/test_proposal_schema.py` | PASS |
+    | T-V4-02 | `integration/test_work_lifecycle.py` | PASS |
+    | T-STATE-01 | `integration/test_work_claim_race.py` | PASS |
+    | T-IDEM-02 | `integration/test_idempotency.py` | PASS |
+
+  - hardening 행의 T-EXEC-02(H04)·T-VERIFY-03(H03)은 구현하지 않았다(core 완료 전, H03~H07 규칙)
+- 문서 정합성 점검 결과:
+  - docs/09가 가리키는 시험 파일 45개가 모두 있다. 시험 ID는 hardening 행 2개 말고 모두 가리킨 파일에 있다
+  - STATUS 작업표에 LIVE_VERIFIED로 올린 행이 없다. live 대기 항목은 차단 칸에 게이트와 확인 방법이 있다
+  - docs/02 트리의 [카드] 표시 경로 108개 중 없는 것은 조건부 2개(snapshots·smtp.py)뿐이라 표시를 고쳤다
+  - README에 금지 문구가 없다. README 재작성·제출 초안은 W21에서 한다
+- 수용 기준:
+  - S4~S7 각 항목이 실제 실행 기록과 연결되거나 미실행 사유가 적혀 있다: 미실행 사유가 STATUS에 있다(W23·W24·W26·W28 게이트 칸, W29 차단 칸). 실제 실행: NOT_RUN
+  - cold_start와 memory_assisted 결과가 별도 표: 집계 코드는 다른 그룹으로 분리한다(W20, s7-cold·s7-memory). 실제 결과: NOT_RUN
+  - v4 완료 주장 조건(docs/11 §6): 충족하지 않았다. 부분 완료다(live 검증 없음)
+- 판단: D93(문서 정합성 자동 점검 범위와 한계)
+- 증거: 위 명령 출력, 커밋은 이 보고를 포함한 W29 커밋(push·PR)
+- 남은 일·위험:
+  - G2·G10 + 사용자 허락 뒤: S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked를 실제 API로 각 1회 돌리고 N15(동시 입력·bot 댓글 반복·409)를 evidence에 남긴다
+  - G3~G5·G9 뒤: 사람이 고른 snapshot으로 S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍). 1쌍이면 시연으로만 쓴다
+  - 추가 지표(Issue 재사용 정확성, duplicate work, 시작 알림보다 이른 수정, blocker 완성도, SUCCESS 오승격 note, 실패 사례 인용률)는 실제 run 뒤 집계한다
+  - 금지 문구 점검은 부분 문자열만 본다. 문맥 조건은 사람이 본다
+- 다음 카드: W21(README·제출 초안·점검 목록) 에이전트 몫, 그리고 H03~H07 판단
 
 ### W20 중단 보고 — 하네스·집계 완료, 실제 평가 실행 대기 (2026-09-28T01:49Z)
 

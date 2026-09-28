@@ -102,6 +102,8 @@ W17 S3 보안: `integration/test_s3b_broker.py`가 S3-B 결정론 표 14행(거�
 
 W20 평가 하네스: `unit/test_eval_harness.py`가 기대값 strict 로딩·suite 범위, plan이 사람 단계(승인·G7·G8)를 자동 단계로 대신하지 않음, 게이트가 없으면 run 없이 NOT_CONFIGURED, 조건이 갖춰지면 start·주입 뒤 사람 단계에서 멈춤(manifest `evaluation`), 사건마다 결과 행과 채점(첫 제안 기준, 수정 제출이 맞아도 첫 선택이 틀리면 오답), attempt별 사용량 합산(못 읽은 trace는 partial·null), origin 분리·거짓 완료·조건 집합 분리·local 제외·NOT_RUN 집계를 본다. 실제 평가 실행은 모든 게이트 뒤다(`evidence/eval-summary.md`는 지금 전부 NOT_RUN).
 
+W29 문서 정합성: `unit/test_docs_consistency.py`가 이 표의 시험 파일 존재, 시험 ID가 가리킨 파일에 있는지(hardening 행 H03~H07만 예외), STATUS의 LIVE_VERIFIED 행 evidence 실재, README·제출 초안의 docs/11 §4 금지 문구를 매 `make test`에서 본다. live S4~S7·S7 비교는 전체 게이트·G9 뒤다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.
