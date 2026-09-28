@@ -1,4 +1,4 @@
-"""W13 fake E2E: 사람 제안(`manual_integration`)으로 전체 경로를 통과한다.
+"""W13·W16 fake E2E: 사람 제안(`manual_integration`)으로 전체 경로를 통과한다.
 
 `make start`와 같은 조립(`build_control_plane`)으로 다음을 돈다.
 S1 주입 → 감지 → Issue 생성·binding → 운영자 work 승인 → 시작 댓글 receipt
@@ -10,6 +10,9 @@ S1 주입 → 감지 → Issue 생성·binding → 운영자 work 승인 → 시
 - 사람 개입(work 승인, PR 리뷰·머지, 배포 승인)은 테스트가 운영 API·FakeGitHub로 흉내 낸다
 - 확인: 시작 receipt 시각 < attempt 시작 시각, 결합 전이가 docs/03 §3 표와 일치,
   verification·PR 본문의 origin이 manual_integration, 에이전트 성과 집계 제외, token 폐기
+- W16: S2-lite(기본·recent-deploy)에서 사람이 쓴 설비 제안이 정비 요청 초안으로 끝난다.
+  코드 변경·PR·빌드·배포 0건, 초안 `delivery_status=not_sent`와 `HANDOFF_DRAFTED` 댓글 접수가 따로,
+  case note HANDOFF. 실제 에이전트의 도구 선택·분류는 여기서 보지 않는다(live, G3·G4·G5)
 """
 
 import json
@@ -34,6 +37,7 @@ from linemedic.control_plane.main import DEFAULT_MANUAL_PROPOSAL, build_control_
 from linemedic.control_plane.state import COUPLED_WORK_STATUS
 from linemedic.control_plane.verifier import agent_performance_verifications
 from linemedic.dashboard import __main__ as dashboard
+from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.scenarios import mes_container_options, prepare_s1_data, resource_names
 from linemedic.integrations.git_fetch import GitFetcher
 from linemedic.integrations.git_push import FakePusher
@@ -53,6 +57,7 @@ from linemedic.tests.helpers.runner import profile, scripted_docker
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OPERATOR = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+S2_MANUAL_PROPOSAL = REPO_ROOT / "linemedic" / "eval" / "manual_proposals" / "s2_lite_manual.json"
 
 
 def error_line(n: int) -> str:
@@ -74,7 +79,15 @@ def error_line(n: int) -> str:
 
 
 class E2E:
-    def __init__(self, store, conn, clock, seed: tuple[Path, str], tmp_path: Path) -> None:
+    def __init__(
+        self,
+        store,
+        conn,
+        clock,
+        seed: tuple[Path, str],
+        tmp_path: Path,
+        proposal: Path = DEFAULT_MANUAL_PROPOSAL,
+    ) -> None:
         seed_mirror, self.base = seed
         self.store, self.conn, self.clock = store, conn, clock
         self.runs_dir = tmp_path / "runs"
@@ -84,6 +97,7 @@ class E2E:
             REPO_ROOT / "config" / "linemedic.toml",
             {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": str(REPO_ID)},
         )
+        self.settings = settings
         insert_run(conn, RUN)
         manifest = runs.build_manifest(settings, RUN, None)  # make run-new과 같은 모양
         manifest["runtime_env"]["baseline_commit"] = self.base
@@ -129,7 +143,7 @@ class E2E:
         self.jobs: list = []
         holder: dict = {}
         adapter = ScriptedAdapter(
-            DEFAULT_MANUAL_PROPOSAL,
+            proposal,
             lambda token: TestClient(holder["app"], headers={"Authorization": f"Bearer {token}"}),
             clock,
             wait=self._pump,
@@ -190,6 +204,22 @@ class E2E:
                 actor="trusted_harness",
             )
         self.clock.advance(20)
+
+    def inject_s2_lite(self, recent_deploy: bool) -> str:
+        """`make scenario-s2-lite [RECENT_DEPLOY=1]`: 카메라 지표를 쓰고 감지기로 한 번 관찰한다."""
+        result = scenarios.inject_s2_lite(
+            RUN,
+            self.runs_dir,
+            self.store,
+            self.settings.config,
+            self.clock,
+            recent_deploy=recent_deploy,
+            base_sha=self.base,
+            mes_image_id=BASE_IMAGE,
+        )
+        (incident_id,) = result["incidents"]
+        self.clock.advance(20)
+        return incident_id
 
     def approve_work(self, work_id: str) -> None:
         work = self.ops.get(f"/ops/work-items/{work_id}", headers=OPERATOR).json()["data"]
@@ -474,3 +504,93 @@ def test_step_is_quiet_without_incidents_and_features_are_reported(e2e):
         "attempts_closed": [],
         "attempts": [],
     }
+
+
+@pytest.mark.parametrize("recent_deploy", [False, True], ids=["default", "recent_deploy"])
+def test_s2_lite_manual_proposal_ends_as_an_unsent_work_order_draft(
+    store, conn, fake_clock, seed, tmp_path, recent_deploy
+):
+    e2e = E2E(store, conn, fake_clock, seed, tmp_path, proposal=S2_MANUAL_PROPOSAL)
+    plane, clock = e2e.plane, e2e.clock
+
+    # S2-lite → 설비 사건 → Issue 생성·binding → 승인 → 시작 댓글 receipt
+    incident_id = e2e.inject_s2_lite(recent_deploy)
+    assert e2e.row("incidents", incident_id)["service"] == "vision-inspection"
+    step = plane.step()
+    assert [r["action"] for r in step["route"]] == ["created"]
+    work = e2e.one("SELECT * FROM work_items WHERE incident_id = ?", (incident_id,))
+    issue_number = work["issue_number"]
+    e2e.approve_work(work["id"])
+    clock.advance(2)
+    (sent,) = plane.outbox_once()
+    assert (sent["event_type"], sent["status"]) == ("WORK_STARTING", "ACCEPTED")
+    clock.advance(3)
+
+    # attempt → 사람 제안(equipment + create_work_order_draft) → 브로커 → 초안
+    (attempt,) = plane.supervise_once()["attempts"]
+    assert (attempt["adapter_status"], attempt["blocked"]) == ("closed", None)
+    assert (
+        e2e.row("incidents", incident_id)["status"],
+        e2e.row("work_items", work["id"])["status"],
+    ) == (
+        "WORK_ORDER_DRAFTED",
+        "HANDED_OFF",
+    )  # 복구(RESOLVED)가 아니다
+    proposal = e2e.one("SELECT * FROM proposals WHERE incident_id = ?", (incident_id,))
+    submitted = json.loads(proposal["payload_json"])
+    assert proposal["decision"] == "ALLOWED"
+    assert (submitted["category"], submitted["action"]["type"]) == (
+        "equipment",
+        "create_work_order_draft",
+    )
+    (draft_row,) = e2e.conn.execute(
+        "SELECT * FROM executions WHERE operation = 'DRAFT_WORK_ORDER'"
+    ).fetchall()
+    draft = json.loads(draft_row["result_json"])
+    evidence = {
+        r["id"]
+        for r in e2e.conn.execute("SELECT id FROM evidence WHERE incident_id = ?", (incident_id,))
+    }
+    assert draft["equipment_id"] == "L3-CAM-2"
+    assert draft["evidence_ids"] and set(draft["evidence_ids"]) <= evidence  # 관찰 지표 근거
+    assert draft["probable_cause_is_hypothesis"] is True and draft["open_questions"]
+    assert draft["manual_ref_id"] == "MANUAL-L3-VISION-4.2"  # 승인된 매뉴얼 참조
+    assert (draft["review_required"], draft["delivery_status"]) == (True, "not_sent")
+
+    # 코드 변경·PR·빌드·배포 0건
+    assert e2e.github.pulls == {} and e2e.jobs == []
+    assert not [c for c in e2e.docker.calls if c[0] in ("build", "run")]
+    kinds = {
+        (r["operation"], r["status"])
+        for r in e2e.conn.execute("SELECT operation, status FROM executions")
+    }
+    assert kinds == {("CREATE_ISSUE", "SUCCEEDED"), ("DRAFT_WORK_ORDER", "SUCCEEDED")}
+
+    # HANDOFF_DRAFTED 댓글 접수와 초안 미전송은 따로 남는다
+    clock.advance(2)
+    (handoff,) = plane.outbox_once()
+    assert (handoff["event_type"], handoff["status"]) == ("HANDOFF_DRAFTED", "ACCEPTED")
+    body = e2e.github.comments[issue_number][-1]["body"]
+    assert "정비 요청 초안" in body and "정비 완료" not in body
+    again = e2e.row("executions", draft_row["id"])
+    assert json.loads(again["result_json"])["delivery_status"] == "not_sent"
+
+    # 사례 기억: HANDOFF(실제 정비·복구 아님)
+    assert len(plane.cases_once()) == 1
+    (note,) = e2e.conn.execute("SELECT outcome, phase, origin FROM case_notes").fetchall()
+    assert (note["outcome"], note["phase"], note["origin"]) == (
+        "HANDOFF",
+        "handoff",
+        "manual_integration",
+    )
+
+    # recent-deploy 변형: MES 배포 기록이 보여도 host 경로는 같다
+    observed = [d for d in e2e.audit("DEPLOY_OBSERVED") if d.get("service") == "mes-api"]
+    assert len(observed) == (1 if recent_deploy else 0)
+
+    # 대시보드: 정비 요청 초안으로 보이고 금지 표현이 없다
+    model = dashboard.load_model(e2e.store.path)
+    (card,) = model["works"]
+    assert (card["work_status"], card["incident_status"]) == ("HANDED_OFF", "WORK_ORDER_DRAFTED")
+    html = dashboard.render(model)
+    assert "정비 요청 초안·담당자 확인 필요" in html and "정비 완료" not in html

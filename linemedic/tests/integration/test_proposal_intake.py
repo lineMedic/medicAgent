@@ -289,6 +289,29 @@ def test_escalate_without_evidence_blocks_with_blocker_report(world):
     ]
 
 
+def test_create_pr_for_a_service_without_code_paths_is_denied_before_the_gate(world):
+    """설비 사건(vision-inspection, code_paths = [])의 코드 수정 제안은 패치 게이트에
+    가지 않는다(D89).
+
+    제안은 제출된 그대로 남는다(평가가 오답으로 기록할 수 있게).
+    """
+    pid = proposal_id_of(world.submit(world.body("create_pr")))
+    world.broker.process_pending()
+    proposal = row(world.conn, "proposals", pid)
+    record = json.loads(proposal["checks_json"])
+    assert proposal["decision"] == "REJECTED"
+    assert record["decision_reason"] == "PATCH_PATH_DENIED"
+    assert record["checks"][-1] == {
+        "check": "PATCH_POLICY",
+        "result": "PATCH_PATH_DENIED",
+        "reason": "service_has_no_code_paths",
+    }
+    submitted = json.loads(proposal["payload_json"])
+    assert (submitted["category"], submitted["action"]["type"]) == ("code_bug", "create_pr")
+    assert count(world.conn, "executions") == 0
+    assert world.incident_row()["status"] == "INVESTIGATING"  # 수정 1회 기회는 남는다
+
+
 def test_create_pr_is_rejected_until_patch_gate_then_revision_then_escalation(code_world):
     w = code_world
     first = proposal_id_of(w.submit(w.body("create_pr"), key="pr-1"))

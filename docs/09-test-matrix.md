@@ -94,6 +94,8 @@ W14 에이전트 local 준비: `unit/test_agent_workspace.py`가 규칙 묶음·
 
 W15 sandbox 모드 준비: `unit/test_sandbox.py`가 `sandbox_verified` 판정(고정 정책 파일 + 필수 보호 모두 PASS일 때만 true)·정책 파일 묶음 hash(없으면 null, symlink 거부, 저장소에 아직 정책 없음)·effective policy 저장(내용 hash 이름·한 번만·비밀 가림)·doctor `openshell`(local 생략, sandbox 모드는 CLI·정책·시험 기동·정리)을, `integration/test_sandbox_attempts.py`가 sandbox 없으면 local로 바꾸지 않고 미시작·준비 실패 미시작·sandbox 안 adapter 실행과 `SANDBOX_PREPARED`·`SANDBOX_CLOSED`(adapter 실패·닫기 실패 포함)·확인 안 된 보호의 false 기록·규칙 변경(`AGENT_RULES_CHANGED`)·manifest identity·run-record 표·`make start` 기능 보고를 본다. 실제 OpenShell 안 실행과 N03·N04 대조는 G5 뒤다.
 
+W16 S2-lite host 경로: `integration/test_e2e_fake.py`의 S2-lite 두 변형(기본·recent-deploy)이 사람이 쓴 설비 제안으로 감지 → Issue → 승인 → 시작 댓글 → attempt → 초안(`not_sent`) → WORK_ORDER_DRAFTED·HANDED_OFF → `HANDOFF_DRAFTED` 댓글 → case note HANDOFF를 지나고 PR·빌드·배포가 0건인지, 대시보드에 금지 표현이 없는지를, `integration/test_proposal_intake.py`가 코드 경로 없는 서비스의 `create_pr` 거절(패치 게이트 전, 제안 원본 보존)을 본다. sandbox 안 실제 에이전트의 3회 실행은 G5(+G2·G3·G4·G10) 뒤다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.

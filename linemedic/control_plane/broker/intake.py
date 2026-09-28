@@ -533,6 +533,17 @@ class Broker:
                 case.record["checks"].append({"check": name, "result": "PASS"})
             action_type = case.proposal.action.type
             if action_type == "create_pr":
+                if self.catalog.has_no_code(case.incident["service"]):
+                    # 코드 경로가 없는 서비스(설비 사건)에는 패치할 대상이 없다(D89)
+                    case.record["checks"].append(
+                        {
+                            "check": "PATCH_POLICY",
+                            "result": "PATCH_PATH_DENIED",
+                            "reason": "service_has_no_code_paths",
+                        }
+                    )
+                    self._reject(tx, case, "PATCH_PATH_DENIED")
+                    return
                 if self.patch_gate is None:
                     case.record["checks"].append(
                         {

@@ -66,6 +66,11 @@ class Catalog:
     def equipment_of(self, service: str) -> dict[str, EquipmentConfig]:
         return {eid: item for eid, item in self.equipment.items() if item.service == service}
 
+    def has_no_code(self, service: str) -> bool:
+        """코드 경로가 없다고 등록된 서비스인가(`code_paths = []`, 설비 사건 등, D59·D89)."""
+        item = self.services.get(service)
+        return item is not None and item.code_paths == []
+
     def manuals_for(self, service: str) -> frozenset[str]:
         return frozenset(
             manual for item in self.equipment_of(service).values() for manual in item.manual_ref_ids

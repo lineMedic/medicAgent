@@ -129,6 +129,7 @@
 | D86 | run 수명 주기: manifest identity·memory·baseline, 기준 브랜치(CREATE_BASELINE·G2·G10, repo ID 확인·이동 없음·실패 시 run 없음), 정지=active=0·루프 반복마다 확인, supervisor·broker·outbox run 범위, archive(정지→미해결→export→정리), export(private 원본·shared 정제·run-record·hash), 라벨·정확한 ID·한 경로만 정리(prune 없음), reset은 안내, /ops/runs·archive | 기반 | 유효 (spec 11 §3·§7·§9, spec 04 §9 구체화) |
 | D87 | 에이전트 local 준비: 규칙 묶음(system·tools·skills) 읽기 전용·prompt hash, workspace work/repo·output·agent_rules, 시작 전 금지 자료 검사, 서버 측 도구 예산(TOOL_CALL·429, get_proposal 제외), tools client(ID 검사·재시도 없음), attempt trace(서버·로컬 도구 분리, token observed/partial/null), 모델 일시 오류 1회 재시도, agent_mode | 입력 | 유효 (spec 05 §1·§3·§5~§7 구체화) |
 | D88 | sandbox 모드 준비: SandboxPort(prepare·close, 설정 없음·fake만), 준비 실패 시 local로 바꾸지 않고 시작 안 함, SANDBOX_PREPARED·CLOSED, 정책 파일 hash·effective policy(가림·내용 hash 이름)·필수 보호 10개, host가 정하는 sandbox_verified, attempt 전후 규칙 hash(AGENT_RULES_CHANGED), manifest·run-record·대시보드·doctor openshell | 보안 | 유효 (spec 05 §1·§3, spec 07 §4 구체화) |
+| D89 | 코드 경로 없는 서비스(`code_paths = []`)의 create_pr은 패치 게이트 전에 PATCH_PATH_DENIED(수정 기회 유지, 제안 원본 보존), S2-lite fake E2E(기본·recent-deploy, 사람 설비 제안 → 초안 not_sent·HANDED_OFF·HANDOFF_DRAFTED·case HANDOFF, PR·빌드·배포 0건) | PR·릴리스·검증 | 유효 (spec 09 §3, AC-S2, D59·D73 구체화) |
 
 ## 3. 주제별 보기
 
@@ -139,7 +140,7 @@
 | 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 D84 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 D85 D88 |
-| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 D80 D81 D82 |
+| PR·릴리스·검증 | D03 D04 D05 D06 D07 D12 D21 D26 D46 D67 D71 D74 D75 D80 D81 D82 D89 |
 | 기반(저장소·스택·동시성) | D11 D17 D24 D25 D35 D40 D42 D43 D44 D45 D48 D50 D51 D52 D55 D56 D60 D63 D64 D65 D68 D86 |
 
 ## 4. 게이트 대기 결정
