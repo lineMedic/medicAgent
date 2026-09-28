@@ -33,6 +33,11 @@ sandbox 모드(W15, D88): attempt마다 sandbox를 준비하고 그 안에서 �
 준비하지 못하면 local로 바꿔 돌리지 않는다(MODEL_UNAVAILABLE). identity·정책 hash·effective policy·
 보호 확인 결과는 `SANDBOX_PREPARED`와 trace에 남고, `sandbox_verified`는 host가 정한다.
 attempt 전후 규칙 묶음 hash가 다르면 `AGENT_RULES_CHANGED`로 남긴다(N10).
+
+초기 사례 검색(W28, D90): workspace를 만들기 전에 host가 한 번 검색한다(`requested_by=supervisor`).
+결과(mode·snapshot·retrieval·상태·note ID·projection evidence ID·비신뢰 표시)는 context와 trace에
+들어간다. 검색할 수 없으면(UNAVAILABLE) run policy `memory.on_unavailable`이 stop일 때 attempt를
+시작하지 않고(LOOKUP_INCOMPLETE), proceed면 `history_status=UNAVAILABLE`을 표시한 채 진행한다.
 """
 
 import json
@@ -56,6 +61,7 @@ from linemedic.control_plane import audit
 from linemedic.control_plane.auth import AgentPrincipal, TokenRegistry
 from linemedic.control_plane.broker.candidate import CandidateError, prepare_workspace
 from linemedic.control_plane.errors import ApiError
+from linemedic.control_plane.memory.search import TRUST_NOTICE, CaseSearch
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.notifications.blocker import blocker_report
 from linemedic.control_plane.state import (
@@ -545,6 +551,7 @@ class AttemptRuntime:
     eval_terms: tuple[str, ...] = ()  # workspace 금지 자료 검사의 평가 식별자(W14)
     sandbox: SandboxPort | None = None  # sandbox 모드의 실행 환경(W15). 없으면 준비를 거절한다
     sandbox_policy_dir: Path = POLICY_DIR  # 고정한 sandbox 정책 파일(G5 뒤)
+    case_search: CaseSearch | None = None  # 초기 사례 검색(W28). 없으면 cold_start만 진행한다
 
 
 MAX_BLOCKER_EVIDENCE = 5
@@ -581,6 +588,7 @@ class Supervisor:
         self.runtime = runtime
         # 설정이 없으면 local이다. local 결과는 평가 집계에 넣지 않는다
         self.agent_mode = config.agent.mode or "local"
+        self.memory = config.memory
 
     def auto_approve(self, work_id: str) -> None:
         """승인된 작성자(W23 `auto_start_eligible`)의 work를 등록 정책으로 승인한다."""
@@ -797,6 +805,15 @@ class Supervisor:
         base_sha = (manifest.get("runtime_env") or {}).get("baseline_commit")
         root = runtime.runs_dir / work["run_id"] / "workspaces" / started.attempt_id
         adapter = runtime.adapter
+        memory = self._initial_memory(work, incident)
+        if memory["status"] == "UNAVAILABLE" and self.memory.on_unavailable == "stop":
+            failed = AttemptResult(
+                "error",
+                adapter.name,
+                adapter.origin,
+                detail=f"memory:unavailable({memory.get('reason') or 'unknown'})",
+            )
+            return self.finish_attempt(started, failed)
         try:
             if not base_sha:
                 raise CandidateError("run_baseline_unconfigured")
@@ -860,7 +877,7 @@ class Supervisor:
                     "accepted_at": notice["accepted_at"] if notice is not None else None,
                 },
                 "base": {"sha": base_sha, "service": incident["service"]},
-                "memory": {"mode": "cold_start", "snapshot_id": None, "retrieval_id": None},
+                "memory": memory,  # 초기 사례 검색(W28). 사례 본문은 비신뢰 자료다
                 "budget": {
                     "tool_calls": self.agent.tool_call_budget,
                     "max_submissions": self.agent.max_submissions,
@@ -909,9 +926,43 @@ class Supervisor:
                 self._close_sandbox(started, work, port, session)
         rules = self._check_rules(started, work, rules_dir, prompt_sha256)
         trace_ref = self._record_trace(
-            started, work, prompt_sha256, result, sandbox=sandbox, rules=rules
+            started, work, prompt_sha256, result, sandbox=sandbox, rules=rules, memory=memory
         )
         return self.finish_attempt(started, result, trace_ref=trace_ref)
+
+    def _initial_memory(self, work: Any, incident: Any) -> dict[str, Any]:
+        """시작 게이트 뒤 host가 한 번 하는 사례 검색. cold_start는 DISABLED로 기록된다."""
+        runtime = self.runtime
+        assert runtime is not None
+        search = runtime.case_search
+        if search is None:  # 검색기를 주지 않은 조립(기록 없음): cold_start만 그대로 진행한다
+            status = "DISABLED" if self.memory.mode == "cold_start" else "UNAVAILABLE"
+            data: dict[str, Any] = {"mode": self.memory.mode, "snapshot_id": None,
+                                    "retrieval_id": None, "status": status, "hits": []}  # fmt: skip
+            if status == "UNAVAILABLE":
+                data["reason"] = "search_not_configured"
+            evidence_ids: list[str] = []
+        else:
+            result = search.search(
+                run_id=work["run_id"],
+                incident_id=incident["id"],
+                work_id=work["id"],
+                requested_by="supervisor",
+            )
+            data, evidence_ids = result.data, result.evidence_ids
+        hits = data.get("hits") or []
+        return {
+            "mode": data["mode"],
+            "snapshot_id": data.get("snapshot_id"),
+            "retrieval_id": data.get("retrieval_id"),
+            "status": data["status"],
+            "history_status": data["status"],
+            "reason": data.get("reason"),
+            "note_ids": [hit["note_id"] for hit in hits],
+            "evidence_ids": list(evidence_ids),
+            "hits": hits,
+            "trust": TRUST_NOTICE,
+        }
 
     def _record_sandbox(
         self, started: AttemptStart, work: Any, session: SandboxSession, port: SandboxPort
@@ -1037,6 +1088,7 @@ class Supervisor:
         *,
         sandbox: Mapping[str, Any] | None,
         rules: Mapping[str, Any],
+        memory: Mapping[str, Any],
     ) -> str | None:
         """attempt trace를 `runs/<run>/traces/<attempt>.json`에 쓰고 상대 경로를 돌려준다."""
         runtime = self.runtime
@@ -1061,6 +1113,7 @@ class Supervisor:
             server=server,
             sandbox=sandbox,
             rules=rules,
+            memory=memory,
         )
         path = trace.write_trace(runtime.runs_dir, work["run_id"], started.attempt_id, record)
         return path.relative_to(runtime.runs_dir).as_posix()
@@ -1310,6 +1363,11 @@ def _attempt_blocker(tx: Tx, incident: Any, result: AttemptResult) -> tuple[str,
         )
     if result.status == "no_proposal":
         return "INSUFFICIENT_EVIDENCE", f"adapter가 제안을 내지 않았다({result.detail})"
+    if (result.detail or "").startswith("memory:unavailable"):
+        return (
+            "LOOKUP_INCOMPLETE",
+            f"초기 사례 검색을 할 수 없어 시작하지 않았다(run policy stop, {result.detail})",
+        )
     return (
         "MODEL_UNAVAILABLE",
         f"에이전트 실행이 결과 없이 끝났다({result.status}: {result.detail})",

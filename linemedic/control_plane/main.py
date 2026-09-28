@@ -278,6 +278,17 @@ def build_control_plane(
         log_store,
         eval_identifiers(),
     )
+    terms = eval_identifiers()
+    contract, contract_sha256 = load_contract(DEFAULT_CONTRACT)
+    case_search = CaseSearch.from_config(
+        store,
+        config.memory,
+        contract_id=contract.contract_id,
+        contract_sha256=contract_sha256,
+        related_services=catalog.related_services,
+        terms=terms,
+    )
+    features["memory"] = case_search.describe()
     runtime = None
     if adapter is not None:
         runtime = AttemptRuntime(
@@ -286,8 +297,9 @@ def build_control_plane(
             mirror=mirror,
             runs_dir=runs_dir,
             tools_base_url=f"http://{api.host}:{api.port}",
-            eval_terms=tuple(sorted(eval_identifiers())),
+            eval_terms=tuple(sorted(terms)),
             sandbox=sandbox,
+            case_search=case_search,  # attempt 시작 때 host 초기 사례 검색(W28)
         )
         features["agent"] = f"on: {adapter.name} (origin {adapter.origin})"
         if config.agent.mode == "sandbox":  # sandbox를 준비하지 못하면 local로 돌리지 않는다
@@ -361,17 +373,6 @@ def build_control_plane(
     reconciler = ExecutionReconciler(
         store, opener=opener, issue_router=router, route_id=route_id, release=release
     )
-    terms = eval_identifiers()
-    contract, contract_sha256 = load_contract(DEFAULT_CONTRACT)
-    case_search = CaseSearch.from_config(
-        store,
-        config.memory,
-        contract_id=contract.contract_id,
-        contract_sha256=contract_sha256,
-        related_services=catalog.related_services,
-        terms=terms,
-    )
-    features["memory"] = case_search.describe()
     tools = config.tools
     context = AppContext(
         store=store,

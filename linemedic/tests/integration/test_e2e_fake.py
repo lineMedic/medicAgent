@@ -13,6 +13,8 @@ S1 주입 → 감지 → Issue 생성·binding → 운영자 work 승인 → 시
 - W16: S2-lite(기본·recent-deploy)에서 사람이 쓴 설비 제안이 정비 요청 초안으로 끝난다.
   코드 변경·PR·빌드·배포 0건, 초안 `delivery_status=not_sent`와 `HANDOFF_DRAFTED` 댓글 접수가 따로,
   case note HANDOFF. 실제 에이전트의 도구 선택·분류는 여기서 보지 않는다(live, G3·G4·G5)
+- W28: attempt 문맥에 host 초기 사례 검색(cold_start DISABLED)이 들어가고, S5-new(로그 없이 승인된
+  작성자의 새 Issue)는 자동 승인 → 시작 댓글 → attempt 문맥(Issue·receipt)을 지난다
 """
 
 import json
@@ -87,6 +89,7 @@ class E2E:
         seed: tuple[Path, str],
         tmp_path: Path,
         proposal: Path = DEFAULT_MANUAL_PROPOSAL,
+        env: dict[str, str] | None = None,
     ) -> None:
         seed_mirror, self.base = seed
         self.store, self.conn, self.clock = store, conn, clock
@@ -95,7 +98,7 @@ class E2E:
         shutil.copytree(seed_mirror, self.mirror)
         settings = load_settings(
             REPO_ROOT / "config" / "linemedic.toml",
-            {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": str(REPO_ID)},
+            {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": str(REPO_ID), **(env or {})},
         )
         self.settings = settings
         insert_run(conn, RUN)
@@ -488,6 +491,11 @@ def test_manual_proposal_goes_through_the_whole_path(e2e):
     assert attempt_trace["agent_mode"] == "local" and attempt_trace["tokens"]["status"] == "null"
     context = json.loads((root / "context.json").read_text(encoding="utf-8"))
     assert context["base"]["sha"] == e2e.base and context["origin"] == "manual_integration"
+    memory = context["memory"]  # W28: host 초기 사례 검색(cold_start는 사례 없이 DISABLED 기록)
+    assert (memory["mode"], memory["status"], memory["note_ids"]) == ("cold_start", "DISABLED", [])
+    (retrieval,) = e2e.conn.execute("SELECT id, status FROM case_retrievals").fetchall()
+    assert (retrieval["id"], retrieval["status"]) == (memory["retrieval_id"], "DISABLED")
+    assert attempt_trace["memory"]["retrieval_id"] == memory["retrieval_id"]
     assert all(token not in (root / "context.json").read_text() for token in e2e.issued)
 
 
@@ -594,3 +602,55 @@ def test_s2_lite_manual_proposal_ends_as_an_unsent_work_order_draft(
     assert (card["work_status"], card["incident_status"]) == ("HANDED_OFF", "WORK_ORDER_DRAFTED")
     html = dashboard.render(model)
     assert "정비 요청 초안·담당자 확인 필요" in html and "정비 완료" not in html
+
+
+def test_s5_new_issue_first_intake_starts_after_the_start_comment(
+    store, conn, fake_clock, seed, tmp_path
+):
+    """S5-new: 로그 없이 승인된 작성자가 새 Issue를 만들면 자동 승인 → 시작 댓글 → attempt."""
+    trusted = 200001
+    env = {"ISSUE_INTAKE_ENABLED": "true", "ISSUE_TRUSTED_AUTHOR_IDS": str(trusted)}
+    e2e = E2E(store, conn, fake_clock, seed, tmp_path, env=env)
+    plane, clock = e2e.plane, e2e.clock
+    plane.poll_once()  # 첫 조회는 활성화만(이전 Issue backlog는 실행하지 않는다)
+    clock.advance(5)
+    issue = e2e.github.add_issue(
+        title="L3 불량 요약이 열리지 않습니다",
+        body="어제부터 불량 요약 화면이 오류를 냅니다",
+        author_id=trusted,
+    )
+    clock.advance(61)
+    plane.poll_once()
+    work = e2e.one("SELECT * FROM work_items WHERE issue_number = ?", (issue["number"],))
+    incident = e2e.row("incidents", work["incident_id"])
+    assert incident["source_kind"] == "GITHUB_ISSUE"
+    assert work["status"] == "WAITING_NOTIFICATION"  # 승인된 작성자: 등록 정책으로 자동 승인
+    assert e2e.conn.execute("SELECT COUNT(*) FROM case_retrievals").fetchone()[0] == 0
+    clock.advance(2)
+    (sent,) = plane.outbox_once()
+    assert (sent["event_type"], sent["status"]) == ("WORK_STARTING", "ACCEPTED")
+    clock.advance(3)
+
+    (attempt,) = plane.supervise_once()["attempts"]
+    assert (
+        attempt["blocked"] == "INSUFFICIENT_EVIDENCE"
+    )  # 사람 제안 adapter는 증거 없이 제안하지 않는다
+    (started,) = e2e.audit("ATTEMPT_STARTED")
+    assert from_rfc3339(started["start_notice_recorded_at"]) < from_rfc3339(started["_at"])
+    root = e2e.runs_dir / RUN / "workspaces" / started["attempt_id"]
+    context = json.loads((root / "context.json").read_text(encoding="utf-8"))
+    assert context["issue"] == {
+        "repository_id": REPO_ID,
+        "number": issue["number"],
+        "snapshot_sha256": work["issue_snapshot_sha256"],
+    }
+    assert (
+        context["start_notice"]["receipt_id"]
+        == e2e.row("notifications", work["start_notification_id"])["receipt_id"]
+    )
+    assert context["memory"]["status"] == "DISABLED"
+    clock.advance(2)
+    assert [s["event_type"] for s in plane.outbox_once()] == ["WORK_BLOCKED"]
+    comments = e2e.github.comments[issue["number"]]
+    assert [c["user"]["id"] for c in comments] == [BOT, BOT]
+    assert e2e.github.pulls == {}

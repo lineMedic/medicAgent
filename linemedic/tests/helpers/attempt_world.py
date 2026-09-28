@@ -47,7 +47,9 @@ class FakeAdapter:
 class World:
     """승인된 work의 시작 댓글이 접수돼 READY인 상태(실제 시작 게이트)."""
 
-    def __init__(self, store, conn, clock, seed, tmp_path, *, baseline=True):
+    def __init__(
+        self, store, conn, clock, seed, tmp_path, *, baseline=True, incident=None, config=CONFIG
+    ):
         mirror, self.base = seed
         self.store, self.conn, self.clock = store, conn, clock
         insert_run(conn, RUN)
@@ -58,10 +60,12 @@ class World:
         self.github = FakeGitHub(REPO_ID, REPO, clock=clock, bot_id=BOT, write_enabled=True)
         issue = self.github.add_issue(title="요청", author_id=200001)
         insert_issue(conn, issue["number"])
-        self.incident_id = insert_incident(conn, RUN, "NEW")
+        self.incident_id = insert_incident(conn, RUN, "NEW", **(incident or {}))
         with store.tx() as tx:
             incident = tx.one("SELECT * FROM incidents WHERE id = ?", (self.incident_id,))
-            mirror_row = tx.one("SELECT * FROM github_issues")
+            mirror_row = tx.one(
+                "SELECT * FROM github_issues WHERE issue_number = ?", (issue["number"],)
+            )
             work, _ = supervisor.ensure_work(tx, incident, mirror_row, authorization={"b": 1})
             supervisor.approve(
                 tx,
@@ -76,7 +80,7 @@ class World:
         OutboxWorker(
             store,
             adapters={"github_comment": GitHubCommentAdapter(self.github)},
-            config=CONFIG,
+            config=config,
             repo=REPO,
             clock=clock,
         ).process_pending()
@@ -93,7 +97,7 @@ class World:
             grace_seconds=0,
             poll_seconds=0.01,
         )
-        self.sup = supervisor.Supervisor(store, config=CONFIG, clock=clock, runtime=self.runtime)
+        self.sup = supervisor.Supervisor(store, config=config, clock=clock, runtime=self.runtime)
 
     def work(self):
         return self.conn.execute(

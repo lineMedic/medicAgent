@@ -9,6 +9,7 @@ attempt가 끝나면 `runs/<run>/traces/<attempt>.json`에 남긴다(같은 파�
 - 시작·끝 시각, attempt 결과 상태
 - sandbox 모드면 identity·정책 hash·effective policy·보호 확인(W15)
 - attempt 전후 규칙 묶음 hash(N10)
+- 초기 사례 검색(mode·snapshot·retrieval·상태·note ID): 사례가 모델 문맥에 들어갔는지(W28, N14)
 prompt 본문·도구 응답 본문·모델의 숨은 사고과정은 남기지 않는다.
 """
 
@@ -23,6 +24,7 @@ from linemedic.control_plane.store import Tx
 TRACE_SCHEMA = "linemedic.attempt-trace.v1"
 TOOL_CALL_EVENT = "TOOL_CALL"
 TOOL_REFUSED_EVENT = "TOOL_CALL_REFUSED"
+MEMORY_TRACE_KEYS = ("mode", "snapshot_id", "retrieval_id", "status", "note_ids")
 
 
 def server_calls(tx: Tx, run_id: str, incident_id: str, attempt_id: str) -> list[dict[str, Any]]:
@@ -69,6 +71,7 @@ def build_trace(
     server: list[dict[str, Any]],
     sandbox: Mapping[str, Any] | None = None,
     rules: Mapping[str, Any] | None = None,
+    memory: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     local = [
         {key: item.get(key) for key in ("tool", "status", "error")}
@@ -100,6 +103,9 @@ def build_trace(
         "tokens": usage_record(result.get("usage")),
         "sandbox": dict(sandbox) if sandbox is not None else None,  # local 모드는 null
         "rules": dict(rules) if rules is not None else None,
+        "memory": (
+            {key: memory.get(key) for key in MEMORY_TRACE_KEYS} if memory is not None else None
+        ),
     }
 
 

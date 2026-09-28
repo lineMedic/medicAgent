@@ -144,6 +144,9 @@ search_engine = "sqlite_fts5"
 top_k = 5
 snippet_max_chars = 2000
 query_max_tokens = 16
+# 초기 사례 검색을 할 수 없을 때(UNAVAILABLE): stop = attempt를 멈춘다(memory 증명이 필요한 run),
+# proceed = history_status=UNAVAILABLE을 표시하고 현재 근거로 진행한다. run manifest에 고정된다(W28).
+on_unavailable = "stop"
 # snapshot_path는 memory_assisted 평가에서만 쓴다. env MEMORY_SNAPSHOT_PATH로 채운다.
 
 [detector]
