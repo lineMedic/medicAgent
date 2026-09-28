@@ -46,14 +46,14 @@ LineMedic은 합성 공장 환경(가상 L3 라인)에서 서버 로그나 등�
 ```text
 $ make setup
 $ make test
-1751 passed, 21 deselected
+1753 passed, 21 deselected
 $ make lint
 All checks passed!
 187 files already formatted
 $ make test-docker            # Docker 필요
-13 passed, 1759 deselected
+13 passed, 1761 deselected
 $ make test-live              # 게이트 전: 실행이 아니라 전부 skip
-8 skipped, 1764 deselected
+8 skipped, 1766 deselected
 $ make doctor                 # 종료 코드 1
 NOT_CONFIGURED  env          [필수] 미설정 변수: LINE_MEDIC_ENV, AGENT_MODE, ...
 NOT_CONFIGURED  github       [필수] 미설정 변수: GITHUB_REPOSITORY, GITHUB_REPOSITORY_ID, GITHUB_BROKER_CREDENTIAL
