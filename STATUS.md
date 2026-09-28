@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62, W20 #63). 다음은 W21(README·제출 초안)의 에이전트 몫과 H03~H07 판단이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W29 전체·G9, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62, W20 #63, W29 #64). 맡긴 목록(W14~W21, H03~H07)의 게이트 없는 부분을 모두 했다. H03~H07은 선행(core 전체 경로 실제 통과) 전이라 착수하지 않았다(NOT_STARTED). 이제 남은 일은 모두 사람 게이트 대기다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W29 전체·G9, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -49,8 +49,8 @@
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
 | 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN). PR #63 리뷰 반영(첫 제안 채점·attempt 사용량 합산): `make test` → 1747 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T04:06Z |
 | 31 | W29 | LIVE_VERIFIED | UNIT_TESTED (자동 회귀 기록·문서 정합성 자동 점검. live S4~S7·S7 비교: BLOCKED_ON_HUMAN 전체 게이트·G9) | `make test` → 1736 passed·1 skipped(W29 테스트 7개: 문서 정합성, 제출 초안 점검은 W21 전 skip), `make test-docker` → 13 passed, `make test-live` → 8 skipped(NOT_CONFIGURED·쓰기 허락 없음), `make lint` → PASS. T-ISS·T-NOT·T-MEM·T-V4·T-STATE-01·T-IDEM-02 표는 W29 중단 보고 | BLOCKED_ON_HUMAN: G2·G10 + 사용자 허락 — S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked 실제 API 각 1회, N15 / G3~G5·G9 — S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍) | 2026-09-28T02:02Z |
-| 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
-| 33 | H03~H07 | UNIT_TESTED | NOT_CHECKED | | core 완료 후 | |
+| 32 | W21 | LIVE_VERIFIED | UNIT_TESTED (에이전트 몫: README·제출 초안·점검, 금지 문구 자동 점검 PASS. 녹화·제출: BLOCKED_ON_HUMAN 사람) | `README.md` 다시 씀, `docs/14-submission-draft.md`(새: 신청서 초안·영상 구성표·제출 전 점검 결과), `make test` → 1737 passed(README·초안 금지 문구 점검 포함), `make lint` → PASS | BLOCKED_ON_HUMAN: 선행 W20·W29의 실제 결과(전체 게이트), G6 답변(R1~R5) / 사람 — 영상 녹화·편집, 저장소 공개 범위, 신청서 입력·팀원 전원 개별 제출, 제출 시각 기록 | 2026-09-28T02:06Z |
+| 33 | H03~H07 | UNIT_TESTED | NOT_STARTED | 선행 확인: core 전체 경로의 실제 통과(V4-CP5 증거)가 없다. 카드 규칙상 착수하지 않았다 | 선행: core 완료(모든 core 카드 목표 상태) | 2026-09-28T02:06Z |
 
 ## 사람 게이트
 
@@ -143,6 +143,43 @@
 - 테스트: `integration/test_attempts.py`에 `test_no_retry_when_the_server_already_accepted_a_submission`(제출 접수 → VALIDATING), `test_no_retry_after_a_server_recorded_submit_call`(사건은 조사 중, 제출 호출 기록만 있음) 추가. 수정 전 두 테스트 모두 FAIL(2 == 1), 수정 뒤 PASS
 - 실행: `make test` → 1679 passed, 20 deselected / `make lint` → PASS (로컬 개발 Mac, fake). 모델·GitHub 호출 없음
 - 남은 일: 없음(이 지적 범위). runtime adapter·live는 기존대로 G3·G4 대기. 이 수정은 아래 stack(#59~#65)에 병합이 필요하다
+
+### H03~H07 판단 — 착수하지 않음 (2026-09-28T02:06Z)
+
+- 상태: NOT_STARTED
+- 판단: 카드 규칙이 "core가 하나라도 미완료면 hardening에 착수하지 않는다"이고, 선행은 core 전체 경로의 실제 통과(V4-CP5 증거)다. 지금 목표가 `LIVE_VERIFIED`인 core 카드가 모두 게이트 대기라 선행을 충족하지 않는다
+- 사용자가 W14~H07을 맡겼지만, 게이트 없는 부분만 하라는 범위였고 이 카드는 규칙상 선행 전 착수가 금지다. 구현하지 않았다
+- 지금 hardening 없이 공개할 때의 문구(카드 표 그대로): H03 "core의 '스트림 읽기 성공 + container 불변' 기준만 적용", H04 "사람이 `make reconcile`로 확인하는 절차만 있음", H05 "레시피 파일 경로·커밋만 기록", H06 "실행한 테스트 ID만 보고", H07 "core 화면만 공개"
+- 관련: docs/09의 hardening 시험 ID(T-EXEC-02·T-VERIFY-03)가 없는 것은 W29 문서 정합성 점검이 예외로 둔다
+- 재개 조건: core 전체 경로가 실제로 통과한 뒤(V4-CP5 증거 확보 후)
+
+### W21 중단 보고 — README·제출 초안·점검 완료, 녹화·제출은 사람 (2026-09-28T02:06Z)
+
+- 상태: UNIT_TESTED (에이전트 몫: README·신청서/영상 초안·제출 전 점검, 금지 문구 자동 점검 PASS. 녹화·편집·제출: BLOCKED_ON_HUMAN 사람, 그리고 선행 W20·W29의 실제 결과)
+- 착수 근거: 선행 W20·W29(목표 상태)가 게이트 대기다. 카드가 에이전트에게 맡긴 초안·점검만 했다. 제출·게시는 하지 않았다
+- 변경 파일:
+  - `README.md`: 제출용으로 다시 썼다
+    - 제품 정의, 현재 상태(live 검증 전), 구현 범위와 확인 수준, 아직 없는 것
+    - 재현: 실제 환경·image ID·lockfile·설정 template, 실제 명령 출력
+    - 외부 서비스 단계(사람 게이트), NVIDIA 기술(아직 호출 없음, 계획만), 평가·시험 결과와 한계, 문서 안내
+  - `docs/14-submission-draft.md`(새)
+    - 신청서 초안: 구현·로컬 확인이 있는 문장만 남기고 뺀 문장과 다시 넣을 조건을 표로 둔다
+    - Tech Stack은 실제로 쓴 것만(NVIDIA 없음)
+    - 영상 구성표: 장면마다 필요한 실제 run과 지금 상태(모두 NOT_RUN), 편집 규칙
+    - 제출 전 점검 15개의 결과
+- 실행 (로컬 개발 Mac):
+  - `make test` → 1737 passed / `make lint` → PASS / `make test-docker` → 13 passed / `make test-live` → 8 skipped(게이트 전)
+  - `unit/test_docs_consistency.py`가 README와 제출 초안에 docs/11 §4 금지 문구가 없음을 본다(PASS)
+- 제출 전 점검 결과(초안 기준): 충족 10, 부분 1(case snapshot·분모는 S7 run 뒤), 미확인 3(R1·R2, R1~R5 보존, 영상 길이·공개·개별 제출 — G6 대기), 실제 run 없음 1(Issue·receipt·attempt·PR·검사 연결)
+- 수용 기준: 제출물이 실제로 실행하고 증거가 있는 것만 주장한다 — 초안 기준 충족. 평가 결과가 없어 결과 주장이 없다. 실제 제출: NOT_RUN(사람)
+- 작업 중 발견:
+  - 이전 README는 "코드 없음"이라고 적혀 있어 실제와 달랐다
+  - `AGENTS.md`의 문서 표는 docs를 "통합 참조 00~13"이라고 적는다. `docs/14`(제출 초안)가 생겼지만 AGENTS.md는 사람 요청 시에만 고치므로 손대지 않았다(팀 확인 필요)
+- 남은 일·위험(사람):
+  - 실제 평가 run(W20·W29) 뒤 README의 결과 표·신청서 문장·영상 구성표를 실제 run ID와 결과로 다시 쓴다
+  - 영상 녹화·편집, 저장소 공개 범위, 신청서 입력, **팀원 전원 개별 제출**, 제출 시각 기록
+  - R1~R5(G6) 답변을 받으면 점검 목록의 미확인 3개를 다시 본다
+- 다음 카드: 맡긴 목록 끝. 남은 일은 모두 사람 게이트 대기다
 
 ### W29 중단 보고 — 자동 회귀·문서 정합성 완료, live S4~S7·S7 비교 대기 (2026-09-28T02:02Z)
 
