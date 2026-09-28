@@ -1168,15 +1168,20 @@ def _run_archive(
         replay = _begun(started)
         if replay is not None:
             return replay
-    result = runs.archive(
-        ctx.store,
-        run_id,
-        runs_dir=ctx.runs_dir,
-        clock=ctx.clock,
-        principal=operator.scope,
-        clean=False,  # API는 지우지 않는다(정리는 host CLI make reset)
-        terms=eval_identifiers(),
-    )
+    try:
+        result = runs.archive(
+            ctx.store,
+            run_id,
+            runs_dir=ctx.runs_dir,
+            clock=ctx.clock,
+            principal=operator.scope,
+            clean=False,  # API는 지우지 않는다(정리는 host CLI make reset)
+            terms=eval_identifiers(),
+        )
+    except runs.RunError as exc:  # 배포 lock 등: 아무것도 하지 않았다. 같은 키로 다시 보낼 수 있다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise ApiError("STATE_CONFLICT", {"reason": exc.code, **exc.details}) from None
     data = {
         "run_id": run_id,
         "intake_stopped": result["intake_stopped"],
