@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W12** ([tasks/W12-exact-release.md](tasks/W12-exact-release.md), 사람이 승인한 exact SHA 배포와 업무 검증 연결 — 선행 W05·W11(fake) 충족. 사전 검사·배포 로직은 fake/docker로 UNIT_TESTED까지, 실제 승인 배포는 G7·G8). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W27** ([tasks/W27-case-memory.md](tasks/W27-case-memory.md), 사례 기억: case builder·outcome·FTS5 검색·snapshot — 자율성 A, 선행 W05·W06·W07 충족, 목표 UNIT_TESTED). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -37,8 +37,8 @@
 | 17 | W26 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1098 passed(W26 테스트 31개: 알림 25, 시작 게이트 6), `make lint` → PASS, `make test-live` → N12 1 skipped(쓰기 허락 표시 없음), 변이 24개 모두 테스트 실패로 잡힘, live 시험 흐름을 FakeGitHub로 한 번 따라 실행. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential / G10 + 사용자 허락 — `write_enabled = true`, `LINEMEDIC_CONFIRM_GITHUB_WRITE=1`, `LINEMEDIC_LIVE_NOTIFY_ISSUE=<open Issue 번호>`로 `make test-live` 1회 → `evidence/N12-notification-route.md`(시작 댓글·S6 차단 댓글·강제 timeout 조정·미전송). SMTP는 G12 선택 시에만 | 2026-09-27T11:22Z |
 | 18 | W10 | UNIT_TESTED | UNIT_TESTED | `make test` → 1293 passed(W10 테스트 195개: 정책 98, 판정 54, runner 단계 13, 게이트·브로커 30), `make test-docker` → 11 passed(W10 실제 컨테이너 7개: R0/R1/R2·비재현·회귀·timeout·OOM·N06 격리), `make lint` → PASS, 변이 79개 중 78개가 테스트 실패로 잡힘(1개는 동등 변이), `evidence/N06-runner-isolation.md`(로컬 개발 Mac) | | 2026-09-27T12:25Z |
 | 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1389 passed(Python 3.12·3.14 모두, #49·#50 병합 뒤 main 병합 기준. 리뷰 반영 `29c19ed` 직후는 3.12 1381 passed. W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2 + 리뷰 반영 14개), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음. PR #51 리뷰 반영(R1 실패 요약·에이전트 문장 Issue 참조 무력화) 뒤: Python 3.14.7 1380 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), ruff PASS, `test_runner_docker.py` 7 passed | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T14:01Z |
-| 20 | W12 | LIVE_VERIFIED | NOT_CHECKED | | G7·G8 | |
-| 21 | W13 | LIVE_VERIFIED | NOT_CHECKED | | G2·G7·G8·G10 | |
+| 20 | W12 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8) | `make test` → 1462 passed(W12 테스트 81개: 배포 58, fetch 8, docker 포트 6, verifier 저장 4, 알림 3, GitHub 포트 2), main(#49·#50) 병합 뒤 1470 passed, `make test-docker` → 12 passed(W12 실제 배포 1개: fixture commit R0~R2·신뢰 레시피 빌드·image ID 기동·inspect = execution 기록·60초 PASS·복원 절차), `make lint` → PASS, 변이 51개 모두 테스트 실패로 잡힘(처음 살아남은 5개는 테스트를 보강한 뒤 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2·G10 뒤 W13 실제 run에서 G7 — 사람이 봇 PR을 리뷰·squash 머지 / G8 — 사람이 `make approve-release`를 직접 실행 / 확인: `GET /ops/executions/<id>`의 identity chain(PR·merge SHA·tree·image·container·verification·contract hash)이 채워짐 | 2026-09-27T14:57Z |
+| 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1513 passed(PR #53 리뷰 반영 뒤. W13 테스트 43개: attempt 16, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2, 시작 게이트 시간 강제 3, 배포 lock 중 주입 거부 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T21:15Z |
 | 22 | W27 | UNIT_TESTED | NOT_CHECKED | | | |
 | 23 | W14 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4 | |
 | 24 | W15 | LIVE_VERIFIED | NOT_CHECKED | | G5·G7·G8 | |
@@ -100,6 +100,24 @@
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
 
+### W13 리뷰 반영 (카드 밖, 2026-09-27T21:15Z)
+
+- 계기: PR #53 리뷰(수정 요청). attempt가 도는 동안 supervisor 루프가 멈춰 다른 work의 60초 시작 게이트가 지나갔다. 늦게 보낸 "작업 시작 예정" 댓글, 늦은 receipt → READY → attempt가 발생했다. 같은 PR #57 리뷰에서 넘어온 "배포 lock 중 장애 주입 거부"를 함께 반영했다
+- 변경 파일:
+  - `linemedic/control_plane/supervisor.py`
+    - `start_wait_exceeded`(알림 `created_at` 기준) 추가
+    - `on_start_notice_accepted`는 대기 시간이 지난 receipt를 READY로 올리지 않는다(`LATE_START_RECEIPT` reason `start_wait_exceeded`)
+    - `expire_start_notices`는 ACCEPTED인데 아직 알림 대기인 work도 멈춘다
+  - `linemedic/control_plane/notifications/worker.py`: 대기 시간이 지난 PENDING 시작 알림은 보내지 않고 `FAILED(expired_before_send)`. receipt 저장 때 대기 시간을 넘긴다
+  - `linemedic/cli.py`: `scenario-s1`·`scenario-s2-lite`는 배포 lock(`release.lock_holder`)이 있으면 exit 2와 `make reconcile` 안내를 낸다
+  - 테스트: `integration/test_start_gate.py`(+3), `integration/test_attempts.py`(+2, 리뷰 재현: 늦게 발송·늦게 FOUND), `integration/test_release_checks.py`(+2)
+  - 기록: DECISIONS D83 ⑥, ADR 요약, 이 보고, W13 행
+- 실행 (로컬 개발 Mac, Python 3.14.7, mock):
+  - 새 테스트 7개는 수정 전 코드에서 모두 실패했다(B READY, 시작 알림 발송, 주입 진행)
+  - `make test`에 해당하는 fake 전체 → 1513 passed / ruff check·format → PASS
+  - docker 경로는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
+- 남은 일: 없음(이 수정 범위). #55·#56·#57 브랜치는 옛 #53 head 위에 있어 이 커밋을 병합으로 받아야 한다
+
 ### W26 조정 CLI 멱등 키 수정 (카드 밖, 2026-09-27T16:45Z)
 
 - 계기: W11 완료 보고의 작업 중 발견 — `make notification-reconcile`의 멱등 키가 알림 ID로 고정돼 INCONCLUSIVE 뒤 다시 부르면 저장된 옛 응답이 돌아왔다. W27 진행 중 main에서 따로 고쳤다
@@ -112,6 +130,89 @@
   - 새 테스트 `test_cli_notification_reconcile_retries_after_inconclusive`(첫 조정 댓글 조회 timeout → INCONCLUSIVE → 두 번째 호출이 새 키로 FOUND·ACCEPTED, 댓글 1개 유지)가 수정 전 CLI에서 실패하는 것을 먼저 확인했다. `test_ops_get_notification` 추가
 - 판단: D79 ⑨ 추가, ADR 요약·docs/04 API 표·tasks/W26 만들 파일 갱신(카드는 AGENTS.md 공개 계약 규칙에 따라 후속 커밋으로)
 - 남은 일: 없음. W26 상태(live G2·G10 대기)는 바꾸지 않는다
+
+### W13 중단 보고 — live 부분 G2·G7·G8·G10 대기 (2026-09-27T15:54Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10). FakeGitHub·FakeDocker·로컬 git 원격과 실제 SQLite·git로 전체 경로를 한 번 통과했고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/agent/adapter.py`(새): `AgentAdapter.run_agent(…, *, credential)` 계약, `AttemptResult`, `ScriptedAdapter`(사람 제안 제출·결정 조회), `/tools` HTTP client
+  - `linemedic/eval/manual_proposals/s1_manual.json`(새): S1 재현 테스트 + 최소 수정(사람 제안, eval 폴더에만)
+  - `linemedic/control_plane/supervisor.py`: `AttemptRuntime`, `run_ready`·`run_attempt`(게이트 뒤 workspace·context·token → adapter thread·deadline → token 폐기·`ATTEMPT_FINISHED`), 결과별 attempt 종료, `expire_attempts`·`recover_attempts`, `ATTEMPT_STARTED`에 adapter·origin
+  - `linemedic/control_plane/broker/candidate.py`: `prepare_workspace`(base 파일만, 이력 없음)
+  - `linemedic/control_plane/attempts.py`(새): attempt origin 조회 / `broker/github_pr.py`·`intake.py`: 사람 제안이면 PR 본문에 출처를 밝힘 / `release.py`: 배포 검증 origin을 attempt 기록에서
+  - `linemedic/control_plane/main.py`(새): `build_control_plane`·`ControlPlane`(루프·`step()`·기동 복구), 신호 처리, pid 파일, `start`·`stop` / `issue_router.py`: `recover`(CREATE_ISSUE INTENDED → UNKNOWN)
+  - `linemedic/cli.py`·`Makefile`: `make start RUN_ID=`, `make stop RUN_ID=`
+  - 테스트: `integration/test_e2e_fake.py`(2), `integration/test_attempts.py`(14), `integration/test_control_plane.py`(8), `unit/test_agent_adapter.py`(10), `test_github_pr.py`·`test_release_checks.py`(+1씩)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1506 passed / `make lint` → PASS / `make test-docker` → 12 passed
+  - fake E2E(`make start`와 같은 조립): S1 로그 3줄 → 사건 1개 → router가 Issue 생성·work WAITING_APPROVAL → 운영 API 승인 → 시작 댓글 ACCEPTED → READY → attempt(workspace·token) → ScriptedAdapter 제안 → 게이트 R0·R1·R2 → 봇 PR(본문에 사람 제안 출처) → PR_READY 댓글 → 사람 리뷰·squash 머지 흉내 → `POST /ops/releases` → 배포·검증 PASS → RESOLVED·SUCCEEDED → 결과 댓글. Issue 댓글 3개(시작·PR 준비·복구 확인), token 폐기, verification origin manual_integration
+  - 실제 프로세스: 빈 포트 설정으로 `linemedic.cli start` → Control API가 operator token에 404·token 없음에 401 → `linemedic.cli stop`(SIGTERM) → 종료 코드 0·pid 파일 삭제. GitHub 설정이 없으면 GitHub 기능만 꺼진 채 뜬다
+  - 변이 확인 24개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다). 처음 살아남은 1개(제안 파일 전체 전달 — 실제 파일에 schema 밖 action 필드가 없어 드러나지 않음)는 테스트를 보강했다
+    - adapter: base SHA 미기입, 제안 파일 전체 전달, 멱등 키 고정, 404를 오류로, client 미종료, 근거 없이 제출
+    - supervisor: 조사 중 판정, 거절 코드, token 폐기, context의 token, origin 기록, deadline 대기·만료, 끝난 뒤 조사 복귀
+    - 기동·종료: attempt 이관·CREATE_ISSUE 복구, 신호 처리기, pid 덮어쓰기, CLI 종료 코드 / origin: PR 본문 표시, 배포 origin, 기본값 / router 복구 전이, workspace 사본 정리
+- 수용 기준:
+  - fake E2E에서 시작 receipt 시각 < attempt 시작 시각: PASS
+  - fake E2E에서 모든 결합 전이가 docs/03 §3 표와 일치(incident NEW → INVESTIGATING → VALIDATING → PR_OPENED → DEPLOYING → VERIFYING → RESOLVED, work WAITING_APPROVAL → … → SUCCEEDED): PASS
+  - verification·PR 본문의 origin이 `manual_integration`, 에이전트 성과 집계 제외: PASS
+  - 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID가 run-record에 연결: NOT_RUN (G2·G7·G8·G10)
+- 판단: D83(adapter 계약·credential 키워드, attempt 실행·종료 규칙·deadline 강제, origin 표시, make start 조립·루프·기동 복구, 신호·pid·make stop)
+- 증거: 커밋은 이 보고를 포함한 W13 커밋. 실제 통합 run 기록은 게이트 전이라 없다
+- 작업 중 발견:
+  - uvicorn은 종료 뒤 받은 신호를 다시 올려 기본 처리기로 프로세스를 끝낸다. 그러면 루프 정지·pid 파일 삭제를 건너뛰어, 정지 표시만 하는 처리기를 먼저 두었다(실제 프로세스 시험이 잡음)
+  - CREATE_ISSUE의 재시작 복구(INTENDED → UNKNOWN)가 없어 `IssueRouter.recover`를 더했다(docs/03 §10)
+  - W11 PR 본문의 "원인 가설(에이전트 판단)"은 사람 제안에 맞지 않아 attempt origin으로 바꿔 쓴다
+- 남은 일·위험:
+  - 실제 통합 run: `make run-new` → `make start` → `make scenario-s1` → Issue 연결 → `make approve-work` → 시작 댓글 확인 → 봇 PR → **사람** 리뷰·머지(G7) → **사람** `make approve-release`(G8) → 결과 댓글 → `runs/<run>/run-record.md`. 필요한 준비: 시드 push·`baseline/<run>`(W03·W19), 신뢰 mirror(`runs/mirror/l3-mes-api.git`), `RUNNER_IMAGE_ID`
+  - 로그 감지는 2초 주기 재조회라 최대 2초 늦다. 한 번에 attempt 하나다. 멈춘 adapter thread는 daemon으로 남을 수 있다(token은 폐기, D83 대가)
+  - 실제 에이전트 adapter는 W14(G3·G4)
+- 다음 카드: W27 (사례 기억, 자율성 A)
+
+### W12 중단 보고 — live 부분 G7·G8 대기 (2026-09-27T14:57Z)
+
+- 상태: UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8). FakeGitHub·실제 git(seed mirror·로컬 원격·squash merge)·FakeDocker와 실제 Docker로 끝냈고, GitHub에는 읽지도 쓰지도 않았다
+- 변경 파일:
+  - `linemedic/control_plane/release.py`(새): `ReleaseExecutor`
+    - 사전 검사 1~7(같은 논리 키 먼저, DB 조건 → catalog → GitHub merged·merge SHA·PR head·사람 리뷰·merge tree → 지금 MES image), 외부 관찰 뒤 거부 감사 기록
+    - INTENDED 트랜잭션(DEPLOYING·WAITING_VERIFICATION·run 배포 lock), 백그라운드 dispatch
+    - 실행: merge commit 하나만 fetch → base·repro·final tree(mirror에서 tree 재확인) → R0·R1·R2 → `mes.Dockerfile` 빌드 → 이전 container 확인·복원 절차 → image ID 기동 → inspect → VERIFYING·verification RUNNING → 신뢰 prober 검증 → 저장·lock 해제
+    - 실패(FAILED·ESCALATED/BLOCKED·`NOT_DEPLOYED` 알림, 환경 확인), UNKNOWN(timeout·inspect 불일치), DEPLOY 조정, 재시작 복구, identity chain
+  - `linemedic/integrations/git_fetch.py`(새): `GitFetcher`(exact SHA만, W11 push와 같은 credential·protocol 제한)·`LocalOnlyFetcher`
+  - `broker/candidate.py`: `prepare_release_trees`, 공통 git helper 분리 / `broker/patch_gate.py`: `run_protected_stages`(R0→R1→R2)를 게이트·배포가 같이 쓴다
+  - `verifier.py`: 신뢰 prober helper(harness에서 이동), `register_running`, RUNNING 행을 최종 판정으로 바꾸는 `persist_result`, `unfinished_result`
+  - `integrations/github.py`: PR 리뷰·commit tree·branch ruleset 조회, FakeGitHub 사람 리뷰·squash 머지 흉내 / `integrations/docker.py`: `container_exists`(없음과 조회 실패 구분)·`image_inspect`, Fake 라벨·network·mount·장애 주입 / `integrations/git_push.py`: askpass·protocol helper 공유
+  - `ops_api.py`·`app.py`: `POST /ops/releases`(approve 역할·멱등·202), DEPLOY면 `GET /ops/executions/{id}`에 identity chain, `AppContext.release_executor` / `broker/reconcile.py`: DEPLOY 분기
+  - `linemedic/cli.py`·`Makefile`: `make approve-release RUN_ID= INCIDENT_ID= WORK_ID= PR_NUMBER= MERGE_SHA= EXPECTED_IMAGE_ID=`(spec 11 §5 체크리스트, 터미널에서 `approve` 입력, `--yes` 없음)
+  - `notifications/templates.py`: `NOT_DEPLOYED` 복구 미확인 문구 / `factory_sim/scenarios.py`·`negative/harness.py`: 계약 데이터 준비 공유
+  - 테스트: `integration/test_release_checks.py`(58), `integration/test_release_docker.py`(docker 1), `unit/test_git_fetch.py`(8), `unit/test_docker_port.py`(6), `integration/test_verifier_persist.py`(+4), `integration/test_notifications.py`(+3), `unit/test_github_port.py`(+2), 도우미 `helpers/release_world.py`. W11 dispatch 테스트는 DEPLOY가 release executor로 가도록 기대값을 고쳤다
+- 실행 (로컬 개발 Mac, Docker 28.1.1 — 데모 호스트 아님):
+  - `make test` → 1462 passed, 19 deselected / `make lint` → PASS / `make test-docker` → 12 passed
+  - 실제 배포 시험: 고정 runner image로 R0·R1·R2 PASS → 신뢰 레시피로 final tree만 빌드 → image ID로 기동 → `docker inspect`의 image ID·container ID·라벨·read-only·network = execution 기록 → 60초 관찰 PASS(RESOLVED) → 기록한 복원 절차를 실행하면 이전 image의 MES가 다시 뜸. 남은 container·network 없음
+  - 변이 확인 51개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다). 처음 실행에서 5개가 살아남아 테스트를 보강했다: 사건 version·lock 사전 확인(트랜잭션 재확인에 가려짐 → 외부 조회 전에 거부하는지 확인), t0 전 identity 확인, fetch 성공 응답 뒤 commit 확인, RUNNING 행 run·origin 확인
+    - 사전 검사: merged·merge SHA·PR head·merge tree·지금 image·runtime 없음·docker 조회 실패, 봇 리뷰 제외·리뷰 commit·마지막 결정 리뷰·승인 없음, 기존 논리 키, version·PR 번호·lock, 거부 감사
+    - 실행: lock 획득·해제, fetch 실패, mirror tree 재확인, 재검사 결과, repo Dockerfile 빌드, 태그로 기동, 다른 운영자 변경, stop 실패, 기동 timeout, inspect 확인, 환경 확인, 실패 알림·계약 ID·복원 명령 제외, 검증 origin, t0 identity, 재발 signature
+    - 조정·재시작: FOUND 기준, 조회 실패, 없음·충돌 이관, 검증 닫기, UNKNOWN 전이
+    - fetch·git·docker·API·CLI·알림: 있는 commit 재fetch, protocol 제한, fetch 뒤 확인, merge 없음·새 테스트 없음, 없음 분류, 거부 뒤 멱등 기록, approve 역할, `approve` 입력·비대화 거부, NOT_DEPLOYED 문구, RUNNING 행 확인
+- 수용 기준:
+  - T-SOURCE-01: 검사 뒤 PR head가 바뀜 → 배포 거부(SOURCE_CHANGED head_changed): PASS
+  - T-SOURCE-02: 최종 tree ≠ candidate tree(사람 추가 수정) → 거부, 기존 검사 무효 기록(`candidate_checks_invalidated`), GitHub가 맞다고 해도 mirror tree가 다르면 배포 안 함: PASS
+  - T-SOURCE-03: unmerged PR(test merge SHA) → STATE_CONFLICT, 최종이 아닌 SHA → SOURCE_CHANGED: PASS
+  - T-AUTH-01: agent token·approve 역할 없는 operator로 `/ops/releases` → 403, GitHub·docker 호출 0: PASS
+  - `expected_current_image_id` 불일치 → 409 `SOURCE_CHANGED`: PASS
+  - 같은 승인 재전송 → 같은 execution(같은 키는 같은 응답, 다른 키는 reused), 빌드·기동 1회: PASS
+  - docker: fixture commit으로 빌드·기동 후 inspect한 image ID가 execution 기록과 같다: PASS
+  - live(G7·G8): 사람이 머지·승인한 실제 PR로 identity chain 전체가 기록된다: NOT_RUN (G2·G10 뒤 W13 실제 run)
+- 판단: D82(사전 검사 순서·코드, 리뷰 판정, 최신 변경 승인 기록, INTENDED·lock, 실행·재검사·빌드·기동, local image ID, 실패·환경·복원 절차, DEPLOY 조정, 재시작, 운영 API·CLI)
+- 증거: 커밋은 이 보고를 포함한 W12 커밋. live 배포 기록은 실제 실행 전이라 없다
+- 작업 중 발견:
+  - containerd 이미지 저장소(Docker Desktop)는 로컬 빌드에도 `RepoDigests`를 보고한다. spec 08 §2의 "registry digest를 만든 것처럼 기재하지 않는다"에 맞춰 identity는 `local_image_id`로 두고 보고값은 `reported_repo_digests`로만 남겼다
+  - PR #51의 리뷰 반영 커밋(`29c19ed`·`4bfb405`)을 fast-forward로 받은 뒤 W12를 올렸다. DECISIONS·ADR은 양쪽을 모두 남겼다
+- 남은 일·위험:
+  - live: W13 실제 run에서 사람이 리뷰·머지(G7)하고 `make approve-release`(G8)를 직접 실행한다. identity chain을 run 기록에 남긴다
+  - W13: `make start`에서 `ReleaseExecutor`·`GitFetcher`(원격 URL·봇 credential)를 연결하고 기동 때 `recover()`를 부른다. W19 reset·W13 장애 주입은 배포 lock(`release.lock_holder`)을 확인한다
+  - 배포 중 API 프로세스가 죽으면 UNKNOWN이 되어 운영자 조정이 필요하다. 이전 container 제거와 새 기동 사이 짧은 중단이 있다(무중단 배포 아님, D82 대가)
+  - `build_recipe_sha256`은 H05다(지금은 레시피 경로·파일 hash·저장소 commit)
+- 다음 카드: W13 (fake 부분: `make start`·adapter·ScriptedAdapter·fake E2E)
 
 ### W11 리뷰 반영 (카드 밖, 2026-09-27T14:01Z)
 
@@ -174,6 +275,7 @@
   - push 전송 오류는 모두 UNKNOWN으로 봐 운영자 조정이 늘 수 있다(D81 대가). 브랜치만 남은 경우는 사람이 정리한다
   - 자동 bounded 재조회는 H04다
 - 다음 카드: W12 (fake·docker 부분)
+
 ### W10 리뷰 반영 (카드 밖, 2026-09-27T13:00Z)
 
 - 계기: PR #50 리뷰(CHANGES_REQUESTED) — 실제 Docker에서 재현된 운영 안전 문제 2건

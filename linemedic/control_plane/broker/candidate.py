@@ -15,11 +15,18 @@
 
 git 호출은 고정 argv다. 사용자·시스템 설정·hook·credential·prompt 없이 local file protocol만
 허용한다. 환경 문제(git 없음·mirror에 base 없음 등)는 `CandidateError`, 패치 문제는 `PatchDenied`다.
+
+`prepare_release_trees`(W12)는 사람이 승인한 merge commit 하나를 같은 방식의 버리는 사본에서 꺼내
+base·repro·final tree를 만든다(최신 branch를 고르지 않는다). 배포 재검사와 MES 빌드 context에 쓴다.
+
+`prepare_workspace`(W13)는 attempt의 쓰기 가능한 작업 사본을 만든다. base commit의 파일만 풀고
+git 이력·hook·원격 설정은 넣지 않는다(spec 05 §3).
 """
 
 import io
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 from collections.abc import Mapping
@@ -132,6 +139,74 @@ def _extract(archive: bytes, dest: Path) -> None:
         raise CandidateError("archive_unsafe") from None
 
 
+def _clone(mirror: Path, workdir: Path) -> tuple[Path, Path]:
+    """`workdir`(없는 새 경로)에 mirror의 bare 사본을 만든다. (repo.git, git HOME)."""
+    if not (mirror / "HEAD").is_file():
+        raise CandidateError("mirror_missing")
+    workdir.mkdir(parents=True)
+    home = workdir / "home"
+    home.mkdir()
+    repo = workdir / "repo.git"
+    try:
+        _git(
+            [
+                "clone",
+                "--bare",
+                "--no-hardlinks",
+                "--template=",
+                "--quiet",
+                "--",
+                str(mirror),
+                str(repo),
+            ],
+            home=home,
+        )
+    except _GitFailed:
+        raise CandidateError("clone_failed") from None
+    return repo, home
+
+
+def _has_commit(repo: Path, home: Path, sha: str) -> bool:
+    try:
+        _git(["cat-file", "-e", f"{sha}^{{commit}}"], home=home, git_dir=repo)
+    except _GitFailed:
+        return False
+    return True
+
+
+def _tree_of(repo: Path, home: Path, sha: str) -> str:
+    return _git(["rev-parse", f"{sha}^{{tree}}"], home=home, git_dir=repo).decode().strip()
+
+
+def _repro_tree(
+    repo: Path, home: Path, workdir: Path, base_sha: str, new_test_blob: str, new_test_path: str
+) -> str:
+    """R1용 tree: base에 새 테스트 blob 하나만 더한다(업무 파일은 base 그대로)."""
+    index = {"GIT_INDEX_FILE": str(workdir / "repro.index")}
+    _git(["read-tree", base_sha], home=home, git_dir=repo, env=index)
+    _git(
+        [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"{REGULAR_FILE_MODE},{new_test_blob},{new_test_path}",
+        ],
+        home=home,
+        git_dir=repo,
+        env=index,
+    )
+    return _git(["write-tree"], home=home, git_dir=repo, env=index).decode().strip()
+
+
+def _export(repo: Path, home: Path, workdir: Path, trees: Mapping[str, str]) -> dict[str, Path]:
+    extracted = {}
+    for name, tree in trees.items():
+        archive = _git(["archive", "--format=tar", tree], home=home, git_dir=repo)
+        extracted[name] = workdir / "trees" / name
+        _extract(archive, extracted[name])
+    return extracted
+
+
 @dataclass(frozen=True)
 class Candidate:
     base_sha: str
@@ -171,32 +246,9 @@ def build_candidate(
     """
     if not _OBJECT_ID.fullmatch(base_sha):
         raise CandidateError("invalid_base_sha")
-    if not (mirror / "HEAD").is_file():
-        raise CandidateError("mirror_missing")
-    workdir.mkdir(parents=True)
-    home = workdir / "home"
-    home.mkdir()
-    repo = workdir / "repo.git"
-    try:
-        _git(
-            [
-                "clone",
-                "--bare",
-                "--no-hardlinks",
-                "--template=",
-                "--quiet",
-                "--",
-                str(mirror),
-                str(repo),
-            ],
-            home=home,
-        )
-    except _GitFailed:
-        raise CandidateError("clone_failed") from None
-    try:
-        _git(["cat-file", "-e", f"{base_sha}^{{commit}}"], home=home, git_dir=repo)
-    except _GitFailed:
-        raise CandidateError("base_not_in_mirror") from None
+    repo, home = _clone(mirror, workdir)
+    if not _has_commit(repo, home, base_sha):
+        raise CandidateError("base_not_in_mirror")
     try:
         return _build(repo, home, workdir, base_sha, diff, plan, rules, proposal_id, committed_at)
     except _GitFailed as exc:
@@ -214,9 +266,7 @@ def _build(
     proposal_id: str,
     committed_at: str,
 ) -> Candidate:
-    base_tree = (
-        _git(["rev-parse", f"{base_sha}^{{tree}}"], home=home, git_dir=repo).decode().strip()
-    )
+    base_tree = _tree_of(repo, home, base_sha)
     patch = workdir / "proposal.patch"
     patch.write_bytes(diff.encode("utf-8") + (b"" if diff.endswith("\n") else b"\n"))
     index = {"GIT_INDEX_FILE": str(workdir / "candidate.index")}
@@ -258,27 +308,11 @@ def _build(
         .strip()
     )
 
-    repro_index = {"GIT_INDEX_FILE": str(workdir / "repro.index")}
     new_test_blob = after[plan.new_test_path][2]
-    _git(["read-tree", base_sha], home=home, git_dir=repo, env=repro_index)
-    _git(
-        [
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            f"{REGULAR_FILE_MODE},{new_test_blob},{plan.new_test_path}",
-        ],
-        home=home,
-        git_dir=repo,
-        env=repro_index,
+    repro_tree = _repro_tree(repo, home, workdir, base_sha, new_test_blob, plan.new_test_path)
+    trees = _export(
+        repo, home, workdir, {"base": base_tree, "repro": repro_tree, "candidate": candidate_tree}
     )
-    repro_tree = _git(["write-tree"], home=home, git_dir=repo, env=repro_index).decode().strip()
-
-    trees = {}
-    for name, tree in (("base", base_tree), ("repro", repro_tree), ("candidate", candidate_tree)):
-        archive = _git(["archive", "--format=tar", tree], home=home, git_dir=repo)
-        trees[name] = workdir / "trees" / name
-        _extract(archive, trees[name])
     return Candidate(
         base_sha=base_sha,
         base_tree=base_tree,
@@ -289,3 +323,91 @@ def _build(
         workdir=workdir,
         trees=trees,
     )
+
+
+# ── 배포 재검사용 tree (W12) ─────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ReleaseTrees:
+    base_sha: str
+    base_tree: str
+    merge_sha: str
+    final_tree: str
+    repro_tree: str
+    workdir: Path
+    trees: Mapping[str, Path] = field(default_factory=dict)  # base·repro·final 추출 경로
+
+    def record(self) -> dict[str, Any]:
+        return {
+            "base_sha": self.base_sha,
+            "base_tree": self.base_tree,
+            "approved_merge_sha": self.merge_sha,
+            "approved_tree": self.final_tree,
+            "repro_tree": self.repro_tree,
+        }
+
+
+def prepare_release_trees(
+    *, mirror: Path, workdir: Path, base_sha: str, merge_sha: str, new_test_path: str
+) -> ReleaseTrees:
+    """승인한 `merge_sha` commit 하나를 버리는 bare 사본에서 꺼낸다.
+
+    - branch·main의 최신 상태를 보지 않는다. mirror에 그 commit이 없으면 `merge_not_in_mirror`
+    - final = merge commit의 tree, repro = base + final tree의 새 테스트 blob
+    - base·repro·final을 안전 추출해 R0·R1·R2와 MES 빌드 context로 쓴다(repo의 hook·설정 없음)
+    """
+    if not _OBJECT_ID.fullmatch(base_sha) or not _OBJECT_ID.fullmatch(merge_sha):
+        raise CandidateError("invalid_sha")
+    repo, home = _clone(mirror, workdir)
+    if not _has_commit(repo, home, merge_sha):
+        raise CandidateError("merge_not_in_mirror")
+    if not _has_commit(repo, home, base_sha):
+        raise CandidateError("base_not_in_mirror")
+    try:
+        base_tree = _tree_of(repo, home, base_sha)
+        final_tree = _tree_of(repo, home, merge_sha)
+        entry = _ls_tree(repo, home, final_tree).get(new_test_path)
+        if entry is None or entry[:2] != (REGULAR_FILE_MODE, "blob"):
+            raise CandidateError("new_test_missing")
+        repro_tree = _repro_tree(repo, home, workdir, base_sha, entry[2], new_test_path)
+        trees = _export(
+            repo, home, workdir, {"base": base_tree, "repro": repro_tree, "final": final_tree}
+        )
+    except _GitFailed as exc:
+        raise CandidateError(f"git_{exc.command}_failed") from None
+    return ReleaseTrees(
+        base_sha=base_sha,
+        base_tree=base_tree,
+        merge_sha=merge_sha,
+        final_tree=final_tree,
+        repro_tree=repro_tree,
+        workdir=workdir,
+        trees=trees,
+    )
+
+
+# ── attempt workspace (W13) ─────────────────────────────────
+
+
+def prepare_workspace(*, mirror: Path, root: Path, base_sha: str) -> Path:
+    """`root/repo`에 base commit의 파일만 푼다(에이전트가 쓰는 사본). 이력은 넣지 않는다.
+
+    버리는 bare 사본(`root/source`)은 추출 뒤 지운다. `root`는 없는 새 경로여야 한다.
+    """
+    if not _OBJECT_ID.fullmatch(base_sha):
+        raise CandidateError("invalid_base_sha")
+    source = root / "source"
+    repo, home = _clone(mirror, source)
+    try:
+        if not _has_commit(repo, home, base_sha):
+            raise CandidateError("base_not_in_mirror")
+        try:
+            archive = _git(["archive", "--format=tar", base_sha], home=home, git_dir=repo)
+        except _GitFailed as exc:
+            raise CandidateError(f"git_{exc.command}_failed") from None
+        workspace = root / "repo"
+        _extract(archive, workspace)
+    finally:
+        shutil.rmtree(source, ignore_errors=True)
+    return workspace

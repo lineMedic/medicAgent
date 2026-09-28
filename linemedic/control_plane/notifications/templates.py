@@ -178,7 +178,33 @@ def _pr_ready(t: _Text, p: Mapping[str, Any], issue: Any) -> Rendered:
     return Rendered(title, body)
 
 
+ENVIRONMENT_TEXT = {
+    "unchanged": "이전 MES 컨테이너가 그대로 실행 중임을 확인했습니다.",
+    "previous_removed": "이전 MES 컨테이너를 지운 뒤 새 컨테이너가 기동하지 못했습니다."
+    " 운영자가 execution 기록의 복원 절차를 직접 실행해야 합니다.",
+}
+
+
+def _not_deployed(t: _Text, p: Mapping[str, Any], issue: Any) -> Rendered:
+    """승인한 수정안을 배포하지 못해 업무 검사를 하지 않은 경우(W12)."""
+    environment = p.get("environment")
+    title = f"업무 복구 미확인 — Issue {_ref(issue)} / 배포 안 됨"
+    body = _lines(
+        [
+            f"승인한 수정안을 배포하지 못해 업무 계약 {t(p.get('contract_id'), 64)} 검사를"
+            f" 하지 않았습니다(단계 {t(p.get('stage'), 32)}, 사유 {t(p.get('reason'), 64)}).",
+            f"- 기존 환경: "
+            f"{ENVIRONMENT_TEXT.get(environment, f'확인하지 못함({t(environment, 32)})')}",
+            "",
+            "자동 rollback·자동 재시도·추가 수정은 하지 않습니다. 복구 완료가 아닙니다.",
+        ]
+    )
+    return Rendered(title, body)
+
+
 def _recovery(t: _Text, p: Mapping[str, Any], issue: Any, verified: bool) -> Rendered:
+    if not verified and p.get("verdict") == "NOT_DEPLOYED":
+        return _not_deployed(t, p, issue)
     verdict = t(p.get("verdict"), 16)
     observed = f"{t(p.get('samples_completed'), 8)}/{t(p.get('samples_required'), 8)}"
     if verified:

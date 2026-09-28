@@ -42,6 +42,7 @@ from linemedic.common.ids import new_id
 from linemedic.common.sanitize import mask_secrets
 from linemedic.control_plane import audit, idempotency
 from linemedic.control_plane.app import AppContext, safe_validation_errors
+from linemedic.control_plane.attempts import attempt_origin
 from linemedic.control_plane.auth import AgentPrincipal
 from linemedic.control_plane.broker.github_pr import Execution, PrOpener, Stop
 from linemedic.control_plane.broker.patch_gate import GateOutcome, GateRequest, PatchGate
@@ -666,6 +667,9 @@ class Broker:
                 outcome.candidate,
                 observed_symptom(json.loads(case.incident["details_json"] or "{}")),
                 _scoped_evidence(tx, case),
+                origin=attempt_origin(
+                    tx, case.row["run_id"], case.row["incident_id"], case.row["attempt_id"]
+                ),
             )
             if not opener.port.write_enabled:  # G10 전(shadow): 계획만 남긴다
                 case.record["pr_plan"] = {"head": plan.head, "base": plan.base, "title": plan.title}

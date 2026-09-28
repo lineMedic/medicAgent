@@ -1103,6 +1103,7 @@ def test_harness_runs_s1b_and_records_fail(tmp_runs_dir, fake_clock, run_store, 
             str(NEGATIVE_DIR / "s1b.Dockerfile"),
             harness.S1B_IMAGE,
             {"MES_IMAGE": scenarios.DEFAULT_MES_IMAGE},
+            str(NEGATIVE_DIR),
         )
     ]
     # MES·prober 모두 이 run의 internal network에만 붙고 host port를 열지 않는다.

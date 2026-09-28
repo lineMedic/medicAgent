@@ -88,9 +88,9 @@ category ↔ action 대응과 근거 개수 규칙은 [03-domain-model.md §4](0
 | POST `/ops/notifications/{id}/reconcile` | operator reconcile | provider 기록 읽기·상태 조정. 재발송 금지 | W26 |
 | POST `/ops/cases/rebuild-index` | operator maintenance | PUBLISHED 노트로 index 재구축. outcome 불변 | W27 |
 | GET `/ops/cases/{note_id}` | operator read | revision·source·검증 수준 | W27 |
-| POST `/ops/releases` | operator approve | 정확한 최종 SHA 배포 승인 | W12 |
-| GET `/ops/executions/{id}` | operator read | 외부 실행 intent·결과·조정 기록(CLI가 멱등 키에 갱신 시각을 쓴다) | W11 |
-| POST `/ops/executions/{id}/reconcile` | operator reconcile | 외부 상태 읽기·기록만. 새 변경 금지. body `{schema_version, run_id}`(execution의 run과 같아야 함) | W11 |
+| POST `/ops/releases` | operator approve | 정확한 최종 SHA 배포 승인. 사전 검사(spec 08 §2)를 통과하면 202 + DEPLOY execution(INTENDED)이고 배포·검증은 백그라운드다. 거부는 상태·외부 변경 없음(같은 키로 다시 시도 가능). 재전송·같은 논리 작업(`deploy:<work>:<sha>`)은 같은 execution | W12 |
+| GET `/ops/executions/{id}` | operator read | 외부 실행 intent·결과·조정 기록(CLI가 멱등 키에 갱신 시각을 쓴다). DEPLOY는 `identity_chain`(base → candidate → PR head → merge SHA·tree → image → container → contract·fixture hash)도 준다 | W11·W12 |
+| POST `/ops/executions/{id}/reconcile` | operator reconcile | 외부 상태 읽기·기록만. 새 변경 금지(다시 배포하지 않음). body `{schema_version, run_id}`(execution의 run과 같아야 함) | W11·W12 |
 | POST `/ops/incidents/{id}/escalate` | operator | 중단 이유 기록. RESOLVED 전이 없음 | W06 |
 | POST `/ops/runs` | operator demo | 새 run 준비 | W19 |
 | POST `/ops/runs/{id}/archive` | operator demo | 신규 작업 중단·증거 export. 삭제 아님 | W19 |

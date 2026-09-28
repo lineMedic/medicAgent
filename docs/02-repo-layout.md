@@ -37,7 +37,8 @@ linemedic/
 ├── integrations/
 │   ├── docker.py                  # [W05] DockerPort, CliDocker, FakeDocker (D47)
 │   ├── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
-│   └── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
+│   ├── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
+│   └── git_fetch.py               # [W12] 승인한 merge commit 하나만 신뢰 mirror로 fetch(GitFetcher)
 ├── control_plane/
 │   ├── app.py                     # [W06] FastAPI app factory, 라우터 등록, body 파서
 │   ├── auth.py                    # [W06] token → principal(agent/operator), scope 검사
@@ -54,11 +55,12 @@ linemedic/
 │   ├── ops_api.py                 # [W06] /ops/* 라우터 (카드별 endpoint 추가)
 │   ├── runs.py                    # [W06] demo_runs, run manifest, [W19] run-new/archive/reset
 │   ├── catalog.py                 # [W22] repo·service·route·equipment catalog 로더
-│   ├── main.py                    # [W13] make start 진입점: API·supervisor·poll·outbox·broker 루프
+│   ├── main.py                    # [W13] make start 진입점: ControlPlane 조립(외부 연결별 끄기)·루프·기동 복구·pid·make stop
+│   ├── attempts.py                # [W13] attempt 기록(adapter·origin) 조회: PR 본문·배포 검증이 사람 제안을 구분
 │   ├── security_probe.py          # [W17] S3-C 대조 절차·판정
 │   ├── issue_sync.py              # [W23] polling·mirror·checkpoint·snapshot hash
 │   ├── issue_router.py            # [W24] 매칭 1~5·CREATE_ISSUE·binding
-│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W28] attempt 시작
+│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W13] attempt 실행(workspace·context·token·deadline), [W28] attempt 시작
 │   ├── broker/
 │   │   ├── proposals.py           # [W09] 제안 pydantic 모델(union 3종)
 │   │   ├── intake.py              # [W09] B01~B06, 202 접수·백그라운드 검사
@@ -79,11 +81,11 @@ linemedic/
 │   │   ├── search.py              # [W27] exact + FTS5/fallback, 필터 후 top_k
 │   │   ├── snapshot.py            # [W27] 불변 manifest
 │   │   └── projection.py          # [W27] history evidence projection
-│   ├── release.py                 # [W12] exact SHA 릴리스
+│   ├── release.py                 # [W12] exact SHA 승인 배포: 사전 검사 1~7·INTENDED·lock, 재검사·빌드·기동·inspect, 검증 연결, DEPLOY 조정·재시작
 │   ├── observer.py                # [W05] 로그 스트림 연속성·container/image 불변 관찰
 │   └── verifier.py                # [W05] 업무 계약 판정
 ├── agent/                         # 제품 runtime 에이전트 쪽 (개발 지침을 넣지 않는다)
-│   ├── adapter.py                 # [W13] AgentAdapter, ScriptedAdapter (D53)
+│   ├── adapter.py                 # [W13] AgentAdapter 계약(run_agent + credential), ScriptedAdapter, http tools client (D53·D83)
 │   ├── tools_client.py            # [W14] /tools HTTP client (scope token)
 │   ├── runtime_<openclaw|nat>.py  # [W14, G4 후] 선택한 하나만
 │   ├── trace.py                   # [W14] model ID·prompt hash·tool trace·token
@@ -131,6 +133,7 @@ linemedic/
     ├── helpers/demo_states.py     # [W05] 테스트·demo 전용 상태 준비 helper (운영 API 아님)
     ├── helpers/runner.py          # [W10] docker 옵션→inspect 흉내, 로컬 pytest runner (테스트 전용)
     ├── helpers/pr_world.py        # [W11] 제안→게이트→봇 PR·조정 시험 world (테스트 전용)
+    ├── helpers/release_world.py   # [W12] 사람 리뷰·squash 머지 흉내·가짜 MES로 배포·검증 시험 world (테스트 전용)
     └── fixtures/                  # [W10] 테스트용 patch·junit XML (에이전트 workspace에 넣지 않음)
 ```
 

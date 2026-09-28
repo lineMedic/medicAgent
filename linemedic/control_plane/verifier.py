@@ -15,6 +15,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol
 from urllib.parse import urlencode
@@ -22,7 +23,7 @@ from urllib.parse import urlencode
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from linemedic.common.canonical_json import StrictJSONError, canonical_dumps, loads_strict
-from linemedic.common.clock import Clock, to_rfc3339
+from linemedic.common.clock import RFC3339_FORMAT, Clock, to_rfc3339
 from linemedic.common.config import read_toml, validate_model
 from linemedic.common.ids import new_id
 from linemedic.control_plane import audit
@@ -510,6 +511,56 @@ def drive(run: VerificationRun) -> VerificationResult:
         run.clock.sleep(max(run.seconds_until_next_event(), 0.01))
 
 
+# ── 신뢰 prober (W05 harness·W12 배포 검증이 같이 쓴다) ─────────
+
+PROBER_IMAGE = "python:3.12-slim"
+HEALTH_TIMEOUT_SECONDS = 30.0
+
+
+def prober_options(name: str, run_id: str, network: str) -> list[str]:
+    """검증 대상과 같은 내부 network에 두는 신뢰 prober 컨테이너 옵션(요청만 보낸다)."""
+    return [
+        "--name",
+        name,
+        "--label",
+        f"linemedic.run_id={run_id}",
+        "--label",
+        "linemedic.role=prober",
+        "--network",
+        network,
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--user",
+        "65534:65534",
+        "--pids-limit",
+        "32",
+        "--memory",
+        "128m",
+    ]
+
+
+def wait_until_healthy(
+    http: HttpClient,
+    clock: Clock,
+    sleep: Any,
+    timeout_seconds: float = HEALTH_TIMEOUT_SECONDS,
+) -> bool:
+    """`/healthz`가 200이 될 때까지 기다린다. 제한 시간 안에 안 되면 False."""
+    deadline = clock.monotonic() + timeout_seconds
+    while True:
+        try:
+            if http.get("/healthz", {}).status == 200:
+                return True
+        except (RequestTimeout, RequestFailed):
+            pass
+        if clock.monotonic() >= deadline:
+            return False
+        sleep(0.5)
+
+
 # ── 저장과 전이 (2부) ─────────────────────────────────────────
 
 VERIFICATION_ORIGINS = frozenset({"agent_release", "human_injected_negative", "manual_integration"})
@@ -531,6 +582,77 @@ class PersistedVerification:
     notification_id: str | None
     resolved_written: bool
     result: dict[str, Any]
+
+
+def register_running(
+    tx: Tx,
+    *,
+    verification_id: str,
+    run_id: str,
+    incident_id: str,
+    execution_id: str | None,
+    origin: str,
+    contract_id: str,
+    contract_sha256: str,
+    target: Mapping[str, Any],
+) -> None:
+    """검증을 시작했음을 `RUNNING`으로 남긴다(W12).
+
+    `persist_result`가 같은 행을 최종 판정으로 바꾼다.
+    """
+    if origin not in VERIFICATION_ORIGINS:
+        raise ValueError(f"알 수 없는 verification origin: {origin!r}")
+    tx.execute(
+        "INSERT INTO verifications(id, run_id, incident_id, execution_id, origin, verdict,"
+        " contract_id, contract_sha256, started_at, ended_at, result_json)"
+        " VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, NULL, ?)",
+        (
+            verification_id,
+            run_id,
+            incident_id,
+            execution_id,
+            origin,
+            contract_id,
+            contract_sha256,
+            tx.now,
+            canonical_dumps({"target": dict(target)}),
+        ),
+    )
+
+
+def unfinished_result(
+    running: Mapping[str, Any], *, samples_required: int, ended_at: str, detail: str
+) -> VerificationResult:
+    """시작만 남은(`RUNNING`) 검증을 INCONCLUSIVE/`verifier_error`로 닫는 결과(W12).
+
+    재시작·중단·판정 전 오류에서 쓴다. 관찰을 이어 PASS로 추정하지 않는다.
+    """
+    started = json.loads(running["result_json"] or "{}")
+    try:
+        elapsed = (
+            datetime.strptime(ended_at, RFC3339_FORMAT)
+            - datetime.strptime(running["started_at"], RFC3339_FORMAT)
+        ).total_seconds()
+    except ValueError:
+        elapsed = 0.0
+    return VerificationResult(
+        verification_id=running["id"],
+        origin=running["origin"],
+        contract_id=running["contract_id"],
+        contract_sha256=running["contract_sha256"],
+        verdict="INCONCLUSIVE",
+        reason="verifier_error",
+        samples_completed=0,
+        samples_required=samples_required,
+        observation_complete=False,
+        failed_assertions=[],
+        resolved_written=False,
+        started_at=running["started_at"],
+        ended_at=ended_at,
+        elapsed_seconds=round(max(elapsed, 0.0), 3),
+        target=dict(started.get("target") or {}),
+        detail=detail,
+    )
 
 
 def persist_result(
@@ -571,24 +693,34 @@ def persist_result(
 
     resolved = result.verdict == "PASS"
     stored = {**result.to_dict(), "resolved_written": resolved}
-    tx.execute(
-        "INSERT INTO verifications(id, run_id, incident_id, execution_id, origin, verdict,"
-        " contract_id, contract_sha256, started_at, ended_at, result_json)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            result.verification_id,
-            run_id,
-            incident_id,
-            execution_id,
-            result.origin,
-            result.verdict,
-            result.contract_id,
-            result.contract_sha256,
-            result.started_at,
-            result.ended_at,
-            canonical_dumps(stored),
-        ),
+    final = (
+        result.verdict,
+        result.contract_id,
+        result.contract_sha256,
+        result.started_at,
+        result.ended_at,
+        canonical_dumps(stored),
     )
+    running = tx.one(
+        "SELECT * FROM verifications WHERE id = ? AND verdict = 'RUNNING'",
+        (result.verification_id,),
+    )
+    if running is None:  # 같은 id의 최종 판정이 이미 있으면 PK 충돌로 거부된다
+        tx.execute(
+            "INSERT INTO verifications(id, run_id, incident_id, execution_id, origin, verdict,"
+            " contract_id, contract_sha256, started_at, ended_at, result_json)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (result.verification_id, run_id, incident_id, execution_id, result.origin, *final),
+        )
+    else:  # register_running으로 시작을 남긴 검증(W12)을 최종 판정으로 바꾼다
+        started = (running["run_id"], running["incident_id"], running["execution_id"])
+        if started != (run_id, incident_id, execution_id) or running["origin"] != result.origin:
+            raise ValueError("시작을 남긴 검증과 run·incident·execution·origin이 다르다")
+        tx.execute(
+            "UPDATE verifications SET verdict = ?, contract_id = ?, contract_sha256 = ?,"
+            " started_at = ?, ended_at = ?, result_json = ? WHERE id = ? AND verdict = 'RUNNING'",
+            (*final, result.verification_id),
+        )
     target = "RESOLVED" if resolved else "ESCALATED"
     reason = None if resolved else ESCALATION_REASONS[result.verdict]
     details = {

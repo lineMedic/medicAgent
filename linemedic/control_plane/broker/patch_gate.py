@@ -16,9 +16,12 @@
 
 검사 디렉터리는 `RUNS_DIR/<run>/checkouts/<proposal>/<n>`이다. 다시 검사하면 새 번호를 쓰고 이전
 결과는 지우지 않는다(run 정리는 W19).
+
+R0·R1·R2 순서와 판정(`run_protected_stages`)은 W12 배포 재검사가 최종 merge tree로 다시 쓴다.
 """
 
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -162,21 +165,25 @@ class PatchGate:
         if image is not None:
             return outcome.fail("RUNNER", PROTECTION_UNAVAILABLE, image, revisable=False)
 
-        regression, new_test = rules.regression_tests, request.new_test_path
-        r0 = self._stage(request, workdir, "R0", candidate.trees["base"], [regression])
-        if not self._record(outcome, r0, judge_r0(r0, module_of(regression))):
-            return outcome
-        r1 = self._stage(request, workdir, "R1", candidate.trees["repro"], [new_test])
-        if not self._record(outcome, r1, judge_r1(r1, module_of(new_test))):
-            return outcome
-        assert r0.junit is not None  # R0 통과면 있다
-        seen = [(case.classname, case.name) for case in r0.junit.cases]
-        r2 = self._stage(
-            request, workdir, "R2", candidate.trees["candidate"], [new_test, regression]
+        prefix = f"lm-runner-{request.proposal_id.lower()}-{workdir.name}"
+        outcome.passed = run_protected_stages(
+            self.runner,
+            outcome,
+            trees={
+                "base": candidate.trees["base"],
+                "repro": candidate.trees["repro"],
+                "final": candidate.trees["candidate"],
+            },
+            workdir=workdir,
+            regression=rules.regression_tests,
+            new_test=request.new_test_path,
+            name=lambda stage: f"{prefix}-{stage.lower()}",
+            labels={
+                "linemedic.role": "runner",
+                "linemedic.run": request.run_id,
+                "linemedic.proposal": request.proposal_id,
+            },
         )
-        if not self._record(outcome, r2, judge_r2(r2, module_of(new_test), seen)):
-            return outcome
-        outcome.passed = True
         return outcome
 
     def _workdir(self, request: GateRequest) -> Path:
@@ -187,35 +194,57 @@ class PatchGate:
         used = [int(p.name) for p in root.iterdir() if p.name.isdigit()]
         return root / str(max(used, default=0) + 1)
 
-    def _stage(
-        self, request: GateRequest, workdir: Path, stage: str, tree: Path, tests: list[str]
-    ) -> StageRun:
-        return self.runner.run_stage(
-            stage=stage,
-            name=f"lm-runner-{request.proposal_id.lower()}-{workdir.name}-{stage.lower()}",
+
+def run_protected_stages(
+    runner: Runner,
+    outcome: GateOutcome,
+    *,
+    trees: Mapping[str, Path],
+    workdir: Path,
+    regression: str,
+    new_test: str,
+    name: Callable[[str], str],
+    labels: Mapping[str, str],
+) -> bool:
+    """R0(base 회귀) → R1(base + 새 테스트 재현) → R2(final: 새 테스트·R0에서 본 보호 회귀).
+
+    `trees`는 base·repro·final 추출 경로다. 각 단계 결과를 `outcome.checks`에 쌓고, 실패하면
+    `outcome.fail`로 코드·사유를 남긴 뒤 False를 돌려준다.
+    """
+
+    def stage(key: str, tree: Path, tests: list[str]) -> StageRun:
+        return runner.run_stage(
+            stage=key,
+            name=name(key),
             tree=tree,
-            results=workdir / "results" / stage,
+            results=workdir / "results" / key,
             logs=workdir / "logs",
             tests=tests,
-            labels={
-                "linemedic.role": "runner",
-                "linemedic.run": request.run_id,
-                "linemedic.proposal": request.proposal_id,
-                "linemedic.stage": stage,
-            },
+            labels={**labels, "linemedic.stage": key},
         )
 
-    @staticmethod
-    def _record(outcome: GateOutcome, run: StageRun, verdict: Verdict) -> bool:
-        details = {k: v for k, v in run.record().items() if k != "stage"}
-        if verdict.ok:
-            outcome.checks.append({"check": run.stage, "result": "PASS"} | details)
-            return True
-        assert verdict.code is not None and verdict.reason is not None
-        # R0 실패와 runner 오류는 환경 문제라 에이전트 수정으로 풀 수 없다
-        revisable = run.stage != "R0" and verdict.code != PROTECTION_UNAVAILABLE
-        outcome.fail(run.stage, verdict.code, verdict.reason, revisable=revisable, **details)
+    r0 = stage("R0", trees["base"], [regression])
+    if not _record(outcome, r0, judge_r0(r0, module_of(regression))):
         return False
+    r1 = stage("R1", trees["repro"], [new_test])
+    if not _record(outcome, r1, judge_r1(r1, module_of(new_test))):
+        return False
+    assert r0.junit is not None  # R0 통과면 있다
+    seen = [(case.classname, case.name) for case in r0.junit.cases]
+    r2 = stage("R2", trees["final"], [new_test, regression])
+    return _record(outcome, r2, judge_r2(r2, module_of(new_test), seen))
+
+
+def _record(outcome: GateOutcome, run: StageRun, verdict: Verdict) -> bool:
+    details = {k: v for k, v in run.record().items() if k != "stage"}
+    if verdict.ok:
+        outcome.checks.append({"check": run.stage, "result": "PASS"} | details)
+        return True
+    assert verdict.code is not None and verdict.reason is not None
+    # R0 실패와 runner 오류는 환경 문제라 에이전트 수정으로 풀 수 없다
+    revisable = run.stage != "R0" and verdict.code != PROTECTION_UNAVAILABLE
+    outcome.fail(run.stage, verdict.code, verdict.reason, revisable=revisable, **details)
+    return False
 
 
 def _path(exc: PatchDenied) -> dict[str, str]:

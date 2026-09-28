@@ -13,7 +13,8 @@
   맞는 PR이 둘 이상이거나 다른 PR이 브랜치를 쓰면 `CONFLICT`,
   조회가 불완전하거나 오류면 `INCONCLUSIVE`로 기록만 하고 상태는 그대로 둔다
 - CREATE_ISSUE: W24 `IssueRouter.reconcile_create_issue`에 맡긴다
-- DEPLOY: W12가 채운다(지금은 `UNSUPPORTED`)
+- DEPLOY: W12 `ReleaseExecutor.reconcile`에 맡긴다
+  (실제 container·image·라벨 조회, 다시 배포하지 않음)
 """
 
 import json
@@ -25,6 +26,7 @@ from linemedic.control_plane import audit
 from linemedic.control_plane.broker.github_pr import Execution, PrOpener, PrPlan
 from linemedic.control_plane.broker.intake import _block
 from linemedic.control_plane.issue_router import IssueRouter
+from linemedic.control_plane.release import ReleaseExecutor
 from linemedic.control_plane.state import Actor
 from linemedic.control_plane.store import Store
 from linemedic.integrations.github import GitHubError
@@ -38,6 +40,7 @@ class ExecutionReconciler:
     opener: PrOpener | None = None  # CREATE_PR 조회·기록(W11)
     issue_router: IssueRouter | None = None  # CREATE_ISSUE 조회(W24)
     route_id: str | None = None
+    release: ReleaseExecutor | None = None  # DEPLOY 조회(W12)
 
     def reconcile(self, execution_id: str) -> dict[str, Any]:
         with self.store.read() as tx:
@@ -58,6 +61,10 @@ class ExecutionReconciler:
             if self.opener is None:
                 raise RuntimeError("pr_opener_unavailable")
             return self._reconcile_pr(execution)
+        if execution["operation"] == "DEPLOY":
+            if self.release is None:
+                raise RuntimeError("release_executor_unavailable")
+            return self.release.reconcile(execution_id)
         return {
             "execution_id": execution_id,
             "outcome": "UNSUPPORTED",

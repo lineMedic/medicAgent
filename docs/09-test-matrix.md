@@ -26,7 +26,7 @@
 
 | ID | Given / When | 기대 | 파일 | 카드 | 등급 |
 |---|---|---|---|---|---|
-| T-AUTH-01 | agent token으로 `/ops/releases` 호출 | 403, 외부 변경 없음 | `unit/test_auth.py` | W06 | core |
+| T-AUTH-01 | agent token으로 `/ops/releases` 호출 | 403, 외부 변경 없음 | `unit/test_auth.py`, endpoint `integration/test_release_checks.py`(agent token·approve 역할 없는 operator → 403, GitHub·docker 호출 0) | W06·W12 | core |
 | T-AUTH-02 | 다른 run/incident의 증거 요청 | 거부, 내용 미노출 | `unit/test_auth.py` | W06 | core |
 | T-AUTH-03 | body에 `actor=verifier`·임의 status | schema/권한 거부 | `unit/test_auth.py` | W06 | core |
 | T-IDEM-01 | 같은 키·같은 요청 두 번 | 같은 proposal/execution, 중복 PR 없음 | `integration/test_idempotency.py`, PR 경로 `integration/test_github_pr.py` | W06·W11 | core |
@@ -44,7 +44,7 @@
 | T-SOURCE-02 | 최종 merge tree ≠ candidate tree | 재검사·승인 요구, 배포 중단 | `integration/test_release_checks.py` | W12 | core |
 | T-SOURCE-03 | approved SHA가 test merge거나 unmerged | 거부 | `integration/test_release_checks.py` | W12 | core |
 | T-EXEC-01 | PR 생성 직후 응답 timeout | UNKNOWN → 조회, 무조건 재생성 안 함 | `integration/test_execution_unknown.py` | W11 | core |
-| T-EXEC-02 | 배포 중 프로세스 재시작 | 실제 image 관찰 전 재실행 안 함 | `integration/test_execution_unknown.py` | H04 | hardening |
+| T-EXEC-02 | 배포 중 프로세스 재시작 | 실제 image 관찰 전 재실행 안 함 | `integration/test_execution_unknown.py`(자동 재조회, H04). 재시작 → UNKNOWN·운영자 조정 전 재배포 없음은 W12 `integration/test_release_checks.py` | H04 | hardening |
 | T-VERIFY-01 | 정상 로트·관찰 구간 정상 | t60 이후 PASS | `unit/test_verifier.py` | W05 | core |
 | T-VERIFY-02 | HTTP 200·잘못된 집계/lot/schema | FAIL, RESOLVED 없음 | `unit/test_verifier.py` | W05 | core |
 | T-VERIFY-03 | collector 중단·stream 누락 (heartbeat 기반) | INCONCLUSIVE | `unit/test_verifier.py` | H03 | hardening |
@@ -54,6 +54,8 @@
 | T-UI-01 | 로그에 HTML/script | 문자열로 표시, 실행 안 됨 | `unit/test_dashboard_escape.py` | W18 | core |
 
 core observer 기준(로그 스트림이 실제로 끊기면 INCONCLUSIVE)은 W05 core에서 시험한다. heartbeat·cursor 연속성 기반 공백 탐지(T-VERIFY-03)만 H03이다.
+
+W12 배포: `integration/test_release_checks.py`가 사전 검사 거부(T-SOURCE-01~03·image 불일치·리뷰·lock), 재전송 멱등, 실패별 이관(fetch·재검사·빌드·stop·기동·timeout·inspect), DEPLOY 조정·재시작·CLI 체크리스트를 fake로 보고, `integration/test_release_docker.py`(docker)가 fixture commit을 실제 R0~R2·신뢰 레시피 빌드·image ID 기동·inspect·60초 검증·복원 절차까지 확인한다.
 
 ## 3. v4 core 회귀 테스트 (spec 09 §11)
 
@@ -65,7 +67,7 @@ core observer 기준(로그 스트림이 실제로 끊기면 INCONCLUSIVE)은 W0
 | T-ISS-04 | log/poll 동시 선점·중복 delivery | work·attempt·시작 알림 각각 1개 | `integration/test_work_claim_race.py` | W25 |
 | T-ISS-05 | backlog·untrusted author·다른 repo | 자동 수정 0건, 기존 자료는 승인 경로 | `integration/test_issue_polling.py` | W23 |
 | T-ISS-06 | 닫힌 Issue·사람 PR·요구 변경·재시작 | scope 재검사, 충돌 보고, 임의 reopen·force-push 없음 | `integration/test_issue_polling.py` | W23·W25 |
-| T-NOT-01 | 시작 receipt보다 이른 실행 | writable workspace·attempt·패치 모두 금지 | `integration/test_start_gate.py` | W26 |
+| T-NOT-01 | 시작 receipt보다 이른 실행 | writable workspace·attempt·패치 모두 금지 | `integration/test_start_gate.py`, workspace·token은 `integration/test_attempts.py`(W13) | W26·W13 |
 | T-NOT-02 | 댓글/메일 접수 vs 실제 수신 표현 | receipt 저장, 열람·배달 추정 없음 | `integration/test_notifications.py` | W26 |
 | T-NOT-03 | 발송 timeout·duplicate·재시작 | UNKNOWN·재조회, 같은 event 재발송 없음 | `integration/test_notifications.py` | W26 |
 | T-NOT-04 | 실행 불가·모델 API 실패 | 고정 blocker report와 외부 알림/미전송 상태 | `integration/test_notifications.py` | W26 |
@@ -79,6 +81,8 @@ core observer 기준(로그 스트림이 실제로 끊기면 INCONCLUSIVE)은 W0
 | T-MEM-06 | case 안 prompt injection | 권한 확대·임의 외부 전송·검증 생략 없음 | `integration/test_agent_context.py` | W28 |
 | T-V4-01 | v2 요청·work scope 바꿔치기 | schema reject, cross-work/incident 거절 | `unit/test_proposal_schema.py` | W09 |
 | T-V4-02 | 같은 key·다른 body·retry 승인 중복 | 409, 새 generation 중복 생성 없음 | `integration/test_work_lifecycle.py` | W25 |
+
+W13 통합: `integration/test_e2e_fake.py`가 `make start`와 같은 조립(`build_control_plane`)으로 S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안(ScriptedAdapter) → 게이트 → 봇 PR → (사람) 머지 → (사람) 배포 승인 → verifier PASS → 결과 댓글을 돌고, receipt < attempt 시작·결합 전이 표 일치·origin manual_integration을 확인한다. `integration/test_attempts.py`는 attempt 실행(workspace·context·token·결과별 종료·deadline·재시작), `integration/test_control_plane.py`는 조립·기동 복구·pid 파일과 실제 `start`·`stop` 프로세스를 본다.
 
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 

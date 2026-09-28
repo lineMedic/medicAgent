@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from linemedic.control_plane import audit
 from linemedic.control_plane.broker.github_pr import (
     Precheck,
     PrPlan,
@@ -24,8 +25,9 @@ from linemedic.control_plane.broker.github_pr import (
     neutralize_closing,
     pr_marker,
 )
+from linemedic.control_plane.state import Actor
 from linemedic.tests.helpers.api import RUN
-from linemedic.tests.helpers.pr_world import BOT, PrWorld, build_seed_mirror
+from linemedic.tests.helpers.pr_world import ATTEMPT, BOT, PrWorld, build_seed_mirror
 
 
 @pytest.fixture(scope="module")
@@ -73,6 +75,30 @@ def test_passing_candidate_opens_one_verified_bot_pr(world):
     assert (payload["pr_number"], payload["candidate_sha"]) == (pull["number"], candidate)
     request = json.loads(execution["request_json"])
     assert request["marker"] == pr_marker(execution["id"], candidate)
+
+
+def mark_manual_attempt(world) -> None:
+    """W13 supervisor가 ScriptedAdapter로 attempt를 시작했다는 감사 기록."""
+    with world.store.tx() as tx:
+        audit.append(
+            tx,
+            RUN,
+            world.incident,
+            Actor.SUPERVISOR,
+            "ATTEMPT_STARTED",
+            {"attempt_id": ATTEMPT, "adapter": "scripted", "origin": "manual_integration"},
+        )
+
+
+def test_manual_proposal_is_not_presented_as_agent_output(world):  # W13
+    mark_manual_attempt(world)
+    world.run()
+    (pull,) = world.github.pulls.values()
+    body = pull["body"]
+    source = "- 제안 출처: 사람이 미리 작성한 제안(manual_integration). 모델 산출물이 아닙니다"
+    assert source in body
+    assert "원인 가설(사람이 미리 작성한 제안, 검증되지 않음)" in body
+    assert "에이전트 판단" not in body
 
 
 def test_pr_body_links_the_issue_without_closing_it(world):

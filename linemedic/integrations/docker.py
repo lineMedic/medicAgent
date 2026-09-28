@@ -45,7 +45,11 @@ class LogStream(Protocol):
 class DockerPort(Protocol):
     def inspect(self, name: str) -> dict[str, Any] | None: ...
 
+    def container_exists(self, name: str) -> bool | None: ...
+
     def image_id(self, ref: str) -> str | None: ...
+
+    def image_inspect(self, ref: str) -> dict[str, Any] | None: ...
 
     def logs_follow(self, name: str, since: str | None = None) -> LogStream: ...
 
@@ -144,9 +148,31 @@ class CliDocker:
         data = json.loads(result.stdout or "[]")
         return data[0] if data else None
 
+    def container_exists(self, name: str) -> bool | None:
+        """있음 True / 없음 False / 알 수 없음(daemon 오류·timeout) None.
+
+        없음과 조회 오류를 섞지 않는다(W12 배포 조정이 "없음 확인"으로 쓴다).
+        """
+        result = self._run(["container", "inspect", "--format", "{{.Id}}", name])
+        if result.returncode == 0:
+            return True
+        if (
+            "no such container" in result.stderr.lower()
+            or "no such object" in result.stderr.lower()
+        ):
+            return False
+        return None
+
     def image_id(self, ref: str) -> str | None:
         result = self._run(["image", "inspect", "--format", "{{.Id}}", ref])
         return result.stdout.strip() if result.returncode == 0 else None
+
+    def image_inspect(self, ref: str) -> dict[str, Any] | None:
+        result = self._run(["image", "inspect", ref])
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout or "[]")
+        return data[0] if data else None
 
     def logs_follow(self, name: str, since: str | None = None) -> LogStream:
         argv = [self.binary, "logs", "--follow"]
@@ -255,8 +281,16 @@ ExecHandler = Callable[[str, list[str]], CommandResult]
 RunHandler = Callable[[str, list[str], list[str] | None], None]
 
 
+def _option_values(options: list[str], flag: str) -> list[str]:
+    return [options[i + 1] for i, item in enumerate(options[:-1]) if item == flag]
+
+
 class FakeDocker:
-    """메모리 Docker. 컨테이너 inspect 값을 직접 바꿔 identity 변경을 흉내 낼 수 있다."""
+    """메모리 Docker. 컨테이너 inspect 값을 직접 바꿔 identity 변경을 흉내 낼 수 있다.
+
+    장애 주입: `daemon_down`(존재 조회 불명), `run_errors`·`stop_errors`(이름 → 종료 코드, 한 번),
+    `build_error`(다음 빌드 실패).
+    """
 
     def __init__(
         self, exec_handler: ExecHandler | None = None, run_handler: RunHandler | None = None
@@ -270,6 +304,10 @@ class FakeDocker:
         self.exec_handler = exec_handler
         self.run_handler = run_handler
         self.calls: list[tuple[str, Any]] = []
+        self.daemon_down = False
+        self.run_errors: dict[str, int] = {}
+        self.stop_errors: dict[str, int] = {}
+        self.build_error: str | None = None
         self._counter = 0
 
     def inspect(self, name: str) -> dict[str, Any] | None:
@@ -277,8 +315,18 @@ class FakeDocker:
         data = self.containers.get(name)
         return copy.deepcopy(data) if data is not None else None
 
+    def container_exists(self, name: str) -> bool | None:
+        self.calls.append(("container_exists", name))
+        return None if self.daemon_down else name in self.containers
+
     def image_id(self, ref: str) -> str | None:
         return self.images.get(ref)
+
+    def image_inspect(self, ref: str) -> dict[str, Any] | None:
+        image = self.images.get(ref)
+        if image is None and ref in self.images.values():
+            image = ref
+        return {"Id": image, "RepoTags": [], "RepoDigests": []} if image is not None else None
 
     def logs_follow(self, name: str, since: str | None = None) -> LogStream:
         self.calls.append(("logs_follow", name, since))
@@ -292,17 +340,32 @@ class FakeDocker:
         return list(self.log_history.get(name, []))
 
     def run(self, options: list[str], image: str, command: list[str] | None = None) -> str:
-        self._counter += 1
         name = options[options.index("--name") + 1]
+        self.calls.append(("run", options, image, command))
+        if name in self.run_errors:
+            code = self.run_errors.pop(name)
+            raise DockerError(f"docker run 실패: injected exit {code}", code)
+        if name in self.containers:
+            raise DockerError(f"docker run 실패: Conflict. name {name} is already in use", 125)
+        self._counter += 1
         container_id = f"{self._counter:064x}"
+        self.streams.pop(name, None)  # 같은 이름의 새 컨테이너는 새 로그 스트림을 쓴다
+        labels = dict(label.split("=", 1) for label in _option_values(options, "--label"))
+        mounts = []
+        for spec in _option_values(options, "--volume"):
+            source, target, *mode = spec.split(":")
+            mounts.append(
+                {"Type": "bind", "Source": source, "Destination": target, "RW": "ro" not in mode}
+            )
         self.containers[name] = {
             "Id": container_id,
             "Name": f"/{name}",
             "Image": self.images.get(image, image),
             "State": {"Running": True},
-            "Config": {"Cmd": command},
+            "Config": {"Cmd": command, "Labels": labels},
+            "HostConfig": {"NetworkMode": (_option_values(options, "--network") or ["bridge"])[0]},
+            "Mounts": mounts,
         }
-        self.calls.append(("run", options, image, command))
         if self.run_handler is not None:
             self.run_handler(name, options, command)
         return container_id
@@ -326,6 +389,8 @@ class FakeDocker:
 
     def stop(self, name: str) -> CommandResult:
         self.calls.append(("stop", name))
+        if name in self.stop_errors:
+            return CommandResult(self.stop_errors.pop(name), "", "injected stop failure")
         self.containers.pop(name, None)
         if name in self.streams:
             self.streams[name].end()
@@ -334,7 +399,10 @@ class FakeDocker:
     def build(
         self, context: Path, dockerfile: Path, tag: str, build_args: dict[str, str] | None = None
     ) -> str:
-        self.calls.append(("build", str(dockerfile), tag, build_args))
+        self.calls.append(("build", str(dockerfile), tag, build_args, str(context)))
+        if self.build_error is not None:
+            message, self.build_error = self.build_error, None
+            raise DockerError(f"docker build 실패: {message}")
         image = "sha256:" + f"{len(self.images) + 1:064x}"
         self.images[tag] = image
         return image

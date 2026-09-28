@@ -177,6 +177,37 @@ def test_every_event_renders_what_it_does_not_mean_and_marker(event_type):
     assert "읽음" not in rendered.body and "배달" not in rendered.body
 
 
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ("unchanged", "이전 MES 컨테이너가 그대로 실행 중임을 확인했습니다."),
+        ("previous_removed", "운영자가 execution 기록의 복원 절차를 직접 실행해야 합니다."),
+        ("<b>x</b>", "확인하지 못함(&lt;b&gt;x&lt;/b&gt;)"),
+    ],
+)
+def test_not_deployed_recovery_notice_says_no_check_ran(environment, expected):  # W12
+    payload = {
+        "verdict": "NOT_DEPLOYED",
+        "stage": "start",
+        "reason": "start_failed",
+        "environment": environment,
+        "contract_id": "defect-summary-v1",
+        "restore": {"text": ["docker run ... /Users/someone/runs"]},  # 알림에 넣지 않는다
+    }
+    rendered = templates.render(
+        "RECOVERY_NOT_VERIFIED",
+        payload,
+        repo=REPO,
+        issue_number=7,
+        notification_id="NOT-0000000000AA",
+        payload_sha256="ab" * 32,
+    )
+    assert rendered.title == "업무 복구 미확인 — Issue #7 / 배포 안 됨"
+    assert "검사를 하지 않았습니다(단계 start, 사유 start_failed)" in rendered.body
+    assert expected in rendered.body and "복구 완료가 아닙니다" in rendered.body
+    assert "docker run" not in rendered.body and "NOT_DEPLOYED" not in rendered.body
+
+
 def test_blocker_report_without_model_renders_ten_fields():  # T-NOT-04
     rendered = templates.render(
         "WORK_BLOCKED",

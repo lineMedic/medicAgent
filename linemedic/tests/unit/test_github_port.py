@@ -42,6 +42,9 @@ PORT_METHODS = (
     "list_pulls",
     "get_pull",
     "create_pull",
+    "list_pull_reviews",
+    "get_commit",
+    "get_branch_rules",
 )
 
 
@@ -159,6 +162,47 @@ def test_branch_head_lookup_and_pull_needs_existing_branches():  # W11
             port.get_branch_head(bad)
     with pytest.raises(Conflict):  # head 브랜치가 없으면 GitHub처럼 422
         port.create_pull("autofix/r-1/x", "baseline/r-1", "제목", "본문")
+
+
+def test_release_reads_reviews_merge_commit_and_branch_rules():  # W12
+    port = fake(write_enabled=True)
+    port.branches["baseline/r-1"] = "b" * 40
+    port.branches["autofix/r-1/x"] = "c" * 40
+    pull = port.create_pull("autofix/r-1/x", "baseline/r-1", "제목", "본문").data
+    number = pull["number"]
+    assert (pull["merged"], pull["merge_commit_sha"]) == (False, None)
+    port.add_review(number, reviewer_id=300001, commit_id="c" * 40)
+    reviews = port.list_pull_reviews(number).data
+    assert [(r["user"]["id"], r["state"], r["commit_id"]) for r in reviews] == [
+        (300001, "APPROVED", "c" * 40)
+    ]
+    merged = port.merge_pull(number, "d" * 40, "e" * 40)
+    assert (merged["merged"], merged["merge_commit_sha"], merged["state"]) == (
+        True,
+        "d" * 40,
+        "closed",
+    )
+    assert port.get_branch_head("baseline/r-1").data["object"]["sha"] == "d" * 40
+    commit = port.get_commit("d" * 40).data
+    assert (commit["tree"]["sha"], commit["parents"]) == ("e" * 40, [{"sha": "b" * 40}])
+    with pytest.raises(NotFound):
+        port.get_commit("f" * 40)
+    with pytest.raises(NotFound):
+        port.list_pull_reviews(999)
+    rule = {"type": "pull_request", "parameters": {"require_last_push_approval": True}}
+    port.branch_rules["baseline/r-1"] = [rule]
+    assert port.get_branch_rules("baseline/r-1").data == [rule]
+    assert port.get_branch_rules("baseline/r-2").data == []
+    paths = {r.path for r in port.requests if r.method == "GET"}
+    assert {
+        f"/repos/{REPO}/pulls/{number}/reviews",
+        f"/repos/{REPO}/git/commits/{'d' * 40}",
+        f"/repos/{REPO}/rules/branches/baseline/r-1",
+    } <= paths
+    for bad in ("HEAD", "D" * 40, "d" * 39, "../" + "d" * 37):
+        with pytest.raises(ValueError):
+            port.get_commit(bad)
+    assert port.write_calls == 1  # 조회는 쓰기가 아니다(머지는 사람이 한 것으로 흉내 냈다)
 
 
 def test_timeout_after_side_effect_is_unknown_and_the_issue_exists():
@@ -315,6 +359,18 @@ def test_http_branch_head_uses_the_git_ref_path():  # W11
     missing, _ = http(lambda r: httpx.Response(404, json={"message": "Not Found"}))
     with pytest.raises(NotFound):
         missing.get_branch_head("autofix/r-1/INC-1/PROP-1")
+
+
+def test_http_release_reads_use_fixed_get_paths():  # W12
+    port, rec = http(lambda r: ok([]))
+    port.list_pull_reviews(7, page=2)
+    port.get_commit("d" * 40)
+    port.get_branch_rules("baseline/r-1")
+    assert [(r.method, str(r.url)) for r in rec.requests] == [
+        ("GET", f"https://api.github.com/repos/{REPO}/pulls/7/reviews?per_page=100&page=2"),
+        ("GET", f"https://api.github.com/repos/{REPO}/git/commits/{'d' * 40}"),
+        ("GET", f"https://api.github.com/repos/{REPO}/rules/branches/baseline/r-1?per_page=100"),
+    ]
 
 
 def test_http_list_issues_params_link_etag_and_rate():

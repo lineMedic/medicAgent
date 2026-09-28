@@ -384,6 +384,40 @@ class IssueRouter:
             "retry_required": incident["status"] != "NEW",  # 멈춘 사건은 W25 retry로 새 incident
         }
 
+    def recover(self) -> list[str]:
+        """재시작 때: 결과를 모르는 CREATE_ISSUE(INTENDED)를 UNKNOWN으로 둔다(W13 `make start`).
+
+        다시 만들지 않는다. 운영자가 `make reconcile`로 bot 작성자·marker를 조회한다(docs/03 §10).
+        """
+        recovered = []
+        with self.store.tx() as tx:
+            for execution in tx.all(
+                "SELECT * FROM executions WHERE operation = 'CREATE_ISSUE' AND status = 'INTENDED'"
+            ):
+                result = {"observation": "interrupted_before_result", "request_sent": None}
+                self._set_execution(tx, execution["id"], "UNKNOWN", "create_result_unknown", result)
+                incident = tx.one(
+                    "SELECT * FROM incidents WHERE id = ?", (execution["incident_id"],)
+                )
+                if incident["status"] == "NEW":
+                    transition_incident(
+                        tx,
+                        incident["id"],
+                        incident["version"],
+                        "EXECUTION_UNKNOWN",
+                        Actor.ROUTER,
+                        "EXTERNAL_RESULT_UNKNOWN",
+                        details={"execution_id": execution["id"], "recovered": True},
+                    )
+                self._audit(
+                    tx,
+                    incident,
+                    "ISSUE_CREATE_UNKNOWN",
+                    {"execution_id": execution["id"], **result},
+                )
+                recovered.append(execution["id"])
+        return recovered
+
     def reconcile_create_issue(self, execution_id: str) -> dict[str, Any]:
         """결과 불명 CREATE_ISSUE를 조회만으로 조정한다. 새 POST는 하지 않는다."""
         with self.store.read() as tx:
