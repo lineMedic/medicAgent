@@ -7,6 +7,8 @@ attempt가 끝나면 `runs/<run>/traces/<attempt>.json`에 남긴다(같은 파�
   로컬 도구(adapter 보고). 둘을 섞지 않는다
 - token 사용량: 입력·출력을 모두 관측하면 observed, 일부만 partial, 없으면 null
 - 시작·끝 시각, attempt 결과 상태
+- sandbox 모드면 identity·정책 hash·effective policy·보호 확인(W15)
+- attempt 전후 규칙 묶음 hash(N10)
 prompt 본문·도구 응답 본문·모델의 숨은 사고과정은 남기지 않는다.
 """
 
@@ -65,6 +67,8 @@ def build_trace(
     ended_at: str,
     result: Mapping[str, Any],
     server: list[dict[str, Any]],
+    sandbox: Mapping[str, Any] | None = None,
+    rules: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     local = [
         {key: item.get(key) for key in ("tool", "status", "error")}
@@ -94,6 +98,8 @@ def build_trace(
             "local_observed": "observed" if local else "null",  # runtime이 보고하지 않으면 모른다
         },
         "tokens": usage_record(result.get("usage")),
+        "sandbox": dict(sandbox) if sandbox is not None else None,  # local 모드는 null
+        "rules": dict(rules) if rules is not None else None,
     }
 
 

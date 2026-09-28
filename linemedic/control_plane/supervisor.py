@@ -28,6 +28,11 @@ adapter는 별도 thread에서 돌리고 deadline(+유예)이 지나면 기다�
 `ATTEMPT_FINISHED`를 남긴다. 제안 없이 조사 중(INVESTIGATING·RUNNING)이면 attempt를 닫는다
 (ESCALATED/BLOCKED: deadline → BUDGET_EXCEEDED, 제안 거절 → VALIDATION_FAILED, 제안 없음 →
 INSUFFICIENT_EVIDENCE, 실행 오류 → MODEL_UNAVAILABLE). 재시작 때 끊긴 attempt는 새 세션 없이 닫는다.
+
+sandbox 모드(W15, D88): attempt마다 sandbox를 준비하고 그 안에서 같은 adapter를 부른 뒤 닫는다.
+준비하지 못하면 local로 바꿔 돌리지 않는다(MODEL_UNAVAILABLE). identity·정책 hash·effective policy·
+보호 확인 결과는 `SANDBOX_PREPARED`와 trace에 남고, `sandbox_verified`는 host가 정한다.
+attempt 전후 규칙 묶음 hash가 다르면 `AGENT_RULES_CHANGED`로 남긴다(N10).
 """
 
 import json
@@ -42,7 +47,7 @@ from typing import Any
 
 from linemedic.agent import trace
 from linemedic.agent.adapter import AgentAdapter, AttemptResult
-from linemedic.agent.rules import forbidden_findings, install_rules
+from linemedic.agent.rules import forbidden_findings, install_rules, prompt_sha256
 from linemedic.common.canonical_json import canonical_dumps
 from linemedic.common.clock import Clock, from_rfc3339, to_rfc3339
 from linemedic.common.config import LineMedicConfig
@@ -62,6 +67,17 @@ from linemedic.control_plane.state import (
 )
 from linemedic.control_plane.store import Store, Tx
 from linemedic.control_plane.symptoms import observed_symptom
+from linemedic.integrations.sandbox import (
+    POLICY_DIR,
+    REQUIRED_PROTECTIONS,
+    SandboxPort,
+    SandboxSession,
+    SandboxUnavailable,
+    UnconfiguredSandbox,
+    policy_dir_sha256,
+    save_effective_policy,
+    verification,
+)
 
 HUMAN_WORK_IN_PROGRESS = "HUMAN_WORK_IN_PROGRESS"
 PROPOSAL_ACTIONS = ("create_pr", "create_work_order_draft", "escalate")
@@ -527,6 +543,8 @@ class AttemptRuntime:
     grace_seconds: float = 5.0  # deadline 뒤 adapter를 더 기다리는 시간
     poll_seconds: float = 1.0
     eval_terms: tuple[str, ...] = ()  # workspace 금지 자료 검사의 평가 식별자(W14)
+    sandbox: SandboxPort | None = None  # sandbox 모드의 실행 환경(W15). 없으면 준비를 거절한다
+    sandbox_policy_dir: Path = POLICY_DIR  # 고정한 sandbox 정책 파일(G5 뒤)
 
 
 MAX_BLOCKER_EVIDENCE = 5
@@ -561,7 +579,7 @@ class Supervisor:
         self.route_id = route_id or config.notifications.required_start_route_id
         self.start_wait_seconds = config.notifications.start_wait_seconds
         self.runtime = runtime
-        # sandbox 실행(W15) 전에는 local이다. local 결과는 평가 집계에 넣지 않는다
+        # 설정이 없으면 local이다. local 결과는 평가 집계에 넣지 않는다
         self.agent_mode = config.agent.mode or "local"
 
     def auto_approve(self, work_id: str) -> None:
@@ -803,55 +821,167 @@ class Supervisor:
                 "error", adapter.name, adapter.origin, detail=f"workspace:forbidden({listed})"
             )
             return self.finish_attempt(started, failed)
-        context = {
-            "schema_version": "linemedic.v4",
-            "run_id": work["run_id"],
-            "incident_id": incident["id"],
-            "work_id": work["id"],
-            "attempt_id": started.attempt_id,
-            "deadline": started.deadline,
-            "issue": {
-                "repository_id": work["repository_id"],
-                "number": work["issue_number"],
-                "snapshot_sha256": work["issue_snapshot_sha256"],
-            },
-            "start_notice": {
-                "notification_id": notice["id"] if notice is not None else None,
-                "receipt_id": notice["receipt_id"] if notice is not None else None,
-                "accepted_at": notice["accepted_at"] if notice is not None else None,
-            },
-            "base": {"sha": base_sha, "service": incident["service"]},
-            "memory": {"mode": "cold_start", "snapshot_id": None, "retrieval_id": None},
-            "budget": {
-                "tool_calls": self.agent.tool_call_budget,
-                "max_submissions": self.agent.max_submissions,
-            },
-            "tools": {"base_url": runtime.tools_base_url},
-            "adapter": adapter.name,
-            "origin": adapter.origin,
-            "agent_mode": self.agent_mode,
-            "prompt_sha256": prompt_sha256,
-            "rules_dir": str(rules_dir),  # local 모드 경로. sandbox에서는 /agent_rules(읽기 전용)
-        }
-        context_ref = root / "context.json"
-        context_ref.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", "utf-8")
-        principal = AgentPrincipal(work["run_id"], incident["id"], work["id"], started.attempt_id)
-        token = runtime.tokens.issue_agent_token(principal)
+        session: SandboxSession | None = None
+        port: SandboxPort = runtime.sandbox or UnconfiguredSandbox()
+        if self.agent_mode == "sandbox":  # local로 바꿔 돌리지 않는다
+            try:
+                session = port.prepare(
+                    run_id=work["run_id"],
+                    attempt_id=started.attempt_id,
+                    workspace=workspace,
+                    rules_dir=rules_dir,
+                )
+            except Exception as exc:  # noqa: BLE001 — 준비 실패는 attempt 결과로 남긴다
+                reason = exc.reason if isinstance(exc, SandboxUnavailable) else type(exc).__name__
+                failed = AttemptResult(
+                    "error", adapter.name, adapter.origin, detail=f"sandbox:{reason}"
+                )
+                return self.finish_attempt(started, failed)
         try:
-            result = self._call_adapter(started, work, incident, workspace, context_ref, token)
-            if (
-                result.retryable
-                and not result.proposal_ids
-                and self._before(started.deadline)
-                and self._nothing_submitted(started, work)
-            ):
-                # 외부 변경 없는 조사 단계의 모델 일시 오류: 같은 deadline 안에서 한 번만 다시
-                self._audit_retry(started, result)
+            sandbox = (
+                None if session is None else self._record_sandbox(started, work, session, port)
+            )
+            tools_base_url = (session.tools_base_url if session else None) or runtime.tools_base_url
+            context = {
+                "schema_version": "linemedic.v4",
+                "run_id": work["run_id"],
+                "incident_id": incident["id"],
+                "work_id": work["id"],
+                "attempt_id": started.attempt_id,
+                "deadline": started.deadline,
+                "issue": {
+                    "repository_id": work["repository_id"],
+                    "number": work["issue_number"],
+                    "snapshot_sha256": work["issue_snapshot_sha256"],
+                },
+                "start_notice": {
+                    "notification_id": notice["id"] if notice is not None else None,
+                    "receipt_id": notice["receipt_id"] if notice is not None else None,
+                    "accepted_at": notice["accepted_at"] if notice is not None else None,
+                },
+                "base": {"sha": base_sha, "service": incident["service"]},
+                "memory": {"mode": "cold_start", "snapshot_id": None, "retrieval_id": None},
+                "budget": {
+                    "tool_calls": self.agent.tool_call_budget,
+                    "max_submissions": self.agent.max_submissions,
+                },
+                "tools": {"base_url": tools_base_url},
+                "adapter": adapter.name,
+                "origin": adapter.origin,
+                "agent_mode": self.agent_mode,
+                "prompt_sha256": prompt_sha256,
+                # local은 host 경로, sandbox는 안에서 보이는 경로
+                # (/sandbox/work·/agent_rules, 읽기 전용)
+                "rules_dir": session.rules_path if session else str(rules_dir),
+                "sandbox": None
+                if session is None
+                else {
+                    "identity": session.identity,
+                    "workspace": session.workspace_path,
+                    "rules_dir": session.rules_path,
+                },
+            }
+            context_ref = root / "context.json"
+            context_ref.write_text(
+                json.dumps(context, ensure_ascii=False, indent=2) + "\n", "utf-8"
+            )
+            principal = AgentPrincipal(
+                work["run_id"], incident["id"], work["id"], started.attempt_id
+            )
+            token = runtime.tokens.issue_agent_token(principal)
+            try:
                 result = self._call_adapter(started, work, incident, workspace, context_ref, token)
+                if (
+                    result.retryable
+                    and not result.proposal_ids
+                    and self._before(started.deadline)
+                    and self._nothing_submitted(started, work)
+                ):
+                    # 외부 변경 없는 조사 단계의 모델 일시 오류: 같은 deadline 안에서 한 번만 다시
+                    self._audit_retry(started, result)
+                    result = self._call_adapter(
+                        started, work, incident, workspace, context_ref, token
+                    )
+            finally:
+                runtime.tokens.revoke_attempt(started.attempt_id)
         finally:
-            runtime.tokens.revoke_attempt(started.attempt_id)
-        trace_ref = self._record_trace(started, work, prompt_sha256, result)
+            if session is not None:  # adapter가 끝나면(실패해도) 그 sandbox를 닫는다
+                self._close_sandbox(started, work, port, session)
+        rules = self._check_rules(started, work, rules_dir, prompt_sha256)
+        trace_ref = self._record_trace(
+            started, work, prompt_sha256, result, sandbox=sandbox, rules=rules
+        )
         return self.finish_attempt(started, result, trace_ref=trace_ref)
+
+    def _record_sandbox(
+        self, started: AttemptStart, work: Any, session: SandboxSession, port: SandboxPort
+    ) -> dict[str, Any]:
+        """sandbox identity·정책 hash·effective policy·보호 확인을 남긴다.
+
+        확인 여부(`verified`)는 host가 정한다.
+        """
+        runtime = self.runtime
+        assert runtime is not None
+        try:
+            policy_sha256 = policy_dir_sha256(runtime.sandbox_policy_dir)
+        except ValueError:  # symlink 등 고정할 수 없는 정책은 확인하지 못한 것이다
+            policy_sha256 = None
+        stored = save_effective_policy(runtime.runs_dir, work["run_id"], session.effective_policy)
+        verified, unverified = verification(session.checks, policy_sha256=policy_sha256)
+        record = {
+            "attempt_id": started.attempt_id,
+            "sandbox": port.name,
+            "identity": session.identity,
+            "version": session.version,
+            "policy_sha256": policy_sha256,
+            "effective_policy_sha256": stored.sha256,
+            "effective_policy_ref": stored.ref,
+            "effective_policy_masked": stored.masked,
+            "checks": {name: session.checks.get(name, "NOT_RUN") for name in REQUIRED_PROTECTIONS},
+            "verified": verified,
+            "unverified": unverified,
+        }
+        with self.store.tx() as tx:
+            _audit(tx, _work(tx, started.work_id), Actor.SUPERVISOR, "SANDBOX_PREPARED", record)
+        return record
+
+    def _close_sandbox(
+        self, started: AttemptStart, work: Any, port: SandboxPort, session: SandboxSession
+    ) -> None:
+        """그 attempt의 sandbox를 닫는다. 닫지 못했으면 숨기지 않고 남긴다."""
+        try:
+            port.close(session)
+            result = "closed"
+        except Exception as exc:  # noqa: BLE001 — 정리 실패도 기록한다
+            result = f"error:{type(exc).__name__}"
+        with self.store.tx() as tx:
+            _audit(
+                tx,
+                _work(tx, started.work_id),
+                Actor.SUPERVISOR,
+                "SANDBOX_CLOSED",
+                {"attempt_id": started.attempt_id, "identity": session.identity, "result": result},
+            )
+
+    def _check_rules(
+        self, started: AttemptStart, work: Any, rules_dir: Path, before: str
+    ) -> dict[str, Any]:
+        """attempt 뒤 규칙 묶음 hash를 다시 잰다. 다르면(읽지 못해도) 변경으로 남긴다(N10)."""
+        try:
+            after: str | None = prompt_sha256(rules_dir)
+        except OSError:
+            after = None
+        rules = {"before": before, "after": after, "changed": after != before}
+        if rules["changed"]:
+            with self.store.tx() as tx:
+                _audit(
+                    tx,
+                    _work(tx, started.work_id),
+                    Actor.SUPERVISOR,
+                    "AGENT_RULES_CHANGED",
+                    {"attempt_id": started.attempt_id, "before": before, "after": after},
+                )
+        return rules
 
     def _before(self, deadline: str) -> bool:
         return self.clock.utc_now() < from_rfc3339(deadline)
@@ -899,7 +1029,14 @@ class Supervisor:
             )
 
     def _record_trace(
-        self, started: AttemptStart, work: Any, prompt_sha256: str, result: AttemptResult
+        self,
+        started: AttemptStart,
+        work: Any,
+        prompt_sha256: str,
+        result: AttemptResult,
+        *,
+        sandbox: Mapping[str, Any] | None,
+        rules: Mapping[str, Any],
     ) -> str | None:
         """attempt trace를 `runs/<run>/traces/<attempt>.json`에 쓰고 상대 경로를 돌려준다."""
         runtime = self.runtime
@@ -922,6 +1059,8 @@ class Supervisor:
             ended_at=to_rfc3339(self.clock.utc_now()),
             result=result.record(),
             server=server,
+            sandbox=sandbox,
+            rules=rules,
         )
         path = trace.write_trace(runtime.runs_dir, work["run_id"], started.attempt_id, record)
         return path.relative_to(runtime.runs_dir).as_posix()

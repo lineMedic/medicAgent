@@ -63,6 +63,7 @@ from linemedic.integrations.docker import DockerError, DockerPort
 from linemedic.integrations.git_fetch import CommitFetcher
 from linemedic.integrations.git_push import BranchPusher
 from linemedic.integrations.github import GitHubPort
+from linemedic.integrations.sandbox import SandboxPort
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PID_FILE = "control-plane.pid"
@@ -249,6 +250,7 @@ def build_control_plane(
     pusher: BranchPusher | None = None,
     fetcher: CommitFetcher | None = None,
     adapter: AgentAdapter | None = None,
+    sandbox: SandboxPort | None = None,
     patch_gate: PatchGate | None = None,
     release_runner: Runner | None = None,
     dispatch: Callable[[Callable[[], Any]], None] | None = None,
@@ -285,8 +287,15 @@ def build_control_plane(
             runs_dir=runs_dir,
             tools_base_url=f"http://{api.host}:{api.port}",
             eval_terms=tuple(sorted(eval_identifiers())),
+            sandbox=sandbox,
         )
         features["agent"] = f"on: {adapter.name} (origin {adapter.origin})"
+        if config.agent.mode == "sandbox":  # sandbox를 준비하지 못하면 local로 돌리지 않는다
+            features["sandbox"] = (
+                f"on: {sandbox.name}"
+                if sandbox is not None
+                else "off: sandbox 구현 없음(G5 뒤) — sandbox 모드 attempt는 시작하지 않는다"
+            )
     else:
         features["agent"] = "off: adapter 없음(attempt는 만들지만 실행하지 않는다)"
     supervisor = Supervisor(

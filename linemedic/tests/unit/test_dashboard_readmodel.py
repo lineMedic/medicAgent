@@ -211,6 +211,31 @@ def test_missing_values_are_unknown_and_inapplicable_values_are_na(store, conn):
     assert head["polling"]["last_success"] == "미확인"  # repo는 있는데 성공 기록이 없다
 
 
+def test_sandbox_status_is_the_latest_sandbox_record_of_the_run(store, conn):
+    insert_run_manifest(conn)  # sandbox 모드
+    records = [
+        {"attempt_id": "ATT-0000000000A1", "identity": "sbx-1", "policy_sha256": "cd" * 32,
+         "verified": False, "unverified": ["docker_api_denied", "non_root"]},
+        {"attempt_id": "ATT-0000000000A2", "identity": "sbx-2", "policy_sha256": "cd" * 32,
+         "verified": True, "unverified": [], "checks": {"a": "PASS", "b": "PASS"}},
+    ]  # fmt: skip
+    with store.tx() as tx:
+        audit.append(tx, RUN, None, "supervisor", "SANDBOX_PREPARED", records[0])
+    head = build(store)["run"]
+    assert head["sandbox_verified"] == (
+        "sandbox_verified=false (attempt ATT-0000000000A1, 확인 안 됨: docker_api_denied, non_root)"
+    )
+    other = "r-20260101-000000-0000"
+    insert_run_manifest(conn, run_id=other, active=0)
+    with store.tx() as tx:
+        audit.append(tx, RUN, None, "supervisor", "SANDBOX_PREPARED", records[1])
+        audit.append(tx, other, None, "supervisor", "SANDBOX_PREPARED", records[0])
+    head = build(store)["run"]  # 다른 run의 기록은 보지 않는다
+    assert head["sandbox_verified"] == (
+        "sandbox_verified=true (attempt ATT-0000000000A2, 필수 보호 2개 PASS, 정책 cdcdcdcdcdcd)"
+    )
+
+
 def test_snapshot_comes_from_retrievals_then_the_snapshot_audit(store, conn):
     memory = {**MANIFEST["config"], "memory": {"mode": "memory_assisted"}}
     insert_run_manifest(conn, {**MANIFEST, "config": memory})

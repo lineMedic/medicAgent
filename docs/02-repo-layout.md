@@ -39,7 +39,8 @@ linemedic/
 │   ├── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
 │   ├── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
 │   ├── git_fetch.py               # [W12] 승인한 merge commit 하나만 신뢰 mirror로 fetch(GitFetcher)
-│   └── github_baseline.py         # [W19] baseline/<run_id> 브랜치 준비(repo ID 확인, 이동 없음)
+│   ├── github_baseline.py         # [W19] baseline/<run_id> 브랜치 준비(repo ID 확인, 이동 없음)
+│   └── sandbox.py                 # [W15] SandboxPort(준비·닫기), 설정 없음·Fake, 보호 확인 판정·정책 hash·effective policy 저장. OpenShell 구현은 G5 후
 ├── control_plane/
 │   ├── app.py                     # [W06] FastAPI app factory, 라우터 등록, body 파서
 │   ├── auth.py                    # [W06] token → principal(agent/operator), scope 검사
@@ -62,7 +63,7 @@ linemedic/
 │   ├── security_probe.py          # [W17] S3-C 대조 절차·판정
 │   ├── issue_sync.py              # [W23] polling·mirror·checkpoint·snapshot hash
 │   ├── issue_router.py            # [W24] 매칭 1~5·CREATE_ISSUE·binding
-│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W13] attempt 실행(workspace·context·token·deadline), [W28] attempt 시작
+│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W13] attempt 실행(workspace·context·token·deadline), [W15] sandbox 준비·기록·닫기, [W28] attempt 시작
 │   ├── broker/
 │   │   ├── proposals.py           # [W09] 제안 pydantic 모델(union 3종)
 │   │   ├── intake.py              # [W09] B01~B06, 202 접수·백그라운드 검사
