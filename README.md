@@ -6,6 +6,100 @@ LineMedic은 합성 공장 환경(가상 L3 라인)에서 서버 로그나 등�
 
 모든 환경은 합성이다. 회사·고객 데이터, 실제 PLC·설비, 실제 수신자를 쓰지 않는다.
 
+## 아키텍처
+
+핵심 아이디어는 **에이전트에게 권한을 주지 않는 것**이다. 에이전트(비신뢰 영역)는 자기 사건의 조회 도구 9개와 "제안 제출"만 할 수 있다. GitHub 쓰기, 배포, "복구됨" 판정은 모두 신뢰 영역인 Control Plane이 하며, 코드 반영과 배포에는 사람의 리뷰·승인이 반드시 들어간다.
+
+```mermaid
+flowchart LR
+    MES["가상 MES 컨테이너<br/>(합성 L3 라인)"]
+    GH["GitHub 데모 repo<br/>Issue · PR · 댓글"]
+    HUMAN["사람<br/>리뷰어 · 운영자"]
+    NIM["NVIDIA API<br/>Nemotron"]
+
+    subgraph CP["신뢰 영역: Control Plane (Python 1 프로세스 + SQLite)"]
+        DET["detector<br/>로그 → 사건"]
+        ROUTE["issue_sync · router<br/>Issue 신규 · 재사용 · 모호하면 멈춤"]
+        SUP["supervisor<br/>승인 · 시작 댓글 게이트 · attempt"]
+        BR["broker<br/>제안 검사 13단계 · 봇 PR"]
+        REL["release<br/>사람이 승인한 exact SHA만 배포"]
+        VER["verifier<br/>업무 계약 검증 → RESOLVED"]
+        NOTI["notifications<br/>Issue 댓글"]
+        MEM["case memory<br/>검증 수준별 사례 · FTS5"]
+    end
+
+    subgraph UN["비신뢰 영역"]
+        AG["에이전트 자리<br/>지금: 사람이 쓴 제안<br/>다음: Nemotron runtime"]
+        RUN["runner 컨테이너<br/>network none · R0/R1/R2 재현 검사"]
+    end
+
+    MES -- "JSON 로그" --> DET --> ROUTE
+    GH -- "60초 주기 polling" --> ROUTE
+    ROUTE -- "Issue 생성 · 연결" --> GH
+    ROUTE --> SUP
+    SUP -- "시작 댓글 먼저" --> NOTI --> GH
+    SUP -- "댓글 receipt 뒤에만" --> AG
+    AG -- "도구 9개 · 제안 제출만" --> BR
+    AG -. "다음 단계" .-> NIM
+    BR --> RUN
+    BR -- "검사 통과 시 봇 PR" --> GH
+    HUMAN -- "리뷰 · 머지" --> GH
+    HUMAN -- "배포 승인" --> REL
+    REL -- "머지 SHA로 빌드 · 기동" --> MES
+    VER -- "업무 API 호출 · 로그 관찰" --> MES
+    VER --> MEM
+    VER -- "결과 댓글" --> NOTI
+```
+
+실선은 2026-09-28 live run에서 실제로 지난 경로다. 점선(Nemotron이 에이전트 자리에서 제안을 만드는 연결)은 다음 단계다. 설계 전체는 [ARCHITECTURE.md](ARCHITECTURE.md)에 있다.
+
+## 동작 방식 — 실제 run 한 번 (S1 live run 2, 2026-09-28 KST)
+
+불량 집계 API가 특정 로트에서 `KeyError`로 500을 내는 합성 장애다. 아래 ID·시각은 실제 기록이다([evidence/W13-s1-live-run2.md](evidence/W13-s1-live-run2.md)).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MES as 가상 MES
+    participant LM as LineMedic Control Plane
+    participant GH as GitHub (l3-mes-api)
+    participant AG as 에이전트 자리 (사람 제안)
+    participant RN as runner 컨테이너
+    actor RV as 리뷰어 (팀원)
+    actor OP as 운영자
+
+    MES->>LM: 19:24 로트 118 요청 500 ×3 (KeyError)
+    LM->>LM: 60초 안 3회 → 사건 INC-2B98DD9DFD7E
+    LM->>GH: 기존 Issue 조회 → 없음 → Issue #9 생성
+    OP->>LM: work 승인
+    LM->>GH: 19:26:13 시작 댓글 (receipt 저장)
+    LM->>AG: receipt 뒤에만 attempt 시작
+    AG->>LM: 수정 제안 제출 (1줄 수정 + 재현 테스트)
+    LM->>RN: R0 기존 테스트 · R1 재현 실패 확인 · R2 수정 후 통과
+    LM->>GH: 검사 13개 PASS → 봇 PR #10 + PR 준비 댓글
+    RV->>GH: diff 리뷰 · Approve · 머지 (merge SHA d9fae38)
+    OP->>LM: 19:43 배포 승인 (체크리스트 확인 후 approve)
+    LM->>LM: merge tree = 검사한 candidate tree 재확인
+    LM->>MES: 머지 SHA로 빌드한 image 기동
+    LM->>MES: 업무 계약 검증 60초 관찰 → PASS
+    LM->>GH: 19:44 복구 확인 댓글 · 사건 RESOLVED
+```
+
+## 무엇을 믿을 수 있게 만드나
+
+| 설계 | 막는 문제 | 실제 확인 |
+|---|---|---|
+| 같은 문제는 같은 Issue로, 후보가 여럿이면 만들지 않고 멈춤 | 중복 Issue·중복 작업, 엉뚱한 Issue에 연결 | [S4 live](evidence/S4-issue-live.md): 신규·재사용·모호(생성 0) |
+| 시작 댓글이 등록된 뒤에만 작업 시작 | 아무도 모르는 사이의 수정 시도 | [N12](evidence/N12-notification-route.md)·run 2: receipt 시각 < attempt 시작 시각 |
+| 에이전트는 제안만 제출, 검사 통과 시에만 봇 PR | 에이전트의 직접 쓰기·임의 명령 | run 2: B01~B06·패치 정책·R0/R1/R2 등 13개 PASS 뒤 PR |
+| 사람이 머지한 **정확한 SHA**만 배포, tree 재확인 | 리뷰 뒤 몰래 바뀐 코드 배포 | run 2: identity chain base → patch → candidate → merge → image → container |
+| `RESOLVED`는 verifier만 기록, 업무 계약으로 판정 | "200이 나왔으니 해결" 같은 거짓 정상 | [S1b](STATUS.md): 잘못된 200을 `FAIL/content_mismatch`로 거절 |
+| 결과를 모르면(`UNKNOWN`) 다시 보내지 않고 조회만 | 중복 PR·중복 댓글·이중 배포 | [N12](evidence/N12-notification-route.md): 강제 timeout 뒤 재발송 0, 조회로 확인 |
+| 봇이 쓴 Issue로는 작업을 만들지 않음 | 봇이 자기 Issue로 작업을 다시 여는 고리 | [S5 대조](evidence/S5-new-bot-author-control.md): work 0 |
+| 사례를 검증 수준(성공·실패·미확인·차단)별로 저장 | 실패한 시도를 성공 사례처럼 재사용 | run 2 대시보드: 사례 노트 UNVERIFIED → VERIFIED_SUCCESS |
+
+자동 시험은 `make test` 1785개(fake·통합)와 `make test-docker` 13개(실제 컨테이너)다.
+
 ## 구현 범위와 확인 수준
 
 "확인"은 [docs/11 §1](docs/11-definition-of-done.md)의 `UNIT_TESTED`(fake 또는 로컬 Docker)다. live는 실제 외부 경로(GitHub·NVIDIA API)로 한 확인이며 증거는 `evidence/`에 있다.
