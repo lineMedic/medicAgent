@@ -46,7 +46,7 @@ LineMedic은 합성 공장 환경(가상 L3 라인)에서 서버 로그나 등�
 ```text
 $ make setup
 $ make test
-1761 passed, 21 deselected
+1768 passed, 21 deselected
 $ make lint
 All checks passed!
 187 files already formatted
