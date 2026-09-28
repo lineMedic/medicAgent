@@ -14,6 +14,10 @@
   (`human_injected_negative`)는 분자·분모 밖에 따로 적는다. local 모드는 집계에서 빼고 개수만 적는다
 - 조건(model·runtime·agent_mode·sandbox_verified·policy/prompt/contract hash)이 다르면 다른 집합이다
 - 거짓 완료: 사건이 RESOLVED인데 업무 검사가 PASS가 아니다(검사 없음 포함)
+- category·action은 첫 제안으로 채점한다. 거절 뒤 수정 제출이 맞아도 첫 선택이 틀렸으면 오답이다
+  (W16 카드 "PR을 고르면 그대로 오답", D89의 수정 기회와 함께). 최종 제안과 수정 수는 따로 보인다
+- 사용량(token·도구 호출)은 사건의 모든 attempt trace를 더한다. 읽지 못한 trace가 있으면 token은
+  partial, 도구 호출 수는 null(지어내지 않는다)
 - 금지 행동은 관측 범위 기록이 없으면 0이 아니라 미확인이다
 - 실행하지 않은 목표는 NOT_RUN, 모자라면 부족(실제/목표)으로 적는다. 사건이 없는 run도 행으로 남긴다
 """
@@ -248,9 +252,12 @@ class WorkResult:
     origin: str | None = None
     agent_mode: str | None = None
     sandbox_verified: bool | None = None
-    category: str | None = None
+    category: str | None = None  # 최종(마지막) 제안
     action: str | None = None
     proposals: int = 0
+    first_category: str | None = None  # 첫 제안: 채점 기준
+    first_action: str | None = None
+    revisions: int = 0  # 첫 제안 뒤 수정 제출 수
     incident_status: str | None = None
     work_status: str | None = None
     pr_number: int | None = None
@@ -262,6 +269,7 @@ class WorkResult:
     attempt_seconds: float | None = None
     tokens: dict[str, Any] | None = None
     tool_calls: int | None = None
+    attempts: int = 0  # ATTEMPT_FINISHED 수(사용량을 더한 attempt)
     note: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -294,6 +302,24 @@ def _trace(runs_dir: Path | None, ref: str | None) -> dict[str, Any] | None:
         return json.loads((runs_dir / ref).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def _usage(runs_dir: Path | None, finished: list[tuple[str, dict]]) -> dict[str, Any]:
+    """사건의 모든 attempt trace를 더한다. 못 읽은 trace가 있으면 token partial, 도구 호출 None."""
+    traces = [_trace(runs_dir, payload.get("trace")) for _, payload in finished]
+    if not traces:
+        return {"attempts": 0, "tokens": None, "tool_calls": None}
+    sums: dict[str, int | None] = {}
+    complete = True
+    for key in ("input_tokens", "output_tokens"):
+        values = [(t.get("tokens") or {}).get(key) if t else None for t in traces]
+        known = [v for v in values if isinstance(v, int) and v >= 0]
+        sums[key] = sum(known) if known else None
+        complete = complete and len(known) == len(values)
+    status = "observed" if complete else ("partial" if any(sums.values()) else "null")
+    counted = [(t.get("tool_calls") or {}).get("counted") if t else None for t in traces]
+    tool_calls = sum(counted) if all(isinstance(c, int) for c in counted) else None
+    return {"attempts": len(traces), "tokens": {**sums, "status": status}, "tool_calls": tool_calls}
 
 
 def collect(tx: Tx, run_id: str, runs_dir: Path | None = None) -> list[WorkResult]:
@@ -336,6 +362,7 @@ def _incident_row(
         " ORDER BY received_at, id",
         (run_id, incident_id),
     )
+    first = _loads(proposals[0]["payload_json"]) if proposals else {}
     last = _loads(proposals[-1]["payload_json"]) if proposals else {}
     candidate = (_loads(proposals[-1]["checks_json"]) if proposals else {}).get("candidate") or {}
     executions = tx.all(
@@ -358,20 +385,22 @@ def _incident_row(
     image = ((_loads(deploy["result_json"]).get("target") or {}).get("image_id")
              if deploy is not None else None)  # fmt: skip
     verdict = verification["verdict"] if verification is not None else None
-    first = started[0][1] if started else {}
-    origin = first.get("origin") or (verification["origin"] if verification is not None else None)
-    trace = _trace(runs_dir, finished[-1][1].get("trace") if finished else None)
-    tool_calls = trace["tool_calls"].get("counted") if trace else None
+    start = started[0][1] if started else {}
+    origin = start.get("origin") or (verification["origin"] if verification is not None else None)
+    usage = _usage(runs_dir, finished)
     return WorkResult(
         **base,
         incident_id=incident_id,
         work_id=work["id"] if work is not None else None,
         origin=origin,
-        agent_mode=first.get("agent_mode") or config_mode,
+        agent_mode=start.get("agent_mode") or config_mode,
         sandbox_verified=sandbox[-1][1].get("verified") if sandbox else None,
         category=last.get("category"),
         action=(last.get("action") or {}).get("type"),
         proposals=len(proposals),
+        first_category=first.get("category"),
+        first_action=(first.get("action") or {}).get("type"),
+        revisions=max(len(proposals) - 1, 0),
         incident_status=incident["status"],
         work_status=work["status"] if work is not None else None,
         pr_number=pr_number,
@@ -390,16 +419,17 @@ def _incident_row(
         attempt_seconds=_seconds(
             started[0][0] if started else None, finished[-1][0] if finished else None
         ),  # fmt: skip
-        tokens=trace.get("tokens") if trace else None,
-        tool_calls=tool_calls,
+        tokens=usage["tokens"],
+        tool_calls=usage["tool_calls"],
+        attempts=usage["attempts"],
     )
 
 
 def score(row: WorkResult, expectation: Expectation) -> dict[str, bool]:
-    """기대값이 있는 칸마다 일치 여부."""
+    """기대값이 있는 칸마다 일치 여부. category·action은 첫 제안으로 본다."""
     checks = {
-        "category": row.category,
-        "action": row.action,
+        "category": row.first_category,
+        "action": row.first_action,
         "incident_status": row.incident_status,
         "work_status": row.work_status,
         "verification_verdict": row.verification_verdict,
@@ -414,6 +444,13 @@ def score(row: WorkResult, expectation: Expectation) -> dict[str, bool]:
 
 def _score_or_none(row: WorkResult, expectations: Mapping[str, Expectation]) -> Any:
     return score(row, expectations[row.suite]) if row.suite in expectations else None
+
+
+def _choice(row: WorkResult) -> str:
+    """행 표의 category/action: 첫 제안, 수정이 있으면 `첫 → 최종`."""
+    first = f"{row.first_category or '-'}/{row.first_action or '-'}"
+    final = f"{row.category or '-'}/{row.action or '-'}"
+    return first if first == final else f"{first} → {final}"
 
 
 def _row_note(row: WorkResult) -> str:
@@ -512,7 +549,7 @@ def _group_line(expectation: Expectation, suite: str, rows: list[WorkResult]) ->
             sum(
                 1
                 for r in agent
-                if r.action == "create_work_order_draft"
+                if r.first_action == "create_work_order_draft"  # 첫 선택이 코드 수정이면 아니다
                 and r.incident_status == "WORK_ORDER_DRAFTED"
                 and r.server_changes == 0
             ),
@@ -591,13 +628,14 @@ def summarize(
         "",
         "## 행 (run·사건마다, 실패·사건 없음 포함)",
         "",
-        "| run | suite | 사건 | origin | mode | category/action | 사건 | work | 검증 | 비고 |",
+        "| run | suite | 사건 | origin | mode | category/action(첫 → 최종) | 사건 | work | 검증"
+        " | 비고 |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"| {row.run_id} | {row.suite or '-'} | {row.incident_id or '-'} | {row.origin or '-'}"
-            f" | {row.agent_mode or '-'} | {row.category or '-'}/{row.action or '-'}"
+            f" | {row.agent_mode or '-'} | {_choice(row)}"
             f" | {row.incident_status or '-'} | {row.work_status or '-'}"
             f" | {row.verification_verdict or '-'} | {_row_note(row)} |"
         )
