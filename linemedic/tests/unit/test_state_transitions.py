@@ -440,6 +440,14 @@ def _code_strings(tree):
     ]
 
 
+# 상태를 표시만 하는 모듈(W18 대시보드 읽기 모델, D85). 표시 문구 표에 상태 이름 문자열이 있어
+# RESOLVED 문자열 규칙만 빼고(Actor·cas_update 규칙은 그대로), 아래 테스트로 쓰기가 없음을 확인한다.
+DISPLAY_ONLY = {"linemedic/dashboard/readmodel.py"}
+WRITE_SQL = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER|PRAGMA)\b", re.IGNORECASE
+)
+
+
 def test_inv_01_verifier_actor_only_in_verifier_module():
     """RESOLVED·SUCCEEDED(work)를 쓸 수 있는 곳은 state.py(표)와 verifier.py뿐이다.
 
@@ -457,7 +465,7 @@ def test_inv_01_verifier_actor_only_in_verifier_module():
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         found = bool(actor.search(source))
-        for node in _code_strings(tree):
+        for node in [] if rel in DISPLAY_ONLY else _code_strings(tree):
             text = node.value
             if re.search(r"\bRESOLVED\b", text) or ("work_items" in text and "SUCCEEDED" in text):
                 found = True
@@ -471,3 +479,14 @@ def test_inv_01_verifier_actor_only_in_verifier_module():
         if found:
             offenders.append(rel)
     assert offenders == []
+
+
+def test_display_only_modules_never_write():
+    """표시 전용 모듈의 SQL은 SELECT(WITH … SELECT)뿐이고 execute·전이 함수를 부르지 않는다."""
+    for rel in sorted(DISPLAY_ONLY):
+        source = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        strings = [node.value for node in _code_strings(ast.parse(source))]
+        assert any(re.match(r"\s*(SELECT|WITH)\b", text) for text in strings), rel
+        assert [text for text in strings if WRITE_SQL.search(text)] == [], rel
+        for call in ("execute(", "cas_update(", "transition_incident(", "coupled_transition("):
+            assert call not in source, (rel, call)

@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W18** ([tasks/W18-dashboard.md](tasks/W18-dashboard.md), 읽기 전용 대시보드 — 자율성 A, 선행 W06 충족, 목표 UNIT_TESTED). 순서상 앞선 W14는 선행 W02의 G4 결정(runtime 선택)이 아직 없고, W15·W16·W28·W17은 W14를 선행으로 둔다(W14의 tool client·prompt·예산·trace 등 A 부분은 G4 결정을 기다리지 않고 할 수 있어, 팀 판단으로 먼저 고를 수 있다). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W19** ([tasks/W19-reset-export.md](tasks/W19-reset-export.md), run 생성·reset·archive·증거 export — 자율성 C(G2): 로컬 부분은 A, baseline 브랜치 생성은 G2 후. 선행 W06·W11 충족, 목표 LIVE_VERIFIED). 순서상 앞선 W14는 선행 W02의 G4 결정(runtime 선택)이 아직 없고, W15·W16·W28·W17은 W14·W15를 선행으로 둔다(W14의 tool client·prompt·예산·trace 등 A 부분은 G4 결정을 기다리지 않고 할 수 있어, 팀 판단으로 먼저 고를 수 있다). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -45,7 +45,7 @@
 | 25 | W16 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
-| 28 | W18 | UNIT_TESTED | NOT_CHECKED | | | |
+| 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | NOT_CHECKED | | G2 | |
 | 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
 | 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
@@ -136,6 +136,42 @@
   - `make test`에 해당하는 fake 전체 → 1513 passed / ruff check·format → PASS
   - docker 경로는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
 - 남은 일: 없음(이 수정 범위). #55·#56·#57 브랜치는 옛 #53 head 위에 있어 이 커밋을 병합으로 받아야 한다
+
+### W18 완료 보고 (2026-09-27T17:38Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음
+- 변경 파일:
+  - `linemedic/dashboard/readmodel.py`(새): 화면·`GET /ops/dashboard` 공용 읽기 모델. 머리(run·호스트·runtime·agent_mode/sandbox·모델·기억·repo·polling KST), work 카드(연결 basis·work/사건 상태·업무 검증·시작 알림 receipt·메일·진행 불가 사유), 타임라인 9단계, 근거·조회한 사례·사례 노트·알림·도구 trace. docs/11 §5 문구 매핑과 금지 표현 목록, `미확인`/`N/A` 구분
+  - `linemedic/dashboard/__main__.py`(새): `python -m linemedic.dashboard [--db] [--run-id] [--port]`. 127.0.0.1 고정, `mode=ro` + `query_only`, `GET /`만, Jinja2 autoescape, script 차단 CSP
+  - `linemedic/dashboard/templates/index.html`(새): 서버 렌더링. JavaScript·데이터 링크 없음
+  - `ops_api.py`: `GET /ops/dashboard`(read, `run_id` query) / `Makefile`: `make dashboard [RUN_ID=] [PORT=]`
+  - 테스트: `unit/test_dashboard_escape.py`(7), `unit/test_dashboard_readmodel.py`(33), `integration/test_dashboard_process.py`(1), `unit/test_state_transitions.py`(INV-01 표시 전용 예외 + SELECT 전용 확인 1), `test_e2e_fake.py`(run manifest를 `make run-new`과 같은 모양으로, 전체 경로 뒤 화면 확인)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1607 passed / `make lint` → PASS / `make test-docker` → 12 passed
+  - 실제 프로세스: `python -m linemedic.dashboard --db <임시 DB> --port <빈 포트>` → `GET /` 200(run ID·읽기 전용 문구, CSP `default-src 'none'`), `POST /` 405, 종료 뒤 DB 파일 SHA-256 그대로
+  - fake E2E(사람 제안 전체 경로) 뒤 화면: work SUCCEEDED·사건 RESOLVED, 타임라인 9단계 모두 완료(PR 번호 포함), 시작 알림 "댓글 등록 #…", 사례 노트 UNVERIFIED → VERIFIED_SUCCESS, 도구 trace "N/A(사람이 미리 작성한 제안…)"
+  - 변이 확인 33개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다). 처음 살아남은 4개 중 3개는 테스트를 보강했고(활성 run 우선·거절 검사 단계·연결된 사건 제외), 1개(SELECT에 payload 열만 추가)는 출력이 바뀌지 않는 변이라 실제로 출력에 싣는 변이로 바꿔 확인했다
+    - 문구: WAITING_REVIEW를 "자동 복구 완료"로, 댓글 접수를 "읽음"으로, adapter 무시, 모르는 상태를 원래 값으로, BLOCKED 사례 해석 경계 제거
+    - 값: KST 변환·시간대 없는 값 추정, 빈 값, local 모드 sandbox, repo 없는 polling, cold_start snapshot, 검색에 쓴 snapshot, 활성 run 우선
+    - 카드·타임라인: 시작 알림 N/A, 메일 route 꺼짐, 차단 사유, 알림 payload 노출, 사람 승인 단계, PR 번호, 거절 검사를 완료로, 도구 trace, 미연결 사건 목록
+    - 서버: 0.0.0.0 bind, mode=ro·query_only 제거, autoescape 끔, CSP 제거, POST 허용, port·run_id 검사 / 템플릿 `| safe` / ops: read 역할, 없는 run
+- 수용 기준:
+  - T-UI-01: 로그·Issue 제목·case 본문(과 운영자 메모·route 이름)에 `<script>`·`<img onerror>`·`javascript:` 링크가 있어도 문자열로 표시되고 실행되지 않음(실제 태그·href·src·on* 속성 없음, CSP도 script 차단): PASS
+  - 값이 없으면 "미확인", 해당 없음은 "N/A"로 구분: PASS
+  - `RESOLVED`와 notification `FAILED`가 함께 있을 때 둘 다 그대로 표시: PASS
+  - `WAITING_REVIEW`를 "자동 복구 완료"로, notification ACCEPTED를 "읽음"으로 표시하지 않음(매핑·금지 표현 테스트): PASS
+  - 서버가 `0.0.0.0`에 bind하지 않고, DB 쓰기를 시도하면 실패(`mode=ro`, `query_only`를 풀어도 실패): PASS
+- 판단: D85(값 출처·미확인/N/A 기준·표 밖 상태 문구·화면 구성·서버·INV-01 표시 전용 예외)
+- 증거: 커밋은 이 보고를 포함한 W18 커밋
+- 작업 중 발견:
+  - INV-01 테스트(RESOLVED를 쓸 수 있는 모듈 제한)가 표시 문구 표의 상태 이름 문자열도 잡는다. 표시 전용 모듈은 문자열 규칙에서 빼고, 대신 그 모듈의 SQL이 SELECT뿐인지 확인하는 테스트를 더했다(Actor·cas_update 규칙은 그대로)
+  - fake E2E의 run manifest에 config가 없어 알림 route의 adapter를 알 수 없었다. `runs.build_manifest`(make run-new과 같은 모양)로 바꿨다
+  - 처음 전체 테스트 결과를 grep할 때 색상 코드 때문에 실패 줄을 놓쳤다. 이후 색상 코드를 지우고 확인한다
+- 남은 일·위험:
+  - 도구 trace·sandbox 검증·runtime 버전은 저장 경로가 없어 `미확인`/`N/A`로만 보인다. W14·W15가 기록을 만들면 연결한다
+  - 인증 없이 localhost만 믿는다(같은 호스트의 다른 사용자는 볼 수 있다, D49). 자동 새로고침은 없다
+  - 상세 화면은 H07
+- 다음 카드: W19 (run reset·export, 로컬 부분 자율성 A). W14의 A 부분은 팀 판단으로 먼저 고를 수 있다
 
 ### W27 완료 보고 (2026-09-27T17:02Z)
 

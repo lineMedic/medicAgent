@@ -75,7 +75,7 @@ category ↔ action 대응과 근거 개수 규칙은 [03-domain-model.md §4](0
 
 | 메서드·경로 | 주체 | 의미 | 카드 |
 |---|---|---|---|
-| GET `/ops/dashboard` | operator read | 상태·관찰·검사 읽기 모델 | W18 |
+| GET `/ops/dashboard` | operator read | 상태·관찰·검사 읽기 모델. 화면(`python -m linemedic.dashboard`)과 같은 함수이고 `run_id` query로 run을 고른다(기본: 활성 run). 모르는 값은 `미확인`, 해당 없는 값은 `N/A` | W18 |
 | GET `/ops/incidents/{id}` | operator read | 감사·proposal·execution·verification 연결 | W06 |
 | POST `/ops/integrations/github/sync` | operator integration | 등록 repo 조회 1회. repo/URL 지정 불가 | W23 |
 | GET `/ops/issues/candidates/{incident_id}` | operator read | binding 후보·match 근거·조회 완전성 | W24 |

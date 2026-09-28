@@ -1,5 +1,7 @@
 """운영 API `/ops/*` (W06: 사건 조회·중단 기록. 다른 endpoint는 카드별로 추가).
 
+- GET `/ops/dashboard`: 화면(`python -m linemedic.dashboard`)과 같은 읽기 모델 (역할 `read`, W18).
+  `run_id` query로 run을 고를 수 있다(기본: 활성 run)
 - GET `/ops/incidents/{id}`: 사건과 work·감사·proposal·execution·verification 연결 (역할 `read`)
 - POST `/ops/incidents/{id}/escalate`: 운영자 중단 기록 (역할 `operate`). 허용 표상 operator는
   `PR_OPENED → ESCALATED`만 할 수 있고, work가 있으면 `WAITING_REVIEW → BLOCKED`와 `WORK_BLOCKED`
@@ -38,7 +40,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from linemedic.common.ids import is_valid_entity_id
+from linemedic.common.ids import is_valid_entity_id, is_valid_run_id
 from linemedic.control_plane import audit, idempotency, supervisor
 from linemedic.control_plane.app import (
     AppContext,
@@ -57,6 +59,7 @@ from linemedic.control_plane.memory import builder as case_builder
 from linemedic.control_plane.notifications import outbox, templates
 from linemedic.control_plane.release import ReleaseRefused, ReleaseRequest, identity_chain
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
+from linemedic.dashboard import readmodel
 
 router = APIRouter()
 
@@ -1061,4 +1064,27 @@ async def get_case(
 ) -> JSONResponse:
     reject_unknown_query(request)
     data = await run_in_threadpool(_case_view, context(request), operator, note_id)
+    return JSONResponse(content=success_body(request_id(request), data))
+
+
+# ── 대시보드 (W18) ────────────────────────────────────────────
+
+
+def _dashboard(ctx: AppContext, run_id: str | None) -> dict:
+    if run_id is not None and not is_valid_run_id(run_id):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    with ctx.store.read() as tx:
+        if run_id is not None and readmodel.select_run(tx, run_id) is None:
+            raise ApiError("RESOURCE_NOT_FOUND")
+        return readmodel.build(tx, run_id, now=ctx.clock.utc_now())
+
+
+@router.get("/ops/dashboard")
+async def dashboard(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("read"))],
+    run_id: str | None = None,
+) -> JSONResponse:
+    reject_unknown_query(request, frozenset({"run_id"}))
+    data = await run_in_threadpool(_dashboard, context(request), run_id)
     return JSONResponse(content=success_body(request_id(request), data))
