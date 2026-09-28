@@ -35,6 +35,7 @@ from linemedic.control_plane.state import (
 )
 from linemedic.control_plane.store import Store, Tx
 from linemedic.control_plane.verifier import DEFAULT_CONTRACT, load_contract
+from linemedic.integrations import sandbox
 from linemedic.integrations.docker import DockerPort
 from linemedic.integrations.github_baseline import BaselinePort, baseline_branch
 
@@ -71,6 +72,7 @@ def identity(settings: Settings) -> dict[str, Any]:
         "agent_mode": agent.mode,
         **{key: _file_sha256(path) for key, path in IDENTITY_FILES.items()},
         "prompt_sha256": rules.bundle_sha256(),  # system prompt·skill·도구 설명 묶음(W14)
+        "sandbox_policy_sha256": sandbox.policy_dir_sha256(sandbox.POLICY_DIR),  # G5 전 None(W15)
         "contract_id": contract.contract_id,
         "contract_sha256": contract_sha256,
     }

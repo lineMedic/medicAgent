@@ -178,11 +178,40 @@ RECORD_HEADER = (
 )
 
 
+def _sandbox_rows(tx: Tx, run_id: str, agent_mode: Any) -> list[str]:
+    """attempt마다 준비한 sandbox(W15): identity·effective policy·확인 여부·확인 안 된 보호."""
+    rows = [
+        _loads(row["payload_json"]) or {}
+        for row in tx.all(
+            "SELECT payload_json FROM audit_events WHERE run_id = ?"
+            " AND event_type = 'SANDBOX_PREPARED' ORDER BY seq",
+            (run_id,),
+        )
+    ]
+    if not rows:
+        return ["N/A(local 모드)" if agent_mode == "local" else NO_RECORD]
+    lines = [
+        "| attempt | sandbox | effective policy | sandbox_verified | 확인 안 된 보호 |",
+        "|---|---|---|---|---|",
+    ]
+    for record in rows:
+        cells = [
+            str(record.get("attempt_id") or NO_RECORD),
+            str(record.get("identity") or NO_RECORD),
+            str(record.get("effective_policy_sha256") or NO_RECORD)[:12],
+            "true" if record.get("verified") is True else "false",
+            ", ".join(str(item) for item in record.get("unverified") or []) or "-",
+        ]
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    return lines
+
+
 def run_record(tx: Tx, run: Any, unresolved: Mapping[str, list[Any]], stamp: str) -> str:
     manifest = _loads(run["config_json"]) or {}
     ident = manifest.get("identity") or {}
     memory = manifest.get("memory") or {}
     baseline = manifest.get("baseline") or {}
+    host = manifest.get("host_manifest") or {}
 
     def get(data: Mapping[str, Any], key: str) -> str:
         return str(data.get(key) or NO_RECORD)
@@ -197,6 +226,8 @@ def run_record(tx: Tx, run: Any, unresolved: Mapping[str, list[Any]], stamp: str
         f"- 모델: {get(ident, 'model_id')} / runtime: {get(ident, 'runtime')}"
         f" / agent mode: {get(ident, 'agent_mode')}",
         f"- 정책 hash: {get(ident, 'policy_sha256')} / prompt hash: {get(ident, 'prompt_sha256')}",
+        f"- sandbox 정책 hash: {get(ident, 'sandbox_policy_sha256')}",
+        f"- host manifest: {get(host, 'path')} (sha256 {get(host, 'sha256')})",
         f"- 계약: {contract}",
         f"- memory: {get(memory, 'mode')} / snapshot {get(memory, 'snapshot_id')}",
         f"- baseline: {get(baseline, 'branch')} @ {get(baseline, 'commit')}"
@@ -215,6 +246,8 @@ def run_record(tx: Tx, run: Any, unresolved: Mapping[str, list[Any]], stamp: str
         lines.append("| " + " | ".join(cells) + " |")
     if not works:
         lines.append("| " + " | ".join([NO_RECORD] * 9) + " |")
+    lines += ["", "## sandbox (attempt별)", ""]
+    lines += _sandbox_rows(tx, run["id"], ident.get("agent_mode"))
     lines += ["", "## 미해결 (export 시점)", ""]
     for key, items in unresolved.items():
         lines.append(f"- {key}: {len(items)}건")

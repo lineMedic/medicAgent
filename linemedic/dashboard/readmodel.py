@@ -197,6 +197,26 @@ def _polling(tx: Tx, manifest: dict[str, Any], repo: dict[str, Any]) -> dict[str
     }
 
 
+def _sandbox_status(tx: Tx, run_id: str) -> str:
+    row = tx.one(
+        "SELECT payload_json FROM audit_events WHERE run_id = ? AND event_type = 'SANDBOX_PREPARED'"
+        " ORDER BY seq DESC LIMIT 1",
+        (run_id,),
+    )
+    if row is None:
+        return f"{UNKNOWN}(sandbox 검증 기록 없음)"
+    record = _loads(row["payload_json"])
+    attempt = _or(record.get("attempt_id"))
+    if record.get("verified") is True:
+        passed = sum(1 for value in (record.get("checks") or {}).values() if value == "PASS")
+        policy = str(record.get("policy_sha256") or "")[:12]
+        return (
+            f"sandbox_verified=true (attempt {attempt}, 필수 보호 {passed}개 PASS, 정책 {policy})"
+        )
+    unverified = ", ".join(str(item) for item in record.get("unverified") or []) or UNKNOWN
+    return f"sandbox_verified=false (attempt {attempt}, 확인 안 됨: {unverified})"
+
+
 def header(tx: Tx, run: Any) -> dict[str, Any]:
     manifest = _loads(run["config_json"])
     config = manifest.get("config") or {}
@@ -208,8 +228,8 @@ def header(tx: Tx, run: Any) -> dict[str, Any]:
     mode = agent.get("mode")
     if mode == "local":
         sandbox = f"{NOT_APPLICABLE}(local 모드)"
-    else:  # sandbox 검증 기록은 W15가 남긴다. 그 전에는 확인하지 않은 것이다
-        sandbox = f"{UNKNOWN}(sandbox 검증 기록 없음)"
+    else:  # 이 run의 마지막 sandbox 기록(W15). 없으면 확인하지 않은 것이다
+        sandbox = _sandbox_status(tx, run["id"])
     repo_text = UNKNOWN
     if repo.get("full_name") or repo.get("id"):
         repo_text = f"{_or(repo.get('full_name'))} (ID {_or(repo.get('id'))})"

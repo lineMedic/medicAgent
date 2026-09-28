@@ -11,6 +11,7 @@ import argparse
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +31,7 @@ from linemedic.integrations.github import (
     GitHubPort,
     HttpGitHub,
 )
+from linemedic.integrations.sandbox import POLICY_DIR, SandboxPort, policy_dir_sha256
 from linemedic.scripts.github_setup_check import REPO_FULL_NAME_RE
 from linemedic.scripts.host_manifest import fts5_available, run_version_command
 
@@ -76,6 +78,9 @@ class DoctorContext:
     run: Callable[[list[str]], str | None] = run_version_command
     # (repository_id, full_name, credential) → GitHubPort. None이면 config `github` 절로 HttpGitHub
     github_port: Callable[[int, str, str], GitHubPort] | None = None
+    # sandbox 기동 구현(W15). OpenShell 구현은 G5 뒤라 아직 없다
+    sandbox: SandboxPort | None = None
+    sandbox_policy_dir: Path = POLICY_DIR
 
 
 CheckFn = Callable[[DoctorContext], tuple[Status, str]]
@@ -207,6 +212,43 @@ def check_runner_image(ctx: DoctorContext) -> tuple[Status, str]:
     if found != image_id:
         return "FAIL", f"image ID 불일치: 설정 {image_id[:19]}, 실제 {found[:19]}"
     return "OK", f"runner image {image_id[:19]} 확인"
+
+
+@register("openshell", required=True)
+def check_openshell(ctx: DoctorContext) -> tuple[Status, str]:
+    """sandbox 모드의 OpenShell: CLI·고정 정책 파일·시험 sandbox 기동과 정리(W15, D88)."""
+    mode = ctx.env.get("AGENT_MODE")
+    if mode == "local":
+        return "OK", "AGENT_MODE=local: sandbox 점검 생략 (평가·영상은 sandbox 모드로만)"
+    if mode != "sandbox":
+        return "NOT_CONFIGURED", "미설정 변수: AGENT_MODE (local 또는 sandbox)"
+    if ctx.which("openshell") is None:
+        return "MISSING", "openshell CLI 없음 (G5: 데모 호스트에 설치)"
+    version = ctx.run(["openshell", "--version"]) or "openshell (버전 확인 실패)"
+    try:
+        policy = policy_dir_sha256(ctx.sandbox_policy_dir)
+    except ValueError as exc:
+        return "FAIL", str(exc)
+    if policy is None:
+        return "NOT_CONFIGURED", (
+            f"{version}, 정책 파일 없음: linemedic/policies/openshell/"
+            " (G5 뒤 설치 버전 schema로 작성, spec 07 §4)"
+        )
+    if ctx.sandbox is None:
+        return "NOT_CONFIGURED", f"{version}, 정책 {policy[:12]}, sandbox 기동 구현 없음 (G5 뒤)"
+    with tempfile.TemporaryDirectory(prefix="linemedic-doctor-") as scratch:
+        root = Path(scratch)
+        try:
+            session = ctx.sandbox.prepare(
+                run_id="doctor", attempt_id="doctor", workspace=root, rules_dir=root
+            )
+        except Exception as exc:  # noqa: BLE001 — 기동 실패는 FAIL로 보인다
+            return (
+                "FAIL",
+                f"{version}, 시험 sandbox 기동 실패: {getattr(exc, 'reason', type(exc).__name__)}",
+            )
+        ctx.sandbox.close(session)
+    return "OK", f"{version}, 정책 {policy[:12]}, 시험 sandbox 기동·정리 확인"
 
 
 def run_checks(ctx: DoctorContext) -> list[CheckResult]:

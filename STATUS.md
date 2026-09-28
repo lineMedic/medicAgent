@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W15·W16의 게이트 없는 부분 판단이다(G5 전). live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W16의 게이트 없는 부분(fake S2-lite 전체 경로)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -41,7 +41,7 @@
 | 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1506 passed(W13 테스트 36개: attempt 14, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T15:54Z |
 | 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1565 passed(W27 테스트 59개: `test_case_memory.py` 57(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T17:02Z |
 | 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
-| 24 | W15 | LIVE_VERIFIED | NOT_CHECKED | | G5·G7·G8 | |
+| 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
 | 25 | W16 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
@@ -99,6 +99,62 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W15 중단 보고 — 게이트 없는 부분 완료, OpenShell·S1 sandbox run 대기 (2026-09-28T00:49Z)
+
+- 상태: UNIT_TESTED (게이트 없는 부분: sandbox port·기록·판정·doctor. OpenShell 정책 파일·기동 구현·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10). OpenShell은 설치돼 있지 않고 부르지 않았다
+- 착수 근거: AGENTS §2 조건(선행 W14 목표 상태)은 충족되지 않았다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 하지 않은 것: `linemedic/policies/openshell/` 정책 파일. spec 07 §4가 설치 버전을 확인하지 않은 OpenShell 설정을 실행 가능하게 두지 말라고 한다
+- 변경 파일:
+  - `linemedic/integrations/sandbox.py`(새)
+    - `SandboxPort`(`prepare` → `SandboxSession`, `close`), 설정 없음(`UnconfiguredSandbox`, 준비 거절), 테스트용 `FakeSandbox`
+    - 필수 보호 10개(spec 07 §4 표)와 `sandbox_verified` 판정: 정책 파일이 고정돼 있고 모두 PASS일 때만 true
+    - 정책 파일 묶음 hash(없으면 null, symlink 거부), effective policy 저장(비밀 가림 → 내용 hash 이름, 한 번만)
+  - `linemedic/control_plane/supervisor.py`
+    - sandbox 모드에서 sandbox를 준비하지 못하면 local로 바꾸지 않고 시작하지 않는다(`sandbox:<사유>`, MODEL_UNAVAILABLE)
+    - 준비했으면 `SANDBOX_PREPARED`를 남기고, adapter가 끝나면(실패해도) 닫고 `SANDBOX_CLOSED`를 남긴다
+    - context: `/agent_rules`·`/sandbox/work`·sandbox identity, sandbox 안 도구 주소
+    - attempt 전후 규칙 묶음 hash 비교 → 바뀌면 `AGENT_RULES_CHANGED`(N10을 runtime과 무관하게)
+  - `linemedic/agent/trace.py`: trace에 `sandbox`(local은 null)와 `rules`(전후 hash·changed)
+  - `linemedic/control_plane/runs.py`: manifest identity `sandbox_policy_sha256`
+  - `linemedic/control_plane/run_export.py`: run-record에 sandbox 정책 hash·host manifest·attempt별 sandbox 표
+  - `linemedic/dashboard/readmodel.py`: 머리의 sandbox 칸 = 이 run의 마지막 `SANDBOX_PREPARED`(`sandbox_verified=true/false`와 확인 안 된 항목)
+  - `linemedic/control_plane/main.py`: sandbox 주입, `make start` 기능 보고에 sandbox on/off
+  - `linemedic/scripts/doctor.py`: `openshell` 항목(필수)
+    - local 모드는 생략(OK), 모드가 없으면 NOT_CONFIGURED
+    - sandbox 모드는 CLI → 버전 → 정책 파일 hash → 시험 sandbox 기동·정리 순서로 본다. 구현이 없으면 NOT_CONFIGURED
+  - 테스트
+    - 새 파일: `unit/test_sandbox.py`(8), `integration/test_sandbox_attempts.py`(12)
+    - `unit/test_dashboard_readmodel.py`(+1)
+    - `tests/helpers/attempt_world.py`(새): `test_attempts.py`의 World·FakeAdapter를 옮겨 두 파일이 같이 쓴다
+- 실행 (로컬 개발 Mac, FakeSandbox — 데모 호스트 아님, OpenShell 없음):
+  - `make test` → 1684 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - 변이 25개 모두 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다). 처음 살아남은 1개(effective policy 덮어쓰기)는 테스트를 보강한 뒤 다시 확인했다
+  - 잡힌 변이
+    - 판정: PASS 외 값 인정, 빠진 항목 무시, 정책 파일 없이 확인, symlink 허용, 빈 정책 hash, 비밀 안 가림, 덮어쓰기, 미설정 준비
+    - supervisor: local로 대체, 준비 실패 무시, sandbox 안 닫음, 닫기 실패 숨김, 구현이 준 verified 그대로, sandbox 주소 무시, host 규칙 경로 노출, 규칙 변경 기록 없음, trace sandbox 없음
+    - doctor·기록: local도 점검, 기동 없이 OK, 기동 실패 OK, 정책 없이 OK, 대시보드가 다른 run·오래된 기록을 봄, run-record 표 없음, identity 정책 hash 없음
+- 수용 기준 (AC-S1, AC-SBX):
+  - 에이전트 프로세스가 sandbox 안에서 실행되고 도구 API와 추론 경로만 성공: NOT_RUN (G5)
+    - host 쪽은 준비됐다: sandbox 없이는 시작하지 않고, adapter는 준비된 sandbox 안에서만 부른다(FakeSandbox PASS)
+  - run 기록에 `agent_mode=sandbox`·정책 hash·sandbox identity·host manifest: 기록 구조 PASS(fake)
+    - attempt의 `SANDBOX_PREPARED`·trace, manifest identity, run-record 표와 host manifest 줄
+    - 실제 값: NOT_RUN
+  - 사람이 패치를 대신 쓰지 않음, 승인한 코드·image·업무 검사 연결 뒤에만 RESOLVED: NOT_RUN (실제 S1 run 전). 연결 자체는 W13 fake E2E로 확인돼 있다
+  - 보호를 적용하지 못했으면 `sandbox_verified=false`: PASS(fake, 확인 안 된 항목과 정책 파일 없음 포함)
+- 판단: D88(sandbox port, 준비 실패 처리, 기록 항목, host가 정하는 sandbox_verified와 필수 보호 10개, effective policy 저장, context 경로, 규칙 변경 확인, manifest·run-record·대시보드·doctor)
+- 증거: 커밋은 이 보고를 포함한 W15 커밋(로컬, push 전). N03·N04 evidence와 `runs/<run_id>/run-record.md`는 게이트 전이라 없다
+- 작업 중 발견:
+  - W18 대시보드는 sandbox 모드면 항상 "sandbox 검증 기록 없음"으로 보였다. 기록 출처를 `SANDBOX_PREPARED`로 정해 연결했다
+  - 규칙 읽기 전용 권한은 같은 사용자의 에이전트가 되돌릴 수 있다(시험에서 chmod 후 수정). 그래서 전후 hash 비교를 남긴다
+- 남은 일·위험:
+  - G5 뒤
+    - 설치 버전 schema로 정책 파일을 쓰고 OpenShell `SandboxPort`를 구현한다(identity·effective policy·필수 보호 10개 확인 방법)
+    - N03(sandbox → 도구 API 허용·`/ops` 거절)·N04(정책 적용·거절 로그)·N09(호스트 조합)를 evidence로 남긴다
+  - G3·G4 뒤: W14 runtime을 sandbox 안에서 돌려 S1 전체 run(G2·G10·G7·G8)을 하고 run-record §1~§6·§11~§13을 채운다
+  - 필수 보호 중 설치 버전에서 확인 방법이 없는 항목은 NOT_RUN으로 남아 `sandbox_verified=false`가 된다. 이 경우 넓히지 않고 false로 공개한다
+  - 규칙 변경 확인은 `/agent_rules`만 본다. OpenClaw 자체 workspace 파일은 G4에서 OpenClaw를 고르면 더한다
+- 다음 카드: 맡긴 순서대로 W16의 게이트 없는 부분(fake S2-lite 전체 경로)
 
 ### W14 중단 보고 — A 부분 완료, runtime adapter·live G3·G4 대기 (2026-09-28T00:36Z)
 
