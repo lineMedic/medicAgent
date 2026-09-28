@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61). 다음은 W20의 게이트 없는 부분(평가 하네스·기대값·집계, 실행은 게이트 뒤)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62). 다음은 W29(정합성 점검)·W21(README 초안)의 게이트 없는 부분과 H03~H07 판단이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -47,7 +47,7 @@
 | 27 | W17 | LIVE_VERIFIED | UNIT_TESTED (S3-B 결정론·S3-C 판정·호스트 대조. S3-A·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3) | `make test` → 1721 passed(W17 테스트 24개: S3-B 표 14, S3-C 판정·sink·호스트 대조·쓰기 프로브·공격 memo·CLI 10), `make test-docker` → 13 passed, `make lint` → PASS, 변이 12개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `evidence/S3-B-broker.md`(14행 PASS) | BLOCKED_ON_HUMAN: G3·G5 — S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행 → IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부 / G5 — OpenShell `SandboxProbe` 구현 뒤 `make security-test RUN_ID=`로 S3-C(호스트 대조·금지·허용·거절 기록) → `runs/<run>/security/` | 2026-09-28T01:32Z |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1632 passed(W19 테스트 26개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T18:11Z |
-| 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
+| 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN) | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T01:49Z |
 | 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
 | 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
 | 33 | H03~H07 | UNIT_TESTED | NOT_CHECKED | | core 완료 후 | |
@@ -99,6 +99,49 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W20 중단 보고 — 하네스·집계 완료, 실제 평가 실행 대기 (2026-09-28T01:49Z)
+
+- 상태: UNIT_TESTED (평가 하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트와 코드 동결). 평가 run은 만들지 않았다
+- 착수 근거: 선행 W15·W16·W17(목표 상태)이 게이트 대기다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 변경 파일:
+  - `linemedic/eval/scenario_expectations.toml`(새)·`expectations.py`(새): suite 10개의 기대값
+    - 그룹·목표 횟수·agent 분모 여부·category·action·도착 상태·검증·memory mode
+    - strict 로더로 읽고 에이전트에게 주지 않는다
+  - `linemedic/eval/harness.py`(새)
+    - `preflight`: sandbox 모드·runtime·모델·sandbox 구현·데모 repo·쓰기 허락·memory mode·코드 동결. 하나라도 없으면 run 없이 NOT_CONFIGURED
+    - `evaluate`: 새 평가 run(manifest `evaluation`) → `make start` 분리 실행 → 시나리오 주입 → 사람 단계(승인·G7·G8·운영)에서 멈춘다. 승인을 대신하지 않는다
+    - `collect`·`score`·`collect_run`: 사건마다 결과 행(사건 없는 run도 행)과 기대값 채점 → `runs/<run>/eval-result-*.json`
+    - `summarize`: 목표 대비 실행(NOT_RUN·부족), 조건 집합별 분자/분모, origin 분리, 거짓 완료, 금지 행동 미확인, 행 전체, local 제외
+  - `linemedic/control_plane/runs.py`: `new_run(evaluation=)`
+  - `linemedic/control_plane/state.py`: `RECOVERED_INCIDENT_STATUS`(집계가 RESOLVED 문자열을 직접 쓰지 않게, INV-01)
+  - `linemedic/cli.py`·`Makefile`: `make evaluate SUITE=`, `make evaluate-collect RUN_ID=`, `make eval-summary`
+  - `evidence/eval-summary.md`(새): 평가 run 없음 → 모든 그룹 NOT_RUN
+  - 테스트: `unit/test_eval_harness.py`(새, 9)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1730 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - `make evaluate SUITE=s1` → NOT_CONFIGURED(없는 것 6개: sandbox 모드, runtime·모델, sandbox 구현, 데모 repo, 쓰기 허락, 코드 동결). run 수는 그대로(3 → 3)
+  - `make eval-summary` → `evidence/eval-summary.md`(전부 NOT_RUN)
+  - 변이 15개 모두 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다)
+    - 처음 살아남은 1개(identity chain을 PR만으로 판정)는 PR만 있는 run 테스트를 더한 뒤 다시 확인했다
+    - 잡힌 변이: 모르는 키 허용, preflight 항목 누락 3, 조건 없이 run 생성, 사람 단계 건너뜀, 평가 표시 없음, 거짓 완료 판정 없음, 사건 없는 run 행 없음, 사람 제안을 분모에, local 포함, 조건 집합 합침, 금지 행동 0, NOT_RUN 표시 없음
+- 수용 기준:
+  - 매 run이 새 run·사건·workspace·baseline 브랜치를 쓰고 identity hash가 기록된다: 새 run·manifest identity·baseline 준비는 W19 경로를 그대로 쓴다(PASS, fake). 실제 run: NOT_RUN
+  - run 시작 뒤의 오류·timeout·오판이 모두 행으로 남는다: 사건마다 한 행, 사건 없는 run도 행, 거짓 완료 표시(PASS, 단위). 재시도는 attempt 기록(W14 `ATTEMPT_RETRY`) 안에 남는다
+  - 모델·정책을 바꾼 run은 다른 집합으로 분리된다: PASS(조건 집합 키)
+  - 목표 횟수를 못 채우면 실제 횟수와 미실행을 적는다: PASS(NOT_RUN·부족 표시)
+- 판단: D92(기대값 형식, preflight 항목, 사람 단계에서 멈추는 방식, 평가 run 표시, 결과 행 필드, 집계 규칙)
+- 증거: `evidence/eval-summary.md`(평가 run 없음), 커밋은 이 보고를 포함한 W20 커밋(push·PR)
+- 작업 중 발견:
+  - `make start`는 앞에서 계속 도는 명령이라, 하네스는 분리 실행하고 log를 `runs/<run>/evaluate-start.log`에 남긴다(멈춤은 `make stop RUN_ID=`)
+  - S3-A 주입(공격 memo를 S1 요청에 넣는 시나리오 옵션)이 아직 없다. plan에는 운영 단계로 표시했다(G3·G5 전에 구현)
+  - INV-01 검사가 집계 코드의 `RESOLVED` 비교를 잡아, 상태 이름을 `state.py` 상수로 옮겼다
+- 남은 일·위험:
+  - 모든 게이트와 코드 동결 뒤: 목표 횟수(S1 3, S2-lite 2+1, S1b 1, S3-A 1)를 새 run으로 돌리고 `make eval-summary`를 다시 쓴다. S4~S7은 W29
+  - 시간 지표는 attempt 시간만 계산한다. broker·사람 대기·배포·검증 구간은 run-record에서 본다
+  - human-edited 패치를 표시할 기록 필드가 없다. 사람이 고쳤으면 run-record에 적고 agent 성과에서 뺀다
+  - 금지 행동의 관측 범위를 기록하는 곳이 아직 없다. 그 전에는 "미확인"이다(0으로 쓰지 않는다)
+- 다음 카드: 맡긴 순서대로 W29·W21의 게이트 없는 부분, 그리고 H03~H07 판단
 
 ### W17 중단 보고 — S3-B·S3-C 판정 완료, S3-A·sandbox 대조 대기 (2026-09-28T01:32Z)
 

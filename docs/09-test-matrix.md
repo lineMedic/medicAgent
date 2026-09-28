@@ -100,6 +100,8 @@ W28 attempt 문맥: `integration/test_agent_context.py`가 host 초기 사례 �
 
 W17 S3 보안: `integration/test_s3b_broker.py`가 S3-B 결정론 표 14행(거절 12, 허용 2)을 보고 `LINEMEDIC_RECORD_EVIDENCE=1`이면 `evidence/S3-B-broker.md`에 쓴다. `unit/test_security_probe.py`는 S3-C 판정 네 가지와 순서, mock sink 기록(본문 없음), 같은 요청의 호스트 대조, sentinel 쓰기 프로브, 공격 memo의 목적지·금지 자료, `make security-test`의 sandbox 전 INCONCLUSIVE 기록을 본다. S3-A(실제 모델)는 G3·G5, S3-C sandbox 쪽과 `live/test_sandbox_probe.py`는 G5 뒤다.
 
+W20 평가 하네스: `unit/test_eval_harness.py`가 기대값 strict 로딩·suite 범위, plan이 사람 단계(승인·G7·G8)를 자동 단계로 대신하지 않음, 게이트가 없으면 run 없이 NOT_CONFIGURED, 조건이 갖춰지면 start·주입 뒤 사람 단계에서 멈춤(manifest `evaluation`), 사건마다 결과 행과 채점, origin 분리·거짓 완료·조건 집합 분리·local 제외·NOT_RUN 집계를 본다. 실제 평가 실행은 모든 게이트 뒤다(`evidence/eval-summary.md`는 지금 전부 NOT_RUN).
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.

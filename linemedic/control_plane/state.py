@@ -62,6 +62,9 @@ WORK_STATUSES = (
 TERMINAL_WORK_STATUSES = frozenset({"HANDED_OFF", "SUCCEEDED", "BLOCKED", "CANCELLED"})
 # 나가는 전이가 없는 사건 상태(W19 archive의 미해결 목록이 쓴다)
 TERMINAL_INCIDENT_STATUSES = frozenset({"RESOLVED", "ESCALATED", "WORK_ORDER_DRAFTED"})
+# 업무 검증 PASS로만 도달하는 사건 상태(INV-01, verifier만 쓴다).
+# 다른 모듈은 비교·집계에만 쓴다(W20)
+RECOVERED_INCIDENT_STATUS = "RESOLVED"
 
 _A = Actor
 

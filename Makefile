@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard export-run reset security-test
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard export-run reset security-test evaluate evaluate-collect eval-summary
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -206,3 +206,20 @@ reset:
 security-test:
 	@test -n "$(RUN_ID)" || { echo "사용법: make security-test RUN_ID=<run> [SINK_URL=]"; exit 2; }
 	$(PY) -m linemedic.cli security-test --run-id "$(RUN_ID)" $(if $(SINK_URL),--sink-url "$(SINK_URL)")
+
+# 평가 (W20): preflight(sandbox 모드·runtime·모델·sandbox 구현·데모 repo·GitHub 쓰기 허락·코드 동결)가 모두 있어야
+# 새 평가 run을 만든다. 없으면 NOT_CONFIGURED로 멈춘다(run 없음). start·시나리오 주입까지 하고 사람 단계
+# (work 승인·G7 리뷰·머지·G8 approve-release)에서 멈춘다. 승인을 대신하지 않는다.
+# SUITE: s1 s2-lite s2-recent-deploy s1b s3 s4 s5 s6 s7-cold s7-memory
+evaluate:
+	@test -n "$(SUITE)" || { echo "사용법: make evaluate SUITE=<suite>"; exit 2; }
+	$(PY) -m linemedic.cli evaluate --suite "$(SUITE)"
+
+# 사람 단계가 끝난 평가 run의 결과 행(사건마다, 실패·사건 없음 포함)을 runs/<RUN_ID>/eval-result-*.json에 남긴다.
+evaluate-collect:
+	@test -n "$(RUN_ID)" || { echo "사용법: make evaluate-collect RUN_ID=<run>"; exit 2; }
+	$(PY) -m linemedic.cli evaluate-collect --run-id "$(RUN_ID)"
+
+# 평가 run 집계를 evidence/eval-summary.md에 쓴다(분모·origin·조건 집합·NOT_RUN, 거짓 완료, 금지 행동은 미확인).
+eval-summary:
+	$(PY) -m linemedic.cli eval-summary

@@ -30,6 +30,7 @@ from linemedic.control_plane.memory import snapshot as memory_snapshot
 from linemedic.control_plane.observer import ObserverError
 from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.control_plane.store import Store, StoreError
+from linemedic.eval import harness as eval_harness
 from linemedic.factory_sim import scenarios
 from linemedic.factory_sim.negative import harness
 from linemedic.integrations.docker import CliDocker, DockerError
@@ -259,7 +260,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     security_parser.add_argument("--sink-url", help="팀 소유 mock sink 주소(없으면 잠깐 띄운다)")
     security_parser.add_argument("--sink-record", type=Path, help="mock sink 수신 기록 경로")
-    for command_parser in (export_parser, reset_parser, security_parser):
+    evaluate_parser = sub.add_parser(
+        "evaluate",
+        help="평가 run: preflight → 새 run → start·주입 → 사람 단계에서 멈춤 (W20, 승인 대행 없음)",
+    )
+    evaluate_parser.add_argument("--suite", required=True)
+    evaluate_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+    evaluate_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    evaluate_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    collect_parser = sub.add_parser(
+        "evaluate-collect", help="평가 run 결과 행을 runs/<run>/eval-result-*.json에 기록 (W20)"
+    )
+    summary_parser = sub.add_parser(
+        "eval-summary", help="평가 run 집계(분모·origin·NOT_RUN)를 evidence/eval-summary.md에 (W20)"
+    )
+    summary_parser.add_argument("--db", type=Path, help="제어 DB 경로")
+    summary_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    summary_parser.add_argument(
+        "--output", type=Path, default=eval_harness.REPO_ROOT / "evidence" / "eval-summary.md"
+    )
+    for command_parser in (export_parser, reset_parser, security_parser, collect_parser):
         command_parser.add_argument("--run-id", required=True)
         command_parser.add_argument("--db", type=Path, help="제어 DB 경로")
         command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
@@ -851,6 +871,63 @@ def _local_run(args: argparse.Namespace, command: str) -> tuple[Store, Path] | N
     return store, Path(env.get("RUNS_DIR") or db_path.parent)
 
 
+def _evaluate(args: argparse.Namespace) -> int:
+    """`make evaluate SUITE=`: 조건이 없으면 run을 만들지 않고 멈춘다.
+
+    사람 단계(승인·G7·G8)는 대신하지 않는다.
+    """
+    if args.suite not in eval_harness.SUITES:
+        print(
+            f"evaluate 실패: 모르는 suite {args.suite!r} ({', '.join(eval_harness.SUITES)})",
+            file=sys.stderr,
+        )
+        return 2
+    env = process_env(args.env_file)
+    settings = load_settings(args.config, env=env)
+    db_path = args.db or runs.default_db_path(env)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    store = Store(db_path, SystemClock())
+    # sandbox 구현(OpenShell SandboxPort, G5)이 아직 없다
+    outcome = eval_harness.evaluate(args.suite, settings, store, sandbox_available=False)
+    report: dict[str, Any] = {
+        "suite": args.suite,
+        "status": outcome.status,
+        "run_id": outcome.run_id,
+    }
+    if outcome.missing:
+        report["missing"] = list(outcome.missing)
+    if outcome.waiting is not None:
+        report["waiting"] = {"gate": outcome.waiting.gate, "do": outcome.waiting.instruction}
+        report["then"] = [s.instruction or s.name for s in outcome.remaining[1:]]
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 2 if outcome.status in ("NOT_CONFIGURED", "STEP_FAILED") else 0
+
+
+def _evaluate_collect(args: argparse.Namespace) -> int:
+    local = _local_run(args, "evaluate-collect")
+    if local is None:
+        return 2
+    store, runs_dir = local
+    path = eval_harness.collect_run(store, args.run_id, runs_dir)
+    print(json.dumps({"result": str(path)}, ensure_ascii=False))
+    return 0
+
+
+def _eval_summary(args: argparse.Namespace) -> int:
+    env = process_env(args.env_file)
+    db_path = args.db or runs.default_db_path(env)
+    if not db_path.is_file():
+        print(f"eval-summary 실패: 제어 DB가 없다: {db_path}", file=sys.stderr)
+        return 2
+    store = Store(db_path, SystemClock())
+    store.migrate()
+    text = eval_harness.summary_markdown(store, Path(env.get("RUNS_DIR") or db_path.parent))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(text, encoding="utf-8")
+    print(json.dumps({"summary": str(args.output)}, ensure_ascii=False))
+    return 0
+
+
 def _security_test(args: argparse.Namespace) -> int:
     """`make security-test RUN_ID=`: S3-C 절차와 판정.
 
@@ -1017,6 +1094,12 @@ def main(argv: list[str] | None = None) -> int:
         return _reset(args)
     if args.command == "security-test":
         return _security_test(args)
+    if args.command == "evaluate":
+        return _evaluate(args)
+    if args.command == "evaluate-collect":
+        return _evaluate_collect(args)
+    if args.command == "eval-summary":
+        return _eval_summary(args)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

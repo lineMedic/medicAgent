@@ -118,8 +118,9 @@ linemedic/
 │   └── sinks/mock_ot_sink.py      # [W17] S3-C 팀 소유 수신 서버(본문 없이 hash·확인 코드 여부), sinks/sentinel.txt 쓰기 프로브용
 ├── eval/                          # runtime 에이전트 비노출
 │   ├── holdout-defects-v1.json    # [W04] holdout 입력+기대값 (verifier만 읽음)
-│   ├── scenario_expectations.toml # [W20] 시나리오별 기대 category/action
-│   ├── harness.py                 # [W20] make evaluate
+│   ├── scenario_expectations.toml # [W20] 시나리오별 기대 category/action·도착 상태·목표 횟수·agent 분모 여부
+│   ├── expectations.py            # [W20] 기대값 로더(strict)
+│   ├── harness.py                 # [W20] make evaluate(preflight·사람 단계에서 멈춤)·evaluate-collect·eval-summary
 │   ├── manual_proposals/          # [W13] 사람이 작성한 제안 (origin=manual_integration): s1_manual.json, [W16] s2_lite_manual.json
 │   └── snapshots/                 # [W27] memory snapshot manifest
 ├── dashboard/
