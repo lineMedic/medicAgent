@@ -133,12 +133,13 @@
 | D90 | attempt 문맥 통합: workspace 전 host 초기 사례 검색(requested_by supervisor, 예산 밖) → context memory·trace, UNAVAILABLE 정책 `memory.on_unavailable`(기본 stop → LOOKUP_INCOMPLETE), get_incident memory, get_bound_issue(묶인 Issue만·정제한 비신뢰 본문·예산 안), T-MEM-06(로그 path 주입) | 사례 기억·검색 | 유효 (spec 05 §10·§11, spec 17 §5·§6 구체화) |
 | D91 | S3 보안 시험(게이트 없는 부분): S3-B 결정론 표 14행·evidence, 공격 memo(고정 확인 코드·mock sink만·시험 표시 없음), mock sink(본문 없이 hash·확인 코드 여부), S3-C 판정 순서(도달 → 대조 실패 → 정책 거절 기록 ±5초), 같은 요청의 호스트 대조, security-test(sandbox 전 INCONCLUSIVE), sentinel 쓰기 프로브 | 보안 | 유효 (spec 07 §6 구체화) |
 | D92 | 평가 하네스: strict 기대값 TOML(에이전트 비노출), preflight 없으면 run 없이 NOT_CONFIGURED, 새 평가 run(manifest evaluation)·start 분리 실행·주입 뒤 사람 단계에서 멈춤(승인 대행 없음), 사건마다 결과 행(사건 없음 포함), 조건 집합별 분자/분모·origin·NOT_RUN·거짓 완료·금지 행동 미확인 집계 | 범위·일정·평가 | 유효 (spec 09 §7~§9·§12 구체화) |
+| D93 | 문서 정합성 자동 점검: docs/09 시험 파일·ID(줄임 펼침, hardening 행만 예외), STATUS LIVE_VERIFIED 행의 evidence 실재, README·제출 초안의 docs/11 §4 금지 문구(목록 동기화) | 범위·일정·평가 | 유효 (docs/11 §1·§4 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
-| 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 D92 |
+| 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 D92 D93 |
 | 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 D83 D87 |
 | 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 D84 D90 |

@@ -78,7 +78,7 @@ linemedic/
 │   │   ├── outbox.py              # [W26] enqueue·상태 전이·재시도
 │   │   ├── templates.py           # [W26] 이벤트 7종 본문, blocker report
 │   │   ├── github_comment.py      # [W26] send/reconcile adapter
-│   │   └── smtp.py                # [W26, G12 선택 시만]
+│   │   └── smtp.py                # [W26, G12 선택 시만 — 지금은 없음]
 │   ├── memory/
 │   │   ├── builder.py             # [W27] 원본 event → case note(outcome·revision·정제·색인), 철회·색인 재구축
 │   │   ├── search.py              # [W27] exact + FTS5/fallback, 필터 후 top_k, case_retrievals 기록
@@ -122,7 +122,7 @@ linemedic/
 │   ├── expectations.py            # [W20] 기대값 로더(strict)
 │   ├── harness.py                 # [W20] make evaluate(preflight·사람 단계에서 멈춤)·evaluate-collect·eval-summary
 │   ├── manual_proposals/          # [W13] 사람이 작성한 제안 (origin=manual_integration): s1_manual.json, [W16] s2_lite_manual.json
-│   └── snapshots/                 # [W27] memory snapshot manifest
+│   └── snapshots/                 # [W27] memory snapshot manifest (`make memory-snapshot`이 만든다, G9 선택 뒤. 지금은 없음)
 ├── dashboard/
 │   ├── __main__.py                # [W18] 127.0.0.1 읽기 전용 서버 (D49·D85: mode=ro·GET만·script 차단 CSP)
 │   ├── readmodel.py               # [W18] 화면·/ops/dashboard 공용 읽기 모델(docs/11 §5 문구 매핑, 미확인/N/A)
