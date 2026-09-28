@@ -22,6 +22,7 @@ from linemedic.common.clock import Clock, SystemClock, to_rfc3339
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 MIGRATION_NAME_RE = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
+FTS5_MIGRATION_MARK = "_fts5"  # 이름에 이것이 든 migration은 FTS5가 있을 때만 실행한다(W27)
 BUSY_TIMEOUT_MS = 5000
 BUSY_RETRIES = 3
 BUSY_BACKOFF_SECONDS = 0.1
@@ -159,6 +160,16 @@ def split_statements(sql: str) -> list[str]:
     return statements
 
 
+def fts5_available(conn: "sqlite3.Connection | Tx") -> bool:
+    """이 SQLite에 FTS5가 있는가(임시 가상 테이블을 만들어 본다). 연결·트랜잭션 모두 받는다."""
+    try:
+        conn.execute("CREATE VIRTUAL TABLE temp.fts5_probe USING fts5(x)")
+    except sqlite3.OperationalError:
+        return False
+    conn.execute("DROP TABLE temp.fts5_probe")
+    return True
+
+
 def applied_versions(conn: sqlite3.Connection) -> set[int]:
     exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
@@ -183,6 +194,8 @@ def migrate(
         if version in applied:
             continue
         statements = split_statements(path.read_text(encoding="utf-8"))
+        if FTS5_MIGRATION_MARK in path.name and not fts5_available(conn):
+            statements = []  # FTS5 없는 환경: 파생 인덱스 없이 keyword_fallback으로 검색한다(W27)
         conn.execute("BEGIN IMMEDIATE")
         if version in applied_versions(conn):  # 다른 프로세스가 먼저 적용했다
             conn.execute("ROLLBACK")

@@ -1,15 +1,19 @@
 """W06: fresh DB의 DDL 제약 재현 (docs/09 §4, PACKAGE-VALIDATION §3).
 
-20건 중 19건을 여기서 확인한다. 19번(FTS5 필터 질의)은 `case_search`를 만드는 W27에서 추가한다.
+20건을 모두 여기서 확인한다. 19번(FTS5 필터 질의)은 `case_search`를 만든 W27에서 더했고,
+제품 검색(`memory/search.py`)의 SQL 조각을 그대로 쓴다.
 0001_init.sql이 spec 04 §5 DDL 원문과 글자 단위로 같은지도 확인한다.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from linemedic.common.ids import new_id
+from linemedic.control_plane.memory import search
+from linemedic.control_plane.memory.text import fts_query
 from linemedic.control_plane.store import MIGRATIONS_DIR, applied_versions, migration_files
 from linemedic.tests.helpers.db_rows import (
     NOW,
@@ -24,6 +28,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SPEC_04 = REPO_ROOT / "spec" / "docs" / "04-data-state.md"
 RUN_A = "r-20260927-000000-aaaa"
 RUN_B = "r-20260927-000001-bbbb"
+# W27 0002: FTS5 가상 테이블과 그 내부 테이블(FTS5가 있는 SQLite에서만 생긴다)
+FTS5_TABLES = {
+    "case_search",
+    "case_search_config",
+    "case_search_content",
+    "case_search_data",
+    "case_search_docsize",
+    "case_search_idx",
+}
 SPEC_TABLES = {
     "demo_runs",
     "incidents",
@@ -69,23 +82,29 @@ def insert_case(
     event=None,
     outcome="UNVERIFIED",
     supersedes=None,
+    repository_id=100001,
+    service="mes-api",
+    publish_status="DRAFT",
 ):
     conn.execute(
         "INSERT INTO case_notes(id, series_id, revision, supersedes_id, repository_id, service,"
         " problem_fingerprint, source_run_id, source_incident_id, work_id, source_event_key,"
         " outcome, phase, origin, publish_status, observed_at, created_at, content_sha256,"
         " payload_json)"
-        " VALUES (?, ?, ?, ?, 100001, 'mes-api', 'fp', ?, ?, NULL, ?, ?, 'validation',"
-        " 'agent_release', 'DRAFT', ?, ?, ?, '{}')",
+        " VALUES (?, ?, ?, ?, ?, ?, 'fp', ?, ?, NULL, ?, ?, 'validation',"
+        " 'agent_release', ?, ?, ?, ?, '{}')",
         (
             note_id,
             series,
             revision,
             supersedes,
+            repository_id,
+            service,
             run_id,
             incident_id,
             event or f"event:{note_id}",
             outcome,
+            publish_status,
             NOW,
             NOW,
             "0" * 64,
@@ -126,15 +145,15 @@ def test_fresh_db_has_spec_tables_and_migration_record(store, conn):
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         if not row[0].startswith("sqlite_")
     }
-    assert tables == SPEC_TABLES | {"schema_migrations"}
-    assert applied_versions(conn) == {1}
-    assert [version for version, _ in migration_files()] == [1]
+    assert tables == SPEC_TABLES | {"schema_migrations"} | FTS5_TABLES
+    assert applied_versions(conn) == {1, 2}
+    assert [version for version, _ in migration_files()] == [1, 2]
     assert store.migrate() == []  # 두 번째 적용은 아무것도 하지 않는다
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
-# ── DDL 제약 (PACKAGE-VALIDATION §3의 1~18, 20) ───────────────
+# ── DDL 제약 (PACKAGE-VALIDATION §3의 1~20) ───────────────────
 
 
 def test_01_single_active_run(base):
@@ -275,6 +294,52 @@ def test_18_case_supersedes_fk(base):
     incident = insert_incident(base, RUN_A)
     with pytest.raises(sqlite3.IntegrityError):
         insert_case(base, "CASE-000000000002", RUN_A, incident, supersedes="CASE-FFFFFFFFFFFF")
+
+
+def test_19_fts5_query_with_repo_service_snapshot_and_retraction_filters(base):
+    """FTS5 MATCH와 repo·service·게시 상태·snapshot membership(ID + hash)·현재 run 필터."""
+    incident = insert_incident(base, RUN_A)
+    notes = {
+        "CASE-000000000001": (100001, "mes-api", "PUBLISHED"),  # 모두 통과
+        "CASE-000000000002": (200002, "mes-api", "PUBLISHED"),  # 다른 repo
+        "CASE-000000000003": (100001, "vision-api", "PUBLISHED"),  # 다른 서비스
+        "CASE-000000000004": (100001, "mes-api", "RETRACTED"),  # 철회
+        "CASE-000000000005": (100001, "mes-api", "PUBLISHED"),  # snapshot 밖
+        "CASE-000000000006": (100001, "mes-api", "PUBLISHED"),  # snapshot hash 다름
+    }
+    for index, (note_id, (repo, service, status)) in enumerate(notes.items()):
+        insert_case(
+            base,
+            note_id,
+            RUN_A,
+            incident,
+            series=f"S-{index}",
+            repository_id=repo,
+            service=service,
+            publish_status=status,
+        )
+        base.execute(
+            "INSERT INTO case_search(note_id, search_text) VALUES (?, ?)",
+            (note_id, "KeyError inspector_id 검사자 미지정"),
+        )
+    members = [[f"CASE-00000000000{i}", "0" * 64] for i in (1, 2, 3, 4)]
+    members.append(["CASE-000000000006", "f" * 64])
+    sql = (
+        search.MEMBERS_CTE
+        + "SELECT c.id FROM case_search JOIN case_notes c ON c.id = case_search.note_id"
+        + search.SCOPE_JOIN
+        + " WHERE case_search MATCH ? AND"
+        + search.SCOPE_WHERE
+        + " ORDER BY bm25(case_search) LIMIT 5"
+    )
+
+    def found(match: str, current_run: str = RUN_B) -> list[str]:
+        params = (json.dumps(members), match, 100001, "mes-api", current_run, '["UNVERIFIED"]')
+        return [row[0] for row in base.execute(sql, params)]
+
+    assert found(fts_query(["KeyError", "미지정"])) == ["CASE-000000000001"]
+    assert found(fts_query(["NEAR", "OR"])) == []  # 연산자 단어도 문자열로만 찾는다
+    assert found(fts_query(["KeyError"]), current_run=RUN_A) == []  # 현재 run의 노트는 뺀다
 
 
 def test_20_foreign_key_check_empty_after_fixture_inserts(base):

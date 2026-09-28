@@ -17,4 +17,5 @@
 | `contest-conditions.md` | 주최 측 답변 원문(확인일·질문·답변·출처·확인자) | W01 |
 | `N01-model-tool-call.md` | 모델 tool 선택 → 결과 재입력 → 구조화 제안 스파이크 | W02 |
 | `N02-…` ~ `N11-…` | 나머지 런타임·sandbox·GitHub 스파이크 (`N<번호>-<주제>.md`) | W02·W03 |
+| `N13-case-search.md` | SQLite FTS5·한국어/오류 토큰 검색 결과(`LINEMEDIC_RECORD_EVIDENCE=1 make test`) | W27 |
 | `<카드ID>-<주제>.md` | 카드별 live 검증 기록 (예: `W15-sandbox-s1-run1.md`) | 카드별 |

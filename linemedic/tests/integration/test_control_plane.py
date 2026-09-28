@@ -28,6 +28,7 @@ from linemedic.control_plane import main as control_main
 from linemedic.control_plane import runs
 from linemedic.control_plane.auth import TokenRegistry
 from linemedic.control_plane.main import ControlPlaneError, build_control_plane
+from linemedic.control_plane.memory import snapshot as memory_snapshot
 from linemedic.control_plane.store import Store
 from linemedic.integrations.docker import FakeDocker
 from linemedic.integrations.github import FakeGitHub
@@ -42,9 +43,9 @@ SETTINGS = load_settings(
 )
 
 
-def build(store, clock, tmp_path, **kwargs):
+def build(store, clock, tmp_path, settings=SETTINGS, **kwargs):
     return build_control_plane(
-        SETTINGS,
+        settings,
         RUN,
         store=store,
         clock=clock,
@@ -74,10 +75,38 @@ def test_without_external_connections_only_those_features_are_off(
         None,
     )
     assert ctx.execution_reconciler is not None and ctx.catalog is not None
+    assert ctx.case_search is not None and ctx.case_search.mode == "cold_start"
+    assert plane.features["memory"].startswith("on: cold_start")
     step = plane.step()
     assert step["detect"] is None  # MES container가 아직 없다
     assert (step["poll"], step["route"], step["outbox"], step["broker"]) == (None, [], [], [])
+    assert step["cases"] == []
     assert plane.container == f"linemedic-mes-{RUN}"
+
+
+def settings_with(**env: str):
+    base = {"GITHUB_REPOSITORY": REPO, "GITHUB_REPOSITORY_ID": str(REPO_ID)}
+    return load_settings(REPO_ROOT / "config" / "linemedic.toml", {**base, **env})
+
+
+def test_memory_assisted_reads_the_snapshot_or_reports_it_off(store, conn, fake_clock, tmp_path):
+    insert_run(conn, RUN)
+    plane = build(
+        store, fake_clock, tmp_path, settings=settings_with(MEMORY_MODE="memory_assisted")
+    )
+    assert plane.features["memory"] == (
+        "off: memory_assisted인데 snapshot을 쓸 수 없다(snapshot_missing)"
+    )
+    with store.tx() as tx:
+        snapshot = memory_snapshot.build_snapshot(tx, run_id=RUN)
+    path = memory_snapshot.write_snapshot(snapshot, tmp_path / "snapshots")
+    settings = settings_with(MEMORY_MODE="memory_assisted", MEMORY_SNAPSHOT_PATH=str(path))
+    plane = build(store, fake_clock, tmp_path, settings=settings)
+    assert plane.features["memory"] == f"on: memory_assisted {snapshot.snapshot_id}(노트 0개)"
+    assert plane.context.case_search.snapshot_id == snapshot.snapshot_id
+    path.write_text("{}", encoding="utf-8")  # 바뀐 manifest는 쓰지 않는다
+    plane = build(store, fake_clock, tmp_path, settings=settings)
+    assert plane.features["memory"].endswith("(snapshot_invalid)")
 
 
 def test_inactive_run_is_not_started(store, conn, fake_clock, tmp_path):

@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W27** ([tasks/W27-case-memory.md](tasks/W27-case-memory.md), 사례 기억: case builder·outcome·FTS5 검색·snapshot — 자율성 A, 선행 W05·W06·W07 충족, 목표 UNIT_TESTED). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
+[AGENTS.md §2](AGENTS.md)의 선택 조건에 따른 다음 카드: **W18** ([tasks/W18-dashboard.md](tasks/W18-dashboard.md), 읽기 전용 대시보드 — 자율성 A, 선행 W06 충족, 목표 UNIT_TESTED). 순서상 앞선 W14는 선행 W02의 G4 결정(runtime 선택)이 아직 없고, W15·W16·W28·W17은 W14를 선행으로 둔다(W14의 tool client·prompt·예산·trace 등 A 부분은 G4 결정을 기다리지 않고 할 수 있어, 팀 판단으로 먼저 고를 수 있다). W00은 G1, W01은 G6, W02 live는 G3·G4·G5, W03·W11·W22·W24·W26 live는 G2·G10, W12 live는 G7·G8, W13 live는 G2·G7·G8·G10, W23 live는 G2 대기다.
 
 ## 작업표
 
@@ -39,7 +39,7 @@
 | 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1389 passed(Python 3.12·3.14 모두, #49·#50 병합 뒤 main 병합 기준. 리뷰 반영 `29c19ed` 직후는 3.12 1381 passed. W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2 + 리뷰 반영 14개), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음. PR #51 리뷰 반영(R1 실패 요약·에이전트 문장 Issue 참조 무력화) 뒤: Python 3.14.7 1380 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), ruff PASS, `test_runner_docker.py` 7 passed | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T14:01Z |
 | 20 | W12 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8) | `make test` → 1462 passed(W12 테스트 81개: 배포 58, fetch 8, docker 포트 6, verifier 저장 4, 알림 3, GitHub 포트 2), main(#49·#50) 병합 뒤 1470 passed, `make test-docker` → 12 passed(W12 실제 배포 1개: fixture commit R0~R2·신뢰 레시피 빌드·image ID 기동·inspect = execution 기록·60초 PASS·복원 절차), `make lint` → PASS, 변이 51개 모두 테스트 실패로 잡힘(처음 살아남은 5개는 테스트를 보강한 뒤 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2·G10 뒤 W13 실제 run에서 G7 — 사람이 봇 PR을 리뷰·squash 머지 / G8 — 사람이 `make approve-release`를 직접 실행 / 확인: `GET /ops/executions/<id>`의 identity chain(PR·merge SHA·tree·image·container·verification·contract hash)이 채워짐 | 2026-09-27T14:57Z |
 | 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1513 passed(PR #53 리뷰 반영 뒤. W13 테스트 43개: attempt 16, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2, 시작 게이트 시간 강제 3, 배포 lock 중 주입 거부 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T21:15Z |
-| 22 | W27 | UNIT_TESTED | NOT_CHECKED | | | |
+| 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1569 passed(PR #55 리뷰 반영 뒤. W27 테스트 63개: `test_case_memory.py` 61(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7, G9 사람 선택 4), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T21:35Z |
 | 23 | W14 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4 | |
 | 24 | W15 | LIVE_VERIFIED | NOT_CHECKED | | G5·G7·G8 | |
 | 25 | W16 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
@@ -100,6 +100,25 @@
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
 
+### W27 리뷰 반영 (카드 밖, 2026-09-27T21:35Z)
+
+- 계기: PR #55 리뷰(수정 요청). `make memory-snapshot`이 규칙에 맞는 노트를 모두 넣어 G9(사람이 note ID를 골라 승인)와 W13 카드("사람 제안 diff는 G9에서 명시적으로 고를 때만")를 따르지 않았다. 사람 제안(`manual_integration`) 노트가 선택 없이 들어갔다
+- 변경 파일:
+  - `linemedic/control_plane/memory/snapshot.py`
+    - `candidates`(후보 목록, 파일·감사 없음) 추가
+    - `build_snapshot(selected=)`: 고른 note ID만 넣는다. 고른 것도 규칙을 다시 적용하고 거부 사유를 돌려준다(`not_latest_revision`·규칙 사유·`not_found` → `SnapshotSelectionError`)
+    - 규칙만(`rule_only`) 쓰면 `manual_integration`·`human_injected_negative`를 뺀다
+    - manifest `selection`에 mode·selected_note_ids, 제외 수에 `origin_requires_selection`·`not_selected`를 둔다
+    - 감사에 `selection_mode`를 남긴다
+  - `linemedic/cli.py`·`Makefile`: `memory-snapshot --list`(LIST=1) / `--notes`(NOTES=) / `--notes-file`(NOTES_FILE=). 선택이 없거나 거부되면 exit 2이고 아무것도 쓰지 않는다
+  - 테스트: `integration/test_case_memory.py`(+4: rule_only 제외, 사람 선택·origin 유지, 선택도 규칙 적용, CLI 목록·선택 필수). 기존 CLI 테스트는 `--notes`로 고르게, 제외 수 기대값에 새 항목(0)을 더했다
+  - 기록: DECISIONS D84 ⑤, ADR 요약, tasks/W27 만들 파일, docs/08 명령 표, 이 보고, W27 행
+- 실행 (로컬 개발 Mac, Python 3.14.7, mock):
+  - 새 테스트 4개와 바뀐 CLI 테스트는 수정 전 코드에서 실패했다
+  - fake 전체 → 1569 passed / ruff check·format → PASS
+  - docker 경로는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
+- 남은 일: 없음(이 수정 범위). G9 실제 선택은 W29에서 사람이 한다. #56·#57 브랜치는 옛 #55 head 위에 있어 이 커밋을 병합으로 받아야 한다
+
 ### W13 리뷰 반영 (카드 밖, 2026-09-27T21:15Z)
 
 - 계기: PR #53 리뷰(수정 요청). attempt가 도는 동안 supervisor 루프가 멈춰 다른 work의 60초 시작 게이트가 지나갔다. 늦게 보낸 "작업 시작 예정" 댓글, 늦은 receipt → READY → attempt가 발생했다. 같은 PR #57 리뷰에서 넘어온 "배포 lock 중 장애 주입 거부"를 함께 반영했다
@@ -117,6 +136,49 @@
   - `make test`에 해당하는 fake 전체 → 1513 passed / ruff check·format → PASS
   - docker 경로는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
 - 남은 일: 없음(이 수정 범위). #55·#56·#57 브랜치는 옛 #53 head 위에 있어 이 커밋을 병합으로 받아야 한다
+
+### W27 완료 보고 (2026-09-27T17:02Z)
+
+- 상태: UNIT_TESTED (카드 목표 도달). 외부 쓰기 없음. 실제 SQLite(FTS5 3.46.0)로 시험했다
+- 변경 파일:
+  - `linemedic/control_plane/migrations/0002_case_search_fts5.sql`(새): `case_search` FTS5(unicode61). `store.migrate`는 FTS5가 없는 SQLite에서 문장 없이 적용 기록만 남긴다(`fts5_available`)
+  - `linemedic/control_plane/memory/`(새)
+    - `builder.py`: 원본 event 5종 → case note(outcome 규칙·VERIFIED_SUCCESS 도메인 검사·series·revision·정제·DRAFT/PUBLISHED + 같은 트랜잭션 색인), `retract`, `rebuild_index`
+    - `snapshot.py`: series별 cutoff 이전 최신 PUBLISHED revision manifest(내용 hash ID, 덮어쓰기 없음, 읽을 때 hash 재확인)
+    - `search.py`: cold_start DISABLED, memory_assisted 필터 후 top_k(exact + FTS5 bm25/keyword_fallback), outcome 묶음 병합·관련 실패 포함, 적용 조건 경고, UNAVAILABLE 구분, `case_retrievals` 기록
+    - `projection.py`: 현재 incident의 history projection evidence(같은 revision이면 다시 씀) / `text.py`: 검색 텍스트·D54 질의
+  - `evidence.py`: 종류 `history_projection` / `tools_api.py`: `GET /tools/incidents/{id}/cases/search` / `ops_api.py`: `POST /ops/cases/rebuild-index`(maintenance)·`GET /ops/cases/{note_id}`(read) / `app.py`: `AppContext.case_search`
+  - `main.py`: case builder 루프(1초)·`step()`의 `cases`, config `memory`로 `CaseSearch`(features `memory`)
+  - `linemedic/cli.py`·`Makefile`: `make rebuild-case-index [RUN_ID=]`(Control API), `make memory-snapshot RUN_ID= [CUTOFF=]`(제어 DB)
+  - 테스트: `integration/test_case_memory.py`(57), `test_ddl_constraints.py`(19번), `test_control_plane.py`(memory 기동), `test_e2e_fake.py`(노트 revision 확인), `test_store.py`(migration 2개)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님):
+  - `make test` → 1565 passed / `make lint` → PASS / `make test-docker` → 12 passed
+  - `LINEMEDIC_RECORD_EVIDENCE=1 make test` → `evidence/N13-case-search.md`: `KeyError`·`inspector_id`·`미지정`·`검사자 미지정` OK, `미지정으로` NO_HIT(unicode61은 조사를 떼지 않는다). 품질 주장은 하지 않는다
+  - fake E2E(사람 제안 전체 경로)의 결과: PR 준비 R1 UNVERIFIED → 업무 검증 R2 VERIFIED_SUCCESS(supersedes R1, origin manual_integration, 배포 merge SHA·image 연결)
+  - 변이 확인 43개(각각 넣으면 테스트가 실패했고, 확인 뒤 원래 코드로 되돌렸다). 처음 살아남은 2개(배포가 아닌 execution에 연결된 PASS — image 검사에 가려짐, 검색 때 평가 식별자 재확인 — snapshot이 먼저 거름)는 테스트를 보강했다
+    - builder: image·merge SHA·관찰 완료·DEPLOY 확인 제거, FAIL/PR-only outcome 바꿈, holdout case 이름, 정제 실패 게시, 게시 때 색인 없음, revision·supersedes, 철회 색인, 재구축 DROP, 평가 식별자 감지, 운영자 origin, 검증 노트의 제안 가설, 중복 처리
+    - snapshot: 대상 run·cutoff·평가 식별자 제외, series 최신 선택, hash 확인, cutoff 정규화, 덮어쓰기
+    - search: repo·게시·snapshot hash·현재 run 필터, 관련 실패 포함·관련성 조건, 오류를 NO_HIT로, 색인 없으면 fallback, 경고, cold_start, 철회 보고, 평가 식별자 노트 / 질의 따옴표·토큰 상한 / projection 재사용 / 도구 같은 트랜잭션 권한 확인 / ops 활성 run·역할 / snapshot 감사 기록
+- 수용 기준:
+  - T-MEM-01: PASS(+ image·contract·배포 identity 확인) → VERIFIED_SUCCESS, 업무 FAIL → VERIFIED_FAILURE, PR-only → UNVERIFIED, 권한 부족·정책 거부 → BLOCKED, runner 회귀 FAIL → BLOCKED(validation): PASS
+  - T-MEM-02: 같은 event 두 번 → 노트 1개, 후속 결과는 같은 series의 다음 revision, live snapshot = 최신·frozen snapshot = 지정 revision, RETRACTED 제외·입력 집합 변경 기록: PASS
+  - T-MEM-03: 다른 repo·다른 서비스 노트, cutoff 뒤 노트, 평가 식별자(holdout 입력) 노트, 현재 run 노트 비노출(필터 뒤 top_k): PASS
+  - T-MEM-04: exact·keyword hit가 인용 가능한 projection ID로 반환, no-hit → NO_HIT, 색인 손상·부재 → UNAVAILABLE(재구축으로 복구): PASS
+  - T-MEM-05: 과거 VERIFIED_FAILURE의 실패 조건 표시, source·contract가 다르면 경고: PASS
+  - 로그 원문의 `"`·`*`·`NEAR`·`OR`가 연산자로 해석되지 않음: PASS
+  - N13 한국어·오류 토큰 검색 결과를 evidence에 기록(품질 주장 없음): PASS
+- 판단: D84(원본 event·키, VERIFIED_SUCCESS 도메인 검사, series·정제·철회, 색인 재구축, snapshot 선택·무결성, 필터·병합·관련 실패·경고·UNAVAILABLE, projection 재사용, 도구·ops API)
+- 증거: 커밋은 이 보고를 포함한 W27 커밋, `evidence/N13-case-search.md`
+- 작업 중 발견:
+  - 노트 문장을 `sanitize_text`로 정제하면 HTML 이스케이프(`&quot;`)가 들어가 본문이 깨지고 검색 토큰(`quot`)이 생긴다. 내부 저장은 비밀·평가 식별자 마스킹과 URL 무력화만 한다
+  - 검증 노트에 배포한 제안의 가설·변경이 없으면 VERIFIED_FAILURE가 "코드 변경 없음"으로 읽힌다. DEPLOY request의 proposal에서 채운다
+  - cutoff를 문자열로 비교하면 `...00Z`와 `...00.123456Z`의 순서가 틀린다. UTC 마이크로초 형식으로 정규화한다
+  - 손상된 FTS5 색인은 `DELETE`도 실패하고 `DROP`은 된다. 재구축은 지우고 다시 만든다
+- 남은 일·위험:
+  - 시작 게이트 뒤 초기 검색·context 연결·agent 인용·S7 비교는 W28(G3~G5)
+  - 노트 철회는 도메인 함수(`retract`)만 있다. spec API 목록에 없어 운영 endpoint는 만들지 않았다(D84)
+  - '관련 실패' 기준(질의 토큰 2개 겹침)은 휴리스틱이다. unicode61은 한국어 형태소·조사를 처리하지 않는다
+- 다음 카드: W18 (대시보드, 자율성 A). W14의 A 부분은 팀 판단으로 먼저 고를 수 있다
 
 ### W26 조정 CLI 멱등 키 수정 (카드 밖, 2026-09-27T16:45Z)
 
