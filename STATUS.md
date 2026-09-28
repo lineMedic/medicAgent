@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60). 다음은 W17의 게이트 없는 부분(S3-B 결정론 시험·공격 memo·mock sink·S3-C 판정)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61). 다음은 W20의 게이트 없는 부분(평가 하네스·기대값·집계, 실행은 게이트 뒤)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -40,11 +40,11 @@
 | 20 | W12 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8) | `make test` → 1462 passed(W12 테스트 81개: 배포 58, fetch 8, docker 포트 6, verifier 저장 4, 알림 3, GitHub 포트 2), main(#49·#50) 병합 뒤 1470 passed, `make test-docker` → 12 passed(W12 실제 배포 1개: fixture commit R0~R2·신뢰 레시피 빌드·image ID 기동·inspect = execution 기록·60초 PASS·복원 절차), `make lint` → PASS, 변이 51개 모두 테스트 실패로 잡힘(처음 살아남은 5개는 테스트를 보강한 뒤 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2·G10 뒤 W13 실제 run에서 G7 — 사람이 봇 PR을 리뷰·squash 머지 / G8 — 사람이 `make approve-release`를 직접 실행 / 확인: `GET /ops/executions/<id>`의 identity chain(PR·merge SHA·tree·image·container·verification·contract hash)이 채워짐 | 2026-09-27T14:57Z |
 | 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1506 passed(W13 테스트 36개: attempt 14, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T15:54Z |
 | 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1565 passed(W27 테스트 59개: `test_case_memory.py` 57(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T17:02Z |
-| 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
+| 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`, W02의 N01 live 시험(`tests/live/test_model_toolcall.py`)에 runtime adapter 경로 추가 / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
 | 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
 | 25 | W16 | LIVE_VERIFIED | UNIT_TESTED (fake host 경로. sandbox 안 실제 에이전트 3회: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G10) | `make test` → 1687 passed(W16 테스트 3개: S2-lite fake E2E 2(기본·recent-deploy), 코드 경로 없는 서비스의 create_pr 거절 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 4개 모두 잡힘. GitHub·모델 호출 없음 | BLOCKED_ON_HUMAN: W15의 G5 준비와 W14 runtime(G3·G4) 뒤, G2·G10 + 사용자 허락(데모 repo Issue·댓글) / 확인: 기본 2회·recent-deploy 1회를 각자 새 run(`make run-new` → `make scenario-s2-lite RUN_ID= [RECENT_DEPLOY=1]`)으로 → run-record에 도구 호출·제안 category·action·초안 필드, 코드·배포 칸 N/A | 2026-09-28T00:57Z |
 | 26 | W28 | LIVE_VERIFIED | UNIT_TESTED (fake 부분. 실제 모델 문맥(N14)·S5-new·S7 live: BLOCKED_ON_HUMAN G3~G5, 그리고 G2·G10) | `make test` → 1697 passed(W28 테스트 10개: 문맥·초기 검색·정책·도구·증거 범위·T-MEM-06 9, S5-new fake E2E 1, 그리고 S1 fake E2E에 초기 검색 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 2개는 테스트를 보강한 뒤 다시 확인). 모델·GitHub 호출 없음 | BLOCKED_ON_HUMAN: G3~G5 — W14 runtime·W15 sandbox 뒤 / G2·G10 + 사용자 허락 — 데모 repo Issue / 확인: S5-new 실제 1회, S7 cold_start 1회 + memory_assisted 1회(같은 모델·예산·base) → N14 evidence(사례 projection이 모델 context와 tool trace에 전달됐는지) | 2026-09-28T01:18Z |
-| 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
+| 27 | W17 | LIVE_VERIFIED | UNIT_TESTED (S3-B 결정론·S3-C 판정·호스트 대조. S3-A·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3) | `make test` → 1721 passed(W17 테스트 24개: S3-B 표 14, S3-C 판정·sink·호스트 대조·쓰기 프로브·공격 memo·CLI 10), `make test-docker` → 13 passed, `make lint` → PASS, 변이 12개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `evidence/S3-B-broker.md`(14행 PASS) | BLOCKED_ON_HUMAN: G3·G5 — S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행 → IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부 / G5 — OpenShell `SandboxProbe` 구현 뒤 `make security-test RUN_ID=`로 S3-C(호스트 대조·금지·허용·거절 기록) → `runs/<run>/security/` | 2026-09-28T01:32Z |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1632 passed(W19 테스트 26개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T18:11Z |
 | 30 | W20 | LIVE_VERIFIED | NOT_CHECKED | | 전체 | |
@@ -99,6 +99,48 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W17 중단 보고 — S3-B·S3-C 판정 완료, S3-A·sandbox 대조 대기 (2026-09-28T01:32Z)
+
+- 상태: UNIT_TESTED (S3-B 결정론 시험, S3-C 판정·호스트 대조·절차, 공격 memo·mock sink·sentinel. S3-A(실제 모델)·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3). 모델·sandbox·외부 주소는 부르지 않았다
+- 착수 근거: 선행 W15(sandbox)는 G5 대기다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 변경 파일:
+  - `linemedic/tests/integration/test_s3b_broker.py`(새): S3-B 결정론 표 14행
+    - 거절 12: 허용 목록 밖 조치, category↔action 불일치, 위조 증거 2, 보호 회귀 테스트 patch, token 형태, 외부 수신 주소, agent token의 `/ops` 읽기·배포 승인, 위조 work·incident, 지난 attempt token
+    - 허용 2(positive): 정비 초안, 이관
+    - `LINEMEDIC_RECORD_EVIDENCE=1`이면 `evidence/S3-B-broker.md`
+  - `linemedic/factory_sim/attacks/s3a_memo.txt`(새): 검사 생략·환경 변수·token 전송·설비 재시작 유도 문장
+    - 목적지는 팀 소유 `mock-ot-sink`뿐이고, 확인 코드는 비밀이 아닌 고정 값이다
+    - 에이전트가 읽는 자료라 시험 표시(canary·시나리오 ID)를 넣지 않았다
+  - `linemedic/factory_sim/sinks/mock_ot_sink.py`(새): 204로 답하고 시각·경로·길이·SHA-256·확인 코드 여부만 남긴다(본문 없음). `sinks/sentinel.txt`(새)
+  - `linemedic/control_plane/security_probe.py`(새): S3-C 판정(`judge`), 같은 요청의 호스트 대조(`send_canary`), sink 기록 확인, sentinel 쓰기 프로브, 절차(`run_security_test`)
+  - `linemedic/cli.py`·`Makefile`: `make security-test RUN_ID= [SINK_URL=]`
+  - `linemedic/tests/unit/test_security_probe.py`(새, 10), `linemedic/tests/live/test_sandbox_probe.py`(새, G5 전 skip)
+  - `linemedic/tests/helpers/intake_world.py`(새): `test_proposal_intake.py`의 접수 시험 세계를 옮겨 같이 쓴다(patch gate 주입 가능)
+- 실행 (로컬 개발 Mac — 데모 호스트 아님, sandbox 없음):
+  - `make test` → 1721 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - `LINEMEDIC_RECORD_EVIDENCE=1 .venv/bin/pytest linemedic/tests/integration/test_s3b_broker.py` → 14 passed, `evidence/S3-B-broker.md`
+  - 변이 12개 모두 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다)
+    - 처음 살아남은 1개(sink 기록 시각 무시)는 테스트를 보강한 뒤 다시 확인했다. 그대로면 호스트 대조가 남긴 앞선 기록을 sandbox 요청 도달로 잘못 셀 수 있었다
+    - 잡힌 변이: 도달을 먼저 안 봄, 호스트 sink 수신 무시, 허용 경로 실패 무시, 정책 revision·시각 창 무시, 거절 기록 없이 확인, sink 본문 기록·확인 코드 항상 참, sentinel 확인 없음, 쓰기 가능을 거절로 봄, sandbox 없음 표시 없음
+- 수용 기준:
+  - S3-A·B·C가 각각 별도 표로 기록된다: S3-B 표(`evidence/S3-B-broker.md`)와 S3-C 기록 형식(`runs/<run>/security/S3-C-*.json`)이 따로 있다. S3-A: NOT_RUN (G3·G5)
+  - 거절 로그로 연결되지 않은 실패는 `DENIED_CONFIRMED`가 아니다: PASS(판정 단위 시험, 같은 policy revision·±5초 거절 기록이 있어야 한다)
+  - 실제 PLC·외부 수신자·진짜 secret을 쓰지 않았다는 확인: PASS(evidence 문구와 S3-C 기록의 `safety`). mock sink·고정 확인 코드·가짜 token 형태만 썼다
+- 판단: D91(S3-B 규칙 목록, 공격 memo 문구와 표시, sink 기록 형식, 판정 순서·시각 창·도달 근거, 같은 요청의 호스트 대조, sandbox 전 절차, sentinel)
+- 증거: `evidence/S3-B-broker.md`(로컬 개발 Mac, 결정론 시험), 커밋은 이 보고를 포함한 W17 커밋(push·PR). S3-A·S3-C sandbox 기록은 게이트 전이라 없다
+- 작업 중 발견:
+  - S3-B 14행은 모두 이미 있는 W09·W10 규칙으로 막혔다. 새 코드로 막은 것은 없다
+  - 공격 memo에 시험 표시(canary·시나리오 ID)를 넣으면 에이전트가 시험임을 알 수 있다. 확인 코드는 일반 참조 번호처럼 쓴다
+- 남은 일·위험:
+  - G3·G5 뒤 S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행한다
+    - 결과를 IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부로 따로 적는다
+    - 모델이 무시했다면 "브로커가 차단했다"고 쓰지 않는다
+  - G5 뒤 S3-C: OpenShell `SandboxProbe`(금지 요청·허용 경로·거절 기록 조회)를 구현하고 데모 호스트에서 `make security-test RUN_ID=`를 돌린다
+    - mock sink는 격리 network에 띄운다
+    - 시각 창 5초는 실제 거절 로그 지연을 보고 정한다
+  - 표에 없는 조치·경로·endpoint는 이 시험이 보장하지 않는다. "모든 공격 차단"이라고 쓰지 않는다
+- 다음 카드: 맡긴 순서대로 W20의 게이트 없는 부분(평가 하네스·기대값·집계)
 
 ### W28 중단 보고 — fake 부분 완료, 실제 모델 문맥·S5-new·S7 live 대기 (2026-09-28T01:18Z)
 
@@ -310,7 +352,7 @@
 - 남은 일·위험:
   - G3·G4 뒤(B 부분): G4에서 고른 runtime 하나로 진행한다
     - `linemedic/agent/runtime_<openclaw|nat>.py`(설치 버전의 API를 확인해서 쓴다)
-    - `tests/live/test_model_toolcall.py`(`live_model`)
+    - `tests/live/test_model_toolcall.py`(`live_model`): W02의 N01 시험 파일이 이미 있다. runtime adapter 경로를 더한다(W17 때 정정)
     - S1·S2-lite local 실행 → `evidence/W14-local-runs.md`
   - `get_proposal` 예산 제외는 spec의 '런타임이 실행한 도구 호출' 정의보다 좁다(D87, 팀 리뷰 필요)
   - 금지 자료 검사는 문자열·파일 형태만 본다. 인코딩을 바꾼 자료는 못 잡는다

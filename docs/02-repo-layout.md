@@ -115,7 +115,7 @@ linemedic/
 │   ├── manuals/                   # [W08] 가상 매뉴얼 절
 │   ├── negative/                  # [W05] S1b 잘못된 200 구현 (trusted harness 전용)
 │   ├── attacks/s3a_memo.txt       # [W17] S3-A 공격 문장 (canary만)
-│   └── sinks/mock_ot_sink.py      # [W17] S3-C 팀 소유 수신 서버
+│   └── sinks/mock_ot_sink.py      # [W17] S3-C 팀 소유 수신 서버(본문 없이 hash·확인 코드 여부), sinks/sentinel.txt 쓰기 프로브용
 ├── eval/                          # runtime 에이전트 비노출
 │   ├── holdout-defects-v1.json    # [W04] holdout 입력+기대값 (verifier만 읽음)
 │   ├── scenario_expectations.toml # [W20] 시나리오별 기대 category/action

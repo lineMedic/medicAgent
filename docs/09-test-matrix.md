@@ -98,6 +98,8 @@ W16 S2-lite host 경로: `integration/test_e2e_fake.py`의 S2-lite 두 변형(�
 
 W28 attempt 문맥: `integration/test_agent_context.py`가 host 초기 사례 검색(memory_assisted 결과·projection·`case_retrievals`의 supervisor 기록·trace, cold_start DISABLED), UNAVAILABLE의 stop(workspace 없이 LOOKUP_INCOMPLETE)·proceed(표시 후 진행), `get_incident` memory·`get_bound_issue`(묶인 Issue만·정제·예산 계산·agent token으로 `/ops` 불가), projection 인용 허용·과거 run 증거 EVIDENCE_SCOPE_MISMATCH, T-MEM-06(로그 path로 들어온 지시·URL·주소)을 본다. `integration/test_e2e_fake.py`는 `make start` 조립에서 초기 검색이 문맥·trace에 들어가는지와 S5-new(승인된 작성자의 새 Issue → 자동 승인 → 시작 댓글 → attempt 문맥의 Issue·receipt → 차단 댓글)를 본다. 실제 모델 문맥 전달(N14)·S5-new·S7 live는 G3~G5(+G2·G10) 뒤다.
 
+W17 S3 보안: `integration/test_s3b_broker.py`가 S3-B 결정론 표 14행(거절 12, 허용 2)을 보고 `LINEMEDIC_RECORD_EVIDENCE=1`이면 `evidence/S3-B-broker.md`에 쓴다. `unit/test_security_probe.py`는 S3-C 판정 네 가지와 순서, mock sink 기록(본문 없음), 같은 요청의 호스트 대조, sentinel 쓰기 프로브, 공격 memo의 목적지·금지 자료, `make security-test`의 sandbox 전 INCONCLUSIVE 기록을 본다. S3-A(실제 모델)는 G3·G5, S3-C sandbox 쪽과 `live/test_sandbox_probe.py`는 G5 뒤다.
+
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 
 PACKAGE-VALIDATION §3의 20건을 fresh DB에서 다시 확인한다: single active run, active fingerprint unique, incident FK run, incident status CHECK, incident nonnegative count, single active work per Issue, work generation unique, work incident unique, work Issue FK, work generation positive, single global RUNNING work, API request scope-key unique, notification logical key unique, notification state CHECK, case source event unique, case revision unique, case outcome CHECK, case supersedes FK, FTS5 필터 질의(W27: 제품 검색 SQL로 repo·service·게시 상태·snapshot ID+hash·현재 run 제외), `PRAGMA foreign_key_check` 빈 결과.

@@ -21,7 +21,7 @@ from linemedic.common.config import (
     load_settings,
     process_env,
 )
-from linemedic.control_plane import detector, run_export, runs
+from linemedic.control_plane import detector, run_export, runs, security_probe
 from linemedic.control_plane import main as control_main
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.issue_sync import IssueSync
@@ -253,7 +253,13 @@ def build_parser() -> argparse.ArgumentParser:
         "reset",
         help="run 정지·미해결 확인·export·이 run 라벨 컨테이너·workspace 정리 (W19, DB 삭제 없음)",
     )
-    for command_parser in (export_parser, reset_parser):
+    security_parser = sub.add_parser(
+        "security-test",
+        help="S3-C 대조 프로브: 호스트 대조·sandbox 금지/허용·거절 근거 → 판정 기록 (W17)",
+    )
+    security_parser.add_argument("--sink-url", help="팀 소유 mock sink 주소(없으면 잠깐 띄운다)")
+    security_parser.add_argument("--sink-record", type=Path, help="mock sink 수신 기록 경로")
+    for command_parser in (export_parser, reset_parser, security_parser):
         command_parser.add_argument("--run-id", required=True)
         command_parser.add_argument("--db", type=Path, help="제어 DB 경로")
         command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
@@ -845,6 +851,32 @@ def _local_run(args: argparse.Namespace, command: str) -> tuple[Store, Path] | N
     return store, Path(env.get("RUNS_DIR") or db_path.parent)
 
 
+def _security_test(args: argparse.Namespace) -> int:
+    """`make security-test RUN_ID=`: S3-C 절차와 판정.
+
+    sandbox 구현(G5)이 없으면 호스트 대조만 한다.
+    """
+    local = _local_run(args, "security-test")
+    if local is None:
+        return 2
+    _, runs_dir = local
+    result, path = security_probe.run_security_test(
+        args.run_id, runs_dir, sandbox=None, sink_url=args.sink_url, sink_record=args.sink_record
+    )  # OpenShell 구현이 생기면 여기서 SandboxProbe를 넘긴다(G5)
+    print(
+        json.dumps(
+            {
+                "verdict": result["verdict"],
+                "reason": result["reason"],
+                "host_reached_sink": result["host_control"]["reached_sink"],
+                "record": str(path),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def _export_run(args: argparse.Namespace) -> int:
     """`make export-run RUN_ID=`: 증거 export만(정지·정리 없음). 이전 export를 덮어쓰지 않는다."""
     local = _local_run(args, "export-run")
@@ -983,6 +1015,8 @@ def main(argv: list[str] | None = None) -> int:
         return _export_run(args)
     if args.command == "reset":
         return _reset(args)
+    if args.command == "security-test":
+        return _security_test(args)
     raise AssertionError(f"unhandled command: {args.command}")
 
 
