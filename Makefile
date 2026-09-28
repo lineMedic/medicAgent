@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard export-run reset
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop rebuild-case-index memory-snapshot dashboard export-run reset security-test
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -201,3 +201,10 @@ export-run:
 reset:
 	@test -n "$(RUN_ID)" || { echo "사용법: make reset RUN_ID=<run>"; exit 2; }
 	$(PY) -m linemedic.cli reset --run-id "$(RUN_ID)"
+
+# S3-C 대조 프로브 (W17): 호스트 대조(같은 바이너리·목적지·요청으로 팀 소유 mock sink에 canary)를 하고,
+# sandbox 금지·허용 시험과 거절 근거로 판정한다(DENIED_CONFIRMED·DENIED_UNATTRIBUTED·ALLOWED_UNEXPECTEDLY·INCONCLUSIVE).
+# sandbox 구현(OpenShell, G5)이 없으면 INCONCLUSIVE(sandbox_not_configured)로 runs/<RUN_ID>/security/에 남긴다.
+security-test:
+	@test -n "$(RUN_ID)" || { echo "사용법: make security-test RUN_ID=<run> [SINK_URL=]"; exit 2; }
+	$(PY) -m linemedic.cli security-test --run-id "$(RUN_ID)" $(if $(SINK_URL),--sink-url "$(SINK_URL)")
