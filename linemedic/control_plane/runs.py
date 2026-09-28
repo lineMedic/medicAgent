@@ -154,8 +154,11 @@ def new_run(
     host_manifest: Path | None = None,
     *,
     baseline: BaselinePort | None = None,
+    evaluation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """DB migration을 적용하고 새 run을 만든다. 출력용 요약을 돌려준다.
+
+    `evaluation`을 주면 manifest에 남긴다(W20: `make evaluate`가 만든 평가 run의 suite·코드 commit).
 
     `baseline`을 주면 DB에 run을 넣기 전에 기준 브랜치를 준비한다(BaselineError면 run을
     만들지 않는다).
@@ -170,6 +173,8 @@ def new_run(
             raise RunError("BASELINE_COMMIT가 없어 기준 브랜치를 만들 수 없다")
         status = baseline.ensure_branch(baseline_branch(run_id), commit)
     manifest["baseline"] = {"branch": baseline_branch(run_id), "commit": commit, "status": status}
+    if evaluation is not None:
+        manifest["evaluation"] = dict(evaluation)
     with store.tx() as tx:
         previous = create_run(tx, run_id, manifest)
         if status != "NOT_REQUESTED":
