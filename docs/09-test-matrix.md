@@ -90,7 +90,7 @@ W18 화면: `unit/test_dashboard_escape.py`가 Issue 제목·로그 근거·case
 
 W19 run 수명 주기: `integration/test_reset_archive.py`가 reset 뒤 이전 run의 DB 행·근거·case note와 FakeGitHub 브랜치·PR·Issue가 그대로인지(T-RESET-01), 새 run의 cold_start 검색이 과거 사례를 주지 않는지, archive된 run의 루프가 새 일·외부 쓰기를 멈추고 새 run 프로세스가 과거 run의 알림·제안·work를 이어받지 않는지, 정리가 이 run 라벨 컨테이너·network와 workspace만 정확한 ID·경로로 지우는지(symlink 거부·prune 없음), export의 private 원본(0700)·shared 정제본·hash·run-record, 기준 브랜치 준비(repo ID 확인·이동 없음·실패 시 run 없음), 운영 API·CLI를 본다. `integration/test_reset_docker.py`는 실제 Docker에서 라벨 정리를 확인한다.
 
-W14 에이전트 local 준비: `unit/test_agent_workspace.py`가 규칙 묶음·base 사본에 넣지 않을 자료가 없고 규칙이 읽기 전용이며 검사가 일부러 넣은 금지 자료(holdout 로트 ID·기대값 표지·token 형태·내부 경로·docker socket·`.git`·symlink·규칙의 시나리오 ID)를 위치·종류로만 잡는지, `unit/test_tools_client.py`가 9개 도구 경로·token 헤더·경로 인자 검사·재시도 없음·본문 없는 호출 기록을, `integration/test_tool_budget.py`가 attempt별 서버 측 예산(429·결정 확인 제외·범위 밖·이전 attempt 제외)을, `integration/test_attempts.py`가 금지 자료 시 미시작·일시 오류 1회 재시도·trace 기록을 본다. 실제 모델 왕복은 `live/test_model_toolcall.py`(G3·G4).
+W14 에이전트 local 준비: `unit/test_agent_workspace.py`가 규칙 묶음·base 사본에 넣지 않을 자료가 없고 규칙이 읽기 전용이며 검사가 일부러 넣은 금지 자료(holdout 로트 ID·기대값 표지·token 형태·내부 경로·docker socket·`.git`·symlink·규칙의 시나리오 ID)를 위치·종류로만 잡는지, `unit/test_tools_client.py`가 9개 도구 경로·token 헤더·경로 인자 검사·재시도 없음·본문 없는 호출 기록을, `integration/test_tool_budget.py`가 attempt별 서버 측 예산(429·결정 확인 제외·범위 밖·이전 attempt 제외)을, `integration/test_attempts.py`가 금지 자료 시 미시작·일시 오류 1회 재시도(서버에 제출 접수·제출 호출 기록이 있으면 재시도 안 함)·trace 기록을 본다. 실제 모델 왕복은 `live/test_model_toolcall.py`(G3·G4).
 
 ## 4. DDL 제약 재현 (W06, `integration/test_ddl_constraints.py`)
 

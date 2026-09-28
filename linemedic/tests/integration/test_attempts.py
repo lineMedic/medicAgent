@@ -19,7 +19,7 @@ import pytest
 
 from linemedic.agent.adapter import AttemptResult
 from linemedic.common.config import load_settings
-from linemedic.control_plane import supervisor
+from linemedic.control_plane import audit, supervisor
 from linemedic.control_plane.attempts import attempt_origin
 from linemedic.control_plane.auth import AgentPrincipal, TokenRegistry
 from linemedic.control_plane.notifications.github_comment import GitHubCommentAdapter
@@ -461,6 +461,44 @@ def test_no_retry_after_a_submission(world):
         "error", "fake", "manual_integration", proposal_ids=("PROP-0000000000A1",),
         detail="model_timeout", retryable=True,
     )  # fmt: skip
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+
+
+def test_no_retry_when_the_server_already_accepted_a_submission(world):
+    """adapter가 제안 ID를 돌려주지 못해도(제출 직후 timeout) 서버 기록으로 재시도를 막는다."""
+
+    def submit_then_timeout(call):  # 제안이 접수돼 브로커가 검사 중이다(INVESTIGATING → VALIDATING)
+        with world.store.tx() as tx:
+            incident = tx.one("SELECT * FROM incidents WHERE id = ?", (world.incident_id,))
+            transition_incident(
+                tx, incident["id"], incident["version"], "VALIDATING", supervisor.Actor.BROKER
+            )
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = submit_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+    assert world.incident()["status"] == "VALIDATING"
+
+
+def test_no_retry_after_a_server_recorded_submit_call(world):
+    """사건이 아직 조사 중이어도 이 attempt의 제출 호출 기록이 있으면 다시 부르지 않는다."""
+
+    def submit_call_then_timeout(call):
+        with world.store.tx() as tx:
+            audit.append(
+                tx, RUN, world.incident_id, "agent", "TOOL_CALL",
+                {"attempt_id": call["ids"][3], "tool": "submit_proposal",
+                 "budget_exempt": False, "call": 1},
+            )  # fmt: skip
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = submit_call_then_timeout
     world.sup.run_ready()
     assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
 
