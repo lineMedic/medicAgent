@@ -473,6 +473,8 @@ def test_snapshot_excludes_other_repo_future_holdout_and_current_run_notes(w):
         "after_cutoff": 1,
         "other_repository": 1,
         "eval_identifier": 1,
+        "origin_requires_selection": 0,
+        "not_selected": 0,
     }
     assert manifest["cutoff"] == cutoff and manifest["scope"] == {"repository_id": REPOSITORY_ID}
     assert manifest["search"]["tokenizer"] == "unicode61"
@@ -666,6 +668,99 @@ def test_snapshot_cutoff_is_compared_as_a_time(w):
     assert w.snapshot(cutoff="2026-09-27T09:00:00+09:00").members  # 시간대 변환
     with pytest.raises(memory_snapshot.SnapshotError):
         w.snapshot(cutoff="2026-09-27 00:00")
+
+
+# ── G9: 사람이 고른 노트만 (PR #55 리뷰) ─────────────────────────
+
+
+def _three_origins(w) -> dict[str, str]:
+    """사람 제안·에이전트·S1b 주입 노트 하나씩(모두 이전 run). origin → note ID."""
+    manual, _, _ = w.pr_opened()
+    w.started(OLD_RUN, manual, OLD_ATTEMPT, "manual_integration")
+    w.pr_opened(fingerprint="fp-agent-other")
+    negative = w.incident(fingerprint="verifier-negative:defect-summary-v1", status="ESCALATED")
+    w.verification(
+        OLD_RUN, negative, None, "FAIL", origin="human_injected_negative", result=fail_result()
+    )
+    w.build()
+    return {note["origin"]: note["id"] for note in w.notes()}
+
+
+def test_rule_only_snapshot_leaves_out_human_proposals_and_injected_negatives(w):
+    """사람 선택 없이는 사람 제안·S1b 노트가 들어가지 않는다(W13 카드 금지 항목·G9)."""
+    ids = _three_origins(w)
+    snapshot = w.snapshot()
+    assert set(snapshot.members) == {ids["agent_release"]}
+    selection = snapshot.manifest["selection"]
+    assert (selection["mode"], selection["selected_note_ids"]) == ("rule_only", None)
+    assert snapshot.manifest["counts"]["excluded"]["origin_requires_selection"] == 2
+
+
+def test_human_selected_snapshot_keeps_only_the_chosen_notes_with_their_origin(w):
+    ids = _three_origins(w)
+    chosen = [ids["manual_integration"], ids["agent_release"]]
+    snapshot = w.snapshot(selected=chosen)
+    assert set(snapshot.members) == set(chosen)
+    origins = {note["note_id"]: note["origin"] for note in snapshot.manifest["notes"]}
+    assert origins[ids["manual_integration"]] == "manual_integration"  # origin 유지
+    selection = snapshot.manifest["selection"]
+    assert (selection["mode"], selection["selected_note_ids"]) == ("human_selected", sorted(chosen))
+    assert snapshot.manifest["counts"]["excluded"]["not_selected"] == 1  # 고르지 않은 S1b
+
+
+def test_chosen_notes_still_follow_the_snapshot_rules(w):
+    w.verified("PASS")  # 같은 series R1(PR) → R2(검증)
+    w.pr_opened(run=RUN, fingerprint="fp-current-run")  # 대상 run의 노트
+    w.build()
+    notes = {(n["source_run_id"], n["revision"]): n["id"] for n in w.notes()}
+    old_r1, current = notes[(OLD_RUN, 1)], notes[(RUN, 1)]
+    with pytest.raises(memory_snapshot.SnapshotSelectionError) as raised:
+        w.snapshot(selected=[old_r1, current, "CASE-000000000000-R1"])
+    assert raised.value.problems == {
+        old_r1: "not_latest_revision",
+        current: "target_run",
+        "CASE-000000000000-R1": "not_found",
+    }
+    assert w.snapshot(selected=[notes[(OLD_RUN, 2)]]).members  # 최신 revision은 된다
+
+
+def test_cli_memory_snapshot_lists_candidates_and_requires_a_selection(w, tmp_path, capsys):
+    ids = _three_origins(w)
+    out_dir = tmp_path / "snapshots"
+    common = [
+        "memory-snapshot",
+        "--run-id",
+        RUN,
+        "--output-dir",
+        str(out_dir),
+        "--db",
+        str(w.store.path),
+        "--env-file",
+        str(tmp_path / "none.env"),
+    ]
+    assert cli.main(common) == 2  # 고르지 않으면 쓰지 않는다
+    assert "G9" in capsys.readouterr().err
+    assert cli.main([*common, "--list"]) == 0
+    listed = json.loads(capsys.readouterr().out)["candidates"]
+    assert {c["note_id"]: c["requires_selection"] for c in listed} == {
+        ids["manual_integration"]: True,
+        ids["agent_release"]: False,
+        ids["human_injected_negative"]: True,
+    }
+    assert cli.main([*common, "--notes", "CASE-000000000000-R1"]) == 2
+    assert "not_found" in capsys.readouterr().err
+    assert not out_dir.exists()  # 목록·거부는 파일을 쓰지 않는다
+    events = w.conn.execute(
+        "SELECT COUNT(*) FROM audit_events WHERE event_type = 'MEMORY_SNAPSHOT_CREATED'"
+    ).fetchone()[0]
+    assert events == 0
+    notes_file = tmp_path / "chosen.txt"
+    notes_file.write_text(f"# G9 선택\n{ids['manual_integration']}\n", encoding="utf-8")
+    assert cli.main([*common, "--notes-file", str(notes_file)]) == 0
+    path = Path(json.loads(capsys.readouterr().out)["path"])
+    loaded = memory_snapshot.load_snapshot(path)
+    assert set(loaded.members) == {ids["manual_integration"]}
+    assert loaded.manifest["selection"]["mode"] == "human_selected"
 
 
 # ── T-MEM-05: 실패 조건·다른 source ─────────────────────────────
@@ -957,7 +1052,9 @@ def test_cli_memory_snapshot_writes_an_immutable_manifest_and_audits(w, tmp_path
     w.build()
     common = ["--db", str(w.store.path), "--env-file", str(tmp_path / "none.env")]
     out_dir = tmp_path / "snapshots"
+    latest = only(w.notes(), outcome="VERIFIED_SUCCESS")["id"]  # G9: 사람이 고른 노트
     argv = ["memory-snapshot", "--run-id", RUN, "--output-dir", str(out_dir), *common]
+    argv += ["--notes", latest]
     assert cli.main(argv) == 0
     printed = json.loads(capsys.readouterr().out)
     path = Path(printed["path"])
@@ -969,7 +1066,7 @@ def test_cli_memory_snapshot_writes_an_immutable_manifest_and_audits(w, tmp_path
         "SELECT payload_json FROM audit_events WHERE event_type = 'MEMORY_SNAPSHOT_CREATED'"
     ).fetchone()
     assert json.loads(audit_row[0])["snapshot_id"] == printed["snapshot_id"]
-    unknown = ["memory-snapshot", "--run-id", "r-20260101-000000-dead", *common]
+    unknown = ["memory-snapshot", "--run-id", "r-20260101-000000-dead", *common, "--notes", latest]
     assert cli.main([*unknown, "--output-dir", str(out_dir)]) == 2
     bad_cutoff = [*argv, "--cutoff", "yesterday"]
     assert cli.main(bad_cutoff) == 2

@@ -25,7 +25,7 @@ from linemedic.common.canonical_json import canonical_dumps
 from linemedic.common.clock import Clock
 from linemedic.common.config import Settings
 from linemedic.common.ids import is_valid_run_id, new_run_id
-from linemedic.control_plane import audit
+from linemedic.control_plane import audit, release
 from linemedic.control_plane.memory.snapshot import SnapshotError, load_snapshot
 from linemedic.control_plane.run_export import export_run
 from linemedic.control_plane.state import (
@@ -50,7 +50,14 @@ RUN_LABEL_KEYS = ("linemedic.run_id", "linemedic.run")  # MES·배포 컨테이�
 
 
 class RunError(RuntimeError):
-    """run을 만들거나 정리할 수 없음."""
+    """run을 만들거나 정리할 수 없음. `code`·`details`는 API·CLI가 그대로 보인다."""
+
+    def __init__(
+        self, message: str, *, code: str = "run_error", details: Mapping[str, Any] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = dict(details or {})
 
 
 def default_db_path(env: Mapping[str, str]) -> Path:
@@ -332,10 +339,22 @@ def archive(
     clean: bool = True,
     terms: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """정지 → 미해결 확인 → export → (clean이면) 정리. 삭제하는 DB 행은 없다."""
+    """정지 → 미해결 확인 → export → (clean이면) 정리. 삭제하는 DB 행은 없다.
+
+    승인 배포·업무 검증 중(W12 run lock)이면 아무것도 하지 않고 거부한다. 검증 대상 MES를 지우거나
+    검증 도중 run을 멈추지 않는다(spec 08 §2, D86 ⑧). 정리 없는 API archive도 같다.
+    """
     with store.tx() as tx:
         if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (run_id,)) is None:
-            raise RunError(f"없는 run이다: {run_id}")
+            raise RunError(f"없는 run이다: {run_id}", code="run_not_found")
+        holder = release.lock_holder(tx, run_id)
+        if holder is not None:
+            raise RunError(
+                f"이 run은 배포·업무 검증 중이다(execution {holder}). 끝나거나 결과 불명이면"
+                f" 조정한 뒤 다시 한다: make reconcile RUN_ID={run_id} EXECUTION_ID={holder}",
+                code="release_locked",
+                details={"holder_execution_id": holder},
+            )
         stopped = stop_intake(tx, run_id, principal)
     with store.read() as tx:
         pending = unresolved(tx, run_id)
