@@ -183,6 +183,18 @@ def test_reconcile_dispatches_by_operation(world):
     world.conn.execute(
         "UPDATE executions SET operation = 'DEPLOY' WHERE id = ?", (execution["id"],)
     )
+    with pytest.raises(RuntimeError):  # DEPLOY는 W12 release executor가 조정한다
+        routed.reconcile(execution["id"])
+
+    class Release:
+        def reconcile(self, execution_id):
+            return {"execution_id": execution_id, "outcome": "DEPLOY_ROUTED"}
+
+    routed.release = Release()  # type: ignore[assignment]
+    assert routed.reconcile(execution["id"])["outcome"] == "DEPLOY_ROUTED"
+    world.conn.execute(
+        "UPDATE executions SET operation = 'DRAFT_WORK_ORDER' WHERE id = ?", (execution["id"],)
+    )
     assert routed.reconcile(execution["id"])["outcome"] == "UNSUPPORTED"
     with pytest.raises(LookupError):
         routed.reconcile("EXE-000000000000")

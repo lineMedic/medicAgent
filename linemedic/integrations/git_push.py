@@ -41,6 +41,28 @@ class BranchPusher(Protocol):
     def push(self, git_dir: Path, sha: str, branch: str) -> PushResult: ...
 
 
+def protocol_config(protocols: Sequence[str]) -> list[str]:
+    """`protocol.allow=never` 뒤에 허용할 protocol만 켜는 `-c` 인자."""
+    return [arg for protocol in protocols for arg in ("-c", f"protocol.{protocol}.allow=always")]
+
+
+def askpass_env(tmp: str, credential: str | None) -> dict[str, str]:
+    """사용자·시스템 git 설정 없이 credential을 임시 askpass 스크립트로만 주는 env(W11·W12)."""
+    askpass = Path(tmp) / "askpass.sh"
+    askpass.write_text(_ASKPASS, encoding="utf-8")
+    askpass.chmod(stat.S_IRWXU)
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": tmp,
+        "LC_ALL": "C",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": str(askpass),
+        "LINEMEDIC_GIT_PASSWORD": credential or "",
+    }
+
+
 class GitPusher:
     def __init__(
         self,
@@ -62,11 +84,6 @@ class GitPusher:
         if not _SHA.fullmatch(sha):
             raise ValueError("push할 commit은 40자 SHA여야 한다")
         refspec = f"{sha}:refs/heads/{_branch(branch)}"
-        allowed = [
-            arg
-            for protocol in self.protocols
-            for arg in ("-c", f"protocol.{protocol}.allow=always")
-        ]
         argv = [
             "git",
             "-c",
@@ -75,7 +92,7 @@ class GitPusher:
             "credential.helper=",
             "-c",
             "protocol.allow=never",
-            *allowed,
+            *protocol_config(self.protocols),
             f"--git-dir={git_dir}",
             "push",
             "--porcelain",
@@ -85,23 +102,10 @@ class GitPusher:
             refspec,
         ]
         with tempfile.TemporaryDirectory(prefix="linemedic-push-") as tmp:
-            askpass = Path(tmp) / "askpass.sh"
-            askpass.write_text(_ASKPASS, encoding="utf-8")
-            askpass.chmod(stat.S_IRWXU)
-            env = {
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                "HOME": tmp,
-                "LC_ALL": "C",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_TERMINAL_PROMPT": "0",
-                "GIT_ASKPASS": str(askpass),
-                "LINEMEDIC_GIT_PASSWORD": self._credential or "",
-            }
             try:
                 proc = subprocess.run(
                     argv,
-                    env=env,
+                    env=askpass_env(tmp, self._credential),
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,

@@ -127,16 +127,31 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile_parser.add_argument("--notification-id", required=True)
     execution_parser = sub.add_parser(
         "reconcile",
-        help="결과 불명 execution(CREATE_PR·CREATE_ISSUE)을 외부 조회로만 조정 (W11)",
+        help="결과 불명 execution(CREATE_PR·CREATE_ISSUE·DEPLOY)을 외부 조회로만 조정 (W11·W12)",
     )
     execution_parser.add_argument("--run-id", required=True)
     execution_parser.add_argument("--execution-id", required=True)
+    release_parser = sub.add_parser(
+        "approve-release",
+        help="사람이 머지한 PR의 최종 merge SHA 배포 승인 (W12·G8, 사람이 직접 실행)",
+    )
+    release_parser.add_argument("--run-id", required=True)
+    release_parser.add_argument("--incident-id", required=True)
+    release_parser.add_argument("--work-id", required=True)
+    release_parser.add_argument("--pr-number", required=True, type=int)
+    release_parser.add_argument("--merge-sha", required=True, help="GitHub merged=true의 최종 SHA")
+    release_parser.add_argument(
+        "--expected-image-id", required=True, help="지금 실행 중인 MES image ID(sha256:...)"
+    )
+    release_parser.add_argument("--proposal-id", help="생략하면 work의 봇 PR execution에서 읽는다")
+    release_parser.add_argument("--note", default="운영자 CLI 배포 승인")
     for command_parser in (
         approve_parser,
         retry_parser,
         cancel_parser,
         reconcile_parser,
         execution_parser,
+        release_parser,
     ):
         command_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
         command_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
@@ -404,6 +419,122 @@ def _execution_reconcile(
     return _print_response(response)
 
 
+RELEASE_CHECKLIST = (  # spec 11 §5 승인 체크리스트
+    "사건·run·Issue·work·시작 알림 receipt·PR·검사 candidate가 연결돼 있다.",
+    "사람 리뷰 대상 head 이후 무관한 코드 변경이 없다.",
+    "GitHub는 `merged=true`이고 최종 merge SHA를 읽었다.",
+    "현재 MES image가 승인 요청의 예상값과 같다.",
+    "최종 tree와 candidate tree가 같고 final 검사 결과가 있다.",
+    "control 실행에 unknown·충돌·보호 실패가 없다.",
+    "정해진 합성 데모 환경에만 배포한다.",
+)
+
+
+def _release_checklist(
+    args: argparse.Namespace, view: dict[str, Any], pr: dict[str, Any] | None
+) -> list[str]:
+    incident, work = view["incident"], view.get("work") or {}
+    request = (pr or {}).get("request") or {}
+    unknown = [e["id"] for e in view.get("executions", []) if e.get("status") == "UNKNOWN"]
+    lines = [
+        "[G8 배포 승인] 아래를 사람이 직접 확인한 뒤에만 승인한다 (spec 11 §5).",
+        f"- run {incident['run_id']} / 사건 {incident['id']} ({incident['status']},"
+        f" version {incident['version']})",
+        f"- Issue #{work.get('issue_number')} / work {work.get('id')} ({work.get('status')})"
+        f" / 시작 알림 {work.get('start_notification_id')}",
+        f"- PR #{args.pr_number}: {request.get('head')} → {request.get('base')}",
+        f"- 검사한 candidate: {request.get('candidate_sha')}"
+        f" / tree {request.get('candidate_tree')}",
+        f"- 승인할 최종 merge SHA: {args.merge_sha}",
+        f"- 예상 현재 MES image: {args.expected_image_id}",
+    ]
+    if unknown:
+        lines.append(f"- 주의: 결과 불명(UNKNOWN) execution이 있다: {', '.join(unknown)}")
+    lines += [f"[ ] {item}" for item in RELEASE_CHECKLIST]
+    lines.append(
+        "서버가 merged·SHA·head·리뷰·tree·image를 다시 확인한다."
+        " 리뷰어는 테스트만 보고 승인하지 않고 diff·근거·허용 파일 범위를 확인한다."
+    )
+    return lines
+
+
+def _approve_release(
+    args: argparse.Namespace,
+    transport: httpx.BaseTransport | None = None,
+    confirm: Any = input,
+    interactive: bool | None = None,
+) -> int:
+    """G8: 체크리스트를 보여 주고 사람이 `approve`를 입력해야만 `POST /ops/releases`를 보낸다."""
+    target = _ops_target(args, "approve-release")
+    if target is None:
+        return 2
+    base_url, headers = target
+    interactive = sys.stdin.isatty() if interactive is None else interactive
+    try:
+        with httpx.Client(base_url=base_url, timeout=30.0, transport=transport) as client:
+            current = client.get(f"/ops/incidents/{args.incident_id}", headers=headers)
+            if current.status_code != 200:
+                print(json.dumps(current.json(), ensure_ascii=False, indent=2), file=sys.stderr)
+                return 1
+            view = current.json()["data"]
+            prs = [
+                e
+                for e in view.get("executions", [])
+                if e.get("operation") == "CREATE_PR"
+                and e.get("status") == "SUCCEEDED"
+                and e.get("work_id") == args.work_id
+                and (args.proposal_id is None or e.get("proposal_id") == args.proposal_id)
+            ]
+            if len(prs) != 1:
+                print(
+                    "approve-release 실패: work의 봇 PR execution을 하나로 정할 수 없다"
+                    f"({len(prs)}개). --proposal-id를 확인한다",
+                    file=sys.stderr,
+                )
+                return 1
+            pr_view = client.get(f"/ops/executions/{prs[0]['id']}", headers=headers)
+            pr = pr_view.json()["data"] if pr_view.status_code == 200 else None
+            print("\n".join(_release_checklist(args, view, pr)))
+            if not interactive:
+                print(
+                    "approve-release: 터미널에서 사람이 직접 실행해야 한다(확인 입력 필요)",
+                    file=sys.stderr,
+                )
+                return 2
+            if confirm("승인하려면 approve를 입력한다: ").strip() != "approve":
+                print("approve-release: 승인하지 않았다(요청 보내지 않음)", file=sys.stderr)
+                return 1
+            body = {
+                "schema_version": "linemedic.v4",
+                "run_id": args.run_id,
+                "incident_id": args.incident_id,
+                "work_id": args.work_id,
+                "proposal_id": prs[0]["proposal_id"],
+                "pr_number": args.pr_number,
+                "approved_merge_sha": args.merge_sha,
+                "expected_incident_version": view["incident"]["version"],
+                "expected_current_image_id": args.expected_image_id,
+                "approval_note": args.note,
+            }
+            response = client.post(
+                "/ops/releases",
+                json=body,
+                headers={**headers, "Idempotency-Key": f"release:{args.work_id}:{args.merge_sha}"},
+            )
+    except httpx.HTTPError as exc:
+        print(
+            f"approve-release 실패: Control API에 연결하지 못했다({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return 2
+    accepted = response.status_code == 202
+    print(
+        json.dumps(response.json(), ensure_ascii=False, indent=2),
+        file=sys.stdout if accepted else sys.stderr,
+    )
+    return 0 if accepted else 1
+
+
 def _issue_bind(args: argparse.Namespace, transport: httpx.BaseTransport | None = None) -> int:
     target = _ops_target(args, "issue-bind")
     if target is None:
@@ -519,6 +650,8 @@ def main(argv: list[str] | None = None) -> int:
         return _notification_reconcile(args)
     if args.command == "reconcile":
         return _execution_reconcile(args)
+    if args.command == "approve-release":
+        return _approve_release(args)
     if args.command == "verify-negative":
         env = process_env(args.env_file)
         db_path = args.db or runs.default_db_path(env)

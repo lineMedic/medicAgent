@@ -33,6 +33,7 @@ from linemedic.factory_sim import camera_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SEED_LOTS_DIR = REPO_ROOT / "l3-mes-api-seed" / "data" / "lots"
+HOLDOUT_FIXTURE = REPO_ROOT / "linemedic" / "eval" / "holdout-defects-v1.json"
 DEFAULT_MES_IMAGE = "linemedic-mes:base"
 MES_SERVICE = "mes-api"
 HARNESS_ACTOR = "trusted_harness"
@@ -127,6 +128,27 @@ def mes_container_options(name: str, run_id: str, network: str, data_dir: Path) 
         "--volume",
         f"{data_dir.resolve()}:/data:ro",
     ]
+
+
+def write_contract_data(data_dir: Path) -> list[Path]:
+    """업무 계약 검증용 MES 데이터(W05 S1b·W12 배포): 공개 로트와 holdout **입력**만 둔다.
+
+    기대값은 넣지 않는다. 돌려준 파일 목록은 verifier의 fixture 불변 확인에 쓴다.
+    """
+    lots = data_dir / "lots"
+    lots.mkdir(parents=True, exist_ok=True)
+    files = []
+    for lot_id in (BUG_LOT, NORMAL_LOT):
+        target = lots / f"{lot_id}.json"
+        shutil.copyfile(SEED_LOTS_DIR / f"{lot_id}.json", target)
+        files.append(target)
+    holdout_input = json.loads(HOLDOUT_FIXTURE.read_text(encoding="utf-8"))["input"]
+    target = lots / f"{holdout_input['lot_id']}.json"
+    target.write_text(
+        json.dumps(holdout_input, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    files.append(target)
+    return files
 
 
 def prepare_s1_data(runs_dir: Path, run_id: str) -> Path:

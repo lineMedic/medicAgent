@@ -26,7 +26,7 @@
 
 | ID | Given / When | 기대 | 파일 | 카드 | 등급 |
 |---|---|---|---|---|---|
-| T-AUTH-01 | agent token으로 `/ops/releases` 호출 | 403, 외부 변경 없음 | `unit/test_auth.py` | W06 | core |
+| T-AUTH-01 | agent token으로 `/ops/releases` 호출 | 403, 외부 변경 없음 | `unit/test_auth.py`, endpoint `integration/test_release_checks.py`(agent token·approve 역할 없는 operator → 403, GitHub·docker 호출 0) | W06·W12 | core |
 | T-AUTH-02 | 다른 run/incident의 증거 요청 | 거부, 내용 미노출 | `unit/test_auth.py` | W06 | core |
 | T-AUTH-03 | body에 `actor=verifier`·임의 status | schema/권한 거부 | `unit/test_auth.py` | W06 | core |
 | T-IDEM-01 | 같은 키·같은 요청 두 번 | 같은 proposal/execution, 중복 PR 없음 | `integration/test_idempotency.py`, PR 경로 `integration/test_github_pr.py` | W06·W11 | core |
@@ -44,7 +44,7 @@
 | T-SOURCE-02 | 최종 merge tree ≠ candidate tree | 재검사·승인 요구, 배포 중단 | `integration/test_release_checks.py` | W12 | core |
 | T-SOURCE-03 | approved SHA가 test merge거나 unmerged | 거부 | `integration/test_release_checks.py` | W12 | core |
 | T-EXEC-01 | PR 생성 직후 응답 timeout | UNKNOWN → 조회, 무조건 재생성 안 함 | `integration/test_execution_unknown.py` | W11 | core |
-| T-EXEC-02 | 배포 중 프로세스 재시작 | 실제 image 관찰 전 재실행 안 함 | `integration/test_execution_unknown.py` | H04 | hardening |
+| T-EXEC-02 | 배포 중 프로세스 재시작 | 실제 image 관찰 전 재실행 안 함 | `integration/test_execution_unknown.py`(자동 재조회, H04). 재시작 → UNKNOWN·운영자 조정 전 재배포 없음은 W12 `integration/test_release_checks.py` | H04 | hardening |
 | T-VERIFY-01 | 정상 로트·관찰 구간 정상 | t60 이후 PASS | `unit/test_verifier.py` | W05 | core |
 | T-VERIFY-02 | HTTP 200·잘못된 집계/lot/schema | FAIL, RESOLVED 없음 | `unit/test_verifier.py` | W05 | core |
 | T-VERIFY-03 | collector 중단·stream 누락 (heartbeat 기반) | INCONCLUSIVE | `unit/test_verifier.py` | H03 | hardening |
@@ -54,6 +54,8 @@
 | T-UI-01 | 로그에 HTML/script | 문자열로 표시, 실행 안 됨 | `unit/test_dashboard_escape.py` | W18 | core |
 
 core observer 기준(로그 스트림이 실제로 끊기면 INCONCLUSIVE)은 W05 core에서 시험한다. heartbeat·cursor 연속성 기반 공백 탐지(T-VERIFY-03)만 H03이다.
+
+W12 배포: `integration/test_release_checks.py`가 사전 검사 거부(T-SOURCE-01~03·image 불일치·리뷰·lock), 재전송 멱등, 실패별 이관(fetch·재검사·빌드·stop·기동·timeout·inspect), DEPLOY 조정·재시작·CLI 체크리스트를 fake로 보고, `integration/test_release_docker.py`(docker)가 fixture commit을 실제 R0~R2·신뢰 레시피 빌드·image ID 기동·inspect·60초 검증·복원 절차까지 확인한다.
 
 ## 3. v4 core 회귀 테스트 (spec 09 §11)
 
