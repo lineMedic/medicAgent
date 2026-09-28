@@ -226,3 +226,110 @@ def test_a_pr_only_run_has_no_complete_identity_chain(store, conn, cases):
     assert row.pr_number == 51 and row.verification_verdict is None
     assert row.identity_chain_complete is False  # PR만으로는 변경 보존이 아니다
     assert row.false_completion is True  # 사건이 RESOLVED로 남아 있는데 업무 검사가 없다
+
+
+# ── 첫 제안 채점·attempt 사용량 합산 (PR #63 리뷰) ─────────────────
+
+
+def add_earlier_proposal(conn, run_id, incident, *, category, action):
+    """같은 사건에 더 이른 제안(거절됨)을 하나 넣는다. 나머지 칸은 기존 제안을 복사한다."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(proposals)")]
+    overrides = {
+        "id": "'PROP-00000000FFFF'",
+        "idempotency_key": "'first-choice'",
+        "received_at": "'2000-01-01T00:00:00Z'",
+        "decision": "'REJECTED'",
+        "payload_json": "json_set(payload_json, '$.category', ?, '$.action.type', ?)",
+    }
+    select = ", ".join(overrides.get(c, c) for c in cols)
+    conn.execute(
+        f"INSERT INTO proposals ({', '.join(cols)}) SELECT {select} FROM proposals"
+        " WHERE run_id = ? AND incident_id = ?",
+        (category, action, run_id, incident),
+    )
+
+
+def test_the_first_proposal_is_scored_even_if_a_revision_matches(store, conn, cases):
+    """첫 제안이 오답이면 수정 제출이 맞아도 정답으로 세지 않는다(W16 카드, D89·D92)."""
+    incident, _ = s1_run(cases, conn, EVAL_RUNS[0])
+    add_earlier_proposal(
+        conn, EVAL_RUNS[0], incident, category="equipment", action="create_work_order_draft"
+    )
+    with store.read() as tx:
+        (row,) = harness.collect(tx, EVAL_RUNS[0])
+    assert (row.first_category, row.first_action) == ("equipment", "create_work_order_draft")
+    assert (row.category, row.action) == ("code_bug", "create_pr")  # 최종 제안은 따로 남는다
+    assert (row.proposals, row.revisions) == (2, 1)
+    scored = harness.score(row, load_expectations()["s1"])
+    assert scored["category"] is False and scored["action"] is False
+    text = harness.summarize([row], load_expectations())
+    s1_line = next(
+        line
+        for line in text.split("## 조건 집합 1", 1)[1].splitlines()
+        if line.startswith("| S1 실제 agent")
+    )
+    assert [c.strip() for c in s1_line.strip("|").split("|")][4] == "0/1"  # 기대 도달
+    assert "equipment/create_work_order_draft → code_bug/create_pr" in text  # 행 표
+
+
+def write_trace(runs_dir, run_id, attempt, *, tokens, counted):
+    ref = f"{run_id}/traces/{attempt}.json"
+    path = runs_dir / ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"tokens": tokens, "tool_calls": {"counted": counted}}), encoding="utf-8"
+    )
+    return ref
+
+
+def finish(cases, run_id, incident, attempt, trace_ref):
+    from linemedic.control_plane import audit
+
+    with cases.store.tx() as tx:
+        audit.append(tx, run_id, incident, "supervisor", "ATTEMPT_FINISHED",
+                     {"attempt_id": attempt, "status": "error", "trace": trace_ref})  # fmt: skip
+
+
+def test_usage_is_summed_over_every_attempt(store, conn, cases, tmp_path):
+    runs_dir = tmp_path / "runs"
+    incident, _ = s1_run(cases, conn, EVAL_RUNS[0])
+    first = write_trace(
+        runs_dir,
+        EVAL_RUNS[0],
+        "ATT-0000000000B1",
+        counted=4,
+        tokens={"input_tokens": 100, "output_tokens": 10, "status": "observed"},
+    )
+    second = write_trace(
+        runs_dir,
+        EVAL_RUNS[0],
+        "ATT-0000000000B2",
+        counted=6,
+        tokens={"input_tokens": 50, "output_tokens": 5, "status": "observed"},
+    )
+    finish(cases, EVAL_RUNS[0], incident, "ATT-0000000000B1", first)
+    finish(cases, EVAL_RUNS[0], incident, "ATT-0000000000B2", second)
+    with store.read() as tx:
+        (row,) = harness.collect(tx, EVAL_RUNS[0], runs_dir)
+    assert row.attempts == 2
+    assert row.tool_calls == 10  # 마지막 attempt(6)만이 아니다
+    assert row.tokens == {"input_tokens": 150, "output_tokens": 15, "status": "observed"}
+
+
+def test_usage_with_an_unreadable_trace_is_partial(store, conn, cases, tmp_path):
+    runs_dir = tmp_path / "runs"
+    incident, _ = s1_run(cases, conn, EVAL_RUNS[0])
+    ref = write_trace(
+        runs_dir,
+        EVAL_RUNS[0],
+        "ATT-0000000000B1",
+        counted=4,
+        tokens={"input_tokens": 100, "output_tokens": 10, "status": "observed"},
+    )
+    finish(cases, EVAL_RUNS[0], incident, "ATT-0000000000B1", ref)
+    finish(cases, EVAL_RUNS[0], incident, "ATT-0000000000B2", f"{EVAL_RUNS[0]}/traces/none.json")
+    with store.read() as tx:
+        (row,) = harness.collect(tx, EVAL_RUNS[0], runs_dir)
+    assert row.attempts == 2
+    assert row.tool_calls is None  # 한 attempt를 모르면 합계를 지어내지 않는다
+    assert row.tokens == {"input_tokens": 100, "output_tokens": 10, "status": "partial"}

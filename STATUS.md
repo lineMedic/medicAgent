@@ -47,7 +47,7 @@
 | 27 | W17 | LIVE_VERIFIED | UNIT_TESTED (S3-B 결정론·S3-C 판정·호스트 대조. S3-A·S3-C sandbox 쪽: BLOCKED_ON_HUMAN G5, 그리고 G3) | `make test` → 1721 passed(W17 테스트 24개: S3-B 표 14, S3-C 판정·sink·호스트 대조·쓰기 프로브·공격 memo·CLI 10), `make test-docker` → 13 passed, `make lint` → PASS, 변이 12개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `evidence/S3-B-broker.md`(14행 PASS) | BLOCKED_ON_HUMAN: G3·G5 — S3-A: 공격 memo를 넣은 S1을 sandbox 안 실제 agent로 실행 → IGNORED/UNSAFE_PROPOSAL/ESCALATED/INCONCLUSIVE와 정상 완주 여부 / G5 — OpenShell `SandboxProbe` 구현 뒤 `make security-test RUN_ID=`로 S3-C(호스트 대조·금지·허용·거절 기록) → `runs/<run>/security/` | 2026-09-28T01:32Z |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
-| 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN) | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T01:49Z |
+| 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN). PR #63 리뷰 반영(첫 제안 채점·attempt 사용량 합산): `make test` → 1747 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T04:06Z |
 | 31 | W29 | LIVE_VERIFIED | NOT_CHECKED | | 전체·G9 | |
 | 32 | W21 | LIVE_VERIFIED | NOT_CHECKED | | 사람 | |
 | 33 | H03~H07 | UNIT_TESTED | NOT_CHECKED | | core 완료 후 | |
@@ -99,6 +99,24 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W20 리뷰 반영 — 첫 제안 채점과 attempt 사용량 합산 (2026-09-28T04:06Z)
+
+- 범위: PR #63 리뷰 [P1]·[P2]
+  - [P1] 채점이 마지막 제안(`proposals[-1]`)만 봐서, 첫 제안이 오답이고 수정 제출이 정답이면 모두 정답이 됐다. D89의 수정 기회와 만나면 S2 recent-deploy에서 코드 수정을 먼저 고른 에이전트가 정답으로 집계된다(W16 카드 "PR을 고르면 그대로 오답")
+  - [P2] token·도구 호출을 마지막 attempt trace만 읽었다
+- 변경: `eval/harness.py`
+  - `WorkResult`에 `first_category`·`first_action`(채점 기준)·`revisions`·`attempts`를 더했다. `category`·`action`은 최종 제안 그대로다
+  - `score()`와 'S2 적절한 이관'은 첫 제안을 본다. 행 표는 수정이 있으면 `첫 → 최종`으로 보인다
+  - 사용량은 사건의 모든 attempt trace를 더한다. 읽지 못한 trace가 있으면 token `partial`, 도구 호출 null
+  - 기대값 파일 주석·D92·docs/09 갱신. `evidence/eval-summary.md`는 빈 DB로 다시 만들었다(표 머리글만 바뀜, 여전히 전부 NOT_RUN)
+- 테스트: `unit/test_eval_harness.py`
+  - 첫 제안 오답 + 수정 정답 → 채점 False·기대 도달 0/1·행 표 `첫 → 최종`
+  - attempt 2개 사용량 합산
+  - 못 읽은 trace → partial·null
+  - 수정 전 세 테스트 모두 FAIL
+- 실행: `make test` → 1747 passed, 21 deselected / `make lint` → PASS (로컬 개발 Mac). 평가 run 없음
+- 남은 일: 없음(이 지적 범위). 실제 평가 실행은 기존대로 전체 게이트 대기. 이 수정은 아래 stack(#64·#65)에 병합이 필요하다
 
 ### W20 중단 보고 — 하네스·집계 완료, 실제 평가 실행 대기 (2026-09-28T01:49Z)
 
