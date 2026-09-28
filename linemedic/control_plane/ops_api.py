@@ -1,5 +1,10 @@
 """운영 API `/ops/*` (W06: 사건 조회·중단 기록. 다른 endpoint는 카드별로 추가).
 
+- POST `/ops/runs`: 새 run 준비(DB·manifest, 역할 `demo`, W19). body `current_run_id`가 지금 활성
+  run과 다르면 409다(오래된 화면에서 두 번 만들지 않게). 기준 브랜치는 만들지 않는다
+  (trusted setup CLI가 한다)
+- POST `/ops/runs/{id}/archive`: 새 intake·dispatch 정지·미해결 확인·증거 export (역할 `demo`, W19).
+  삭제는 하지 않는다(컨테이너·workspace 정리는 host CLI `make reset`)
 - GET `/ops/dashboard`: 화면(`python -m linemedic.dashboard`)과 같은 읽기 모델 (역할 `read`, W18).
   `run_id` query로 run을 고를 수 있다(기본: 활성 run)
 - GET `/ops/incidents/{id}`: 사건과 work·감사·proposal·execution·verification 연결 (역할 `read`)
@@ -41,7 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from linemedic.common.ids import is_valid_entity_id, is_valid_run_id
-from linemedic.control_plane import audit, idempotency, supervisor
+from linemedic.control_plane import audit, idempotency, runs, supervisor
 from linemedic.control_plane.app import (
     AppContext,
     context,
@@ -57,6 +62,7 @@ from linemedic.control_plane.errors import ApiError, error_body, success_body
 from linemedic.control_plane.idempotency import Outcome
 from linemedic.control_plane.memory import builder as case_builder
 from linemedic.control_plane.notifications import outbox, templates
+from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.control_plane.release import ReleaseRefused, ReleaseRequest, identity_chain
 from linemedic.control_plane.state import Actor, coupled_transition, transition_incident
 from linemedic.dashboard import readmodel
@@ -125,6 +131,15 @@ class ReleaseBody(_Body):
 class CaseIndexRebuildRequest(_Body):
     schema_version: Literal["linemedic.v4"]
     run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+
+
+class RunNewRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
+    current_run_id: Annotated[str, Field(pattern=RUN_ID_PATTERN)]
+
+
+class RunArchiveRequest(_Body):
+    schema_version: Literal["linemedic.v4"]
 
 
 class EscalateRequest(_Body):
@@ -1088,3 +1103,142 @@ async def dashboard(
     reject_unknown_query(request, frozenset({"run_id"}))
     data = await run_in_threadpool(_dashboard, context(request), run_id)
     return JSONResponse(content=success_body(request_id(request), data))
+
+
+# ── run 준비·archive (W19) ────────────────────────────────────
+
+RUNS_PATH = "/ops/runs"
+
+
+def _begun(started: Any) -> tuple[int, dict] | None:
+    """멱등 기록 시작 결과: 재전송이면 저장된 응답, 충돌·진행 중이면 오류, 새 요청이면 None."""
+    if started.outcome is Outcome.REPLAY:
+        assert started.response is not None
+        return started.response["status_code"], started.response["body"]
+    if started.outcome is Outcome.CONFLICT:
+        raise ApiError("IDEMPOTENCY_CONFLICT")
+    if started.outcome is Outcome.IN_FLIGHT:
+        raise ApiError("STATE_CONFLICT", {"reason": "request_in_progress_or_unknown"})
+    return None
+
+
+def _run_new(
+    ctx: AppContext, operator: OperatorPrincipal, key: str, body: RunNewRequest, rid: str
+) -> tuple[int, dict]:
+    if ctx.settings is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": RUNS_PATH,
+        "run_id": body.current_run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (body.current_run_id,)) is None:
+            raise ApiError("RESOURCE_NOT_FOUND")
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+        replay = _begun(started)
+        if replay is not None:
+            return replay
+        active = runs.active_run(tx)
+        if active is not None and active["id"] != body.current_run_id:
+            idempotency.abandon(tx, **scope)
+            raise ApiError("STATE_CONFLICT", {"reason": "stale_current_run"})
+    created = runs.new_run(ctx.store, ctx.settings, ctx.clock)  # 기준 브랜치는 만들지 않는다
+    created.pop("db", None)
+    response = success_body(rid, created)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post(RUNS_PATH)
+async def run_new(
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("demo"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, RunNewRequest)
+    status_code, payload = await run_in_threadpool(
+        _run_new, context(request), operator, key, body, request_id(request)
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+def _run_archive(
+    ctx: AppContext,
+    operator: OperatorPrincipal,
+    run_id: str,
+    path: str,
+    key: str,
+    body: RunArchiveRequest,
+    rid: str,
+) -> tuple[int, dict]:
+    if ctx.runs_dir is None:
+        raise ApiError("DEPENDENCY_UNAVAILABLE")
+    if not is_valid_run_id(run_id):
+        raise ApiError("RESOURCE_NOT_FOUND")
+    scope = {
+        "principal_scope": operator.scope,
+        "method": "POST",
+        "path": path,
+        "run_id": run_id,
+        "key": key,
+    }
+    with ctx.store.tx() as tx:
+        if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (run_id,)) is None:
+            raise ApiError("RESOURCE_NOT_FOUND")
+        started = idempotency.begin(
+            tx, **scope, body_sha256=idempotency.body_sha256(body.model_dump(mode="json"))
+        )
+        replay = _begun(started)
+        if replay is not None:
+            return replay
+    try:
+        result = runs.archive(
+            ctx.store,
+            run_id,
+            runs_dir=ctx.runs_dir,
+            clock=ctx.clock,
+            principal=operator.scope,
+            clean=False,  # API는 지우지 않는다(정리는 host CLI make reset)
+            terms=eval_identifiers(),
+        )
+    except runs.RunError as exc:  # 배포 lock 등: 아무것도 하지 않았다. 같은 키로 다시 보낼 수 있다
+        with ctx.store.tx() as tx:
+            idempotency.abandon(tx, **scope)
+        raise ApiError("STATE_CONFLICT", {"reason": exc.code, **exc.details}) from None
+    data = {
+        "run_id": run_id,
+        "intake_stopped": result["intake_stopped"],
+        "unresolved": {key: len(items) for key, items in result["unresolved"].items()},
+        "export": result["export"],
+    }
+    response = success_body(rid, data)
+    with ctx.store.tx() as tx:
+        idempotency.complete(tx, **scope, status_code=200, body=response)
+    return 200, response
+
+
+@router.post(RUNS_PATH + "/{run_id}/archive")
+async def run_archive(
+    run_id: str,
+    request: Request,
+    operator: Annotated[OperatorPrincipal, Depends(require_operator_role("demo"))],
+) -> JSONResponse:
+    key = idempotency_key(request)
+    body = await read_json_body(request, RunArchiveRequest)
+    status_code, payload = await run_in_threadpool(
+        _run_archive,
+        context(request),
+        operator,
+        run_id,
+        request.url.path,
+        key,
+        body,
+        request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=payload)

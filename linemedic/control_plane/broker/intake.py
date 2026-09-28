@@ -409,6 +409,7 @@ class Broker:
     max_submissions: int = 2
     patch_gate: PatchGate | None = None  # 없으면 create_pr는 PROTECTION_UNAVAILABLE
     pr_opener: PrOpener | None = None  # 없으면 게이트를 통과해도 PR 없이 멈춘다(W11)
+    run_id: str | None = None  # 주면 이 run의 제안만 처리한다(W19: reset 뒤 과거 run 제안 없음)
 
     def run(self, stop: threading.Event, interval_seconds: float = 1.0) -> None:
         """같은 프로세스의 백그라운드 루프(W13 `make start`가 thread로 띄운다. 프로세스당 하나).
@@ -461,7 +462,10 @@ class Broker:
             self.pr_opener.recover()
         with self.store.tx() as tx:
             reset = 0
-            for row in tx.all("SELECT * FROM proposals WHERE decision = 'CHECKING'"):
+            for row in tx.all(
+                "SELECT * FROM proposals WHERE decision = 'CHECKING' AND (? IS NULL OR run_id = ?)",
+                (self.run_id, self.run_id),
+            ):
                 execution = tx.one(
                     "SELECT id, status FROM executions WHERE proposal_id = ?", (row["id"],)
                 )
@@ -489,7 +493,8 @@ class Broker:
         with self.store.tx() as tx:
             row = tx.one(
                 "SELECT * FROM proposals WHERE decision = 'RECEIVED'"
-                " ORDER BY received_at, rowid LIMIT 1"
+                " AND (? IS NULL OR run_id = ?) ORDER BY received_at, rowid LIMIT 1",
+                (self.run_id, self.run_id),
             )
             if row is None:
                 return None

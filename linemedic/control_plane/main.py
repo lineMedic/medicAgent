@@ -12,6 +12,9 @@
 - 외부 연결이 설정되지 않으면(G2 전 GitHub, RUNNER_IMAGE_ID 없음) 그 기능만 꺼진 채 뜬다.
   GitHub 쓰기는 config `github.write_enabled`(G10)가 켤 때만 한다
 - `ControlPlane.step()`은 모든 루프를 한 번씩 순서대로 돈다(fake E2E·점검용)
+- run이 비활성이 되면(W19 archive·run-new) 새 intake·dispatch·외부 쓰기 루프를 멈춘다
+  (사례 노트만 계속). supervisor·broker·outbox는 이 run의 행만 다룬다(과거 run 작업·알림을
+  이어받지 않는다)
 - 종료: SIGTERM·SIGINT(`make stop`). pid 파일 `RUNS_DIR/<run>/control-plane.pid`
 """
 
@@ -123,8 +126,14 @@ class ControlPlane:
 
     # 루프 한 번
 
+    def intake_open(self) -> bool:
+        """이 run이 아직 활성인가. archive·run-new 뒤에는 새 일·외부 쓰기를 하지 않는다(W19)."""
+        with self.store.read() as tx:
+            row = tx.one("SELECT active FROM demo_runs WHERE id = ?", (self.run_id,))
+        return row is not None and row["active"] == 1
+
     def detect_once(self) -> dict[str, Any] | None:
-        if self.detector is None:
+        if self.detector is None or not self.intake_open():
             return None
         try:
             return run_detect_once(self.store, self.detector, self.docker, self.container)
@@ -132,15 +141,23 @@ class ControlPlane:
             return None  # MES가 아직 없거나 교체 중이다
 
     def poll_once(self) -> dict[str, Any] | None:
-        return self.sync.poll_once().as_dict() if self.sync else None
+        if self.sync is None or not self.intake_open():
+            return None
+        return self.sync.poll_once().as_dict()
 
     def route_once(self) -> list[dict[str, Any]]:
-        return [r.as_dict() for r in self.router.route_pending()] if self.router else []
+        if self.router is None or not self.intake_open():
+            return []
+        return [r.as_dict() for r in self.router.route_pending()]
 
     def outbox_once(self) -> list[dict[str, Any]]:
-        return self.worker.process_pending() if self.worker else []
+        if self.worker is None or not self.intake_open():
+            return []
+        return self.worker.process_pending()
 
     def supervise_once(self) -> dict[str, Any]:
+        if not self.intake_open():
+            return {"start_notices_expired": [], "attempts_closed": [], "attempts": []}
         return {
             "start_notices_expired": self.supervisor.expire_start_notices(),
             "attempts_closed": self.supervisor.expire_attempts(),
@@ -148,6 +165,8 @@ class ControlPlane:
         }
 
     def broker_once(self) -> list[str]:
+        if not self.intake_open():
+            return []
         return self.broker.process_pending(keep_going=True)
 
     def cases_once(self) -> list[str]:
@@ -156,6 +175,7 @@ class ControlPlane:
     def step(self) -> dict[str, Any]:
         """모든 루프를 한 번씩 순서대로 돈다."""
         return {
+            "intake_open": self.intake_open(),
             "detect": self.detect_once(),
             "poll": self.poll_once(),
             "route": self.route_once(),
@@ -179,11 +199,24 @@ class ControlPlane:
         threads = [_loop(name, body, interval, stop) for name, body, interval in loops]
         if self.sync is not None:
             poll = threading.Thread(
-                target=self.sync.run, args=(stop,), name="linemedic-poll", daemon=True
+                target=self._poll_loop, args=(stop,), name="linemedic-poll", daemon=True
             )
             poll.start()
             threads.append(poll)
         return threads
+
+    def _poll_loop(self, stop: threading.Event) -> None:
+        """Issue poll 루프(간격·backoff는 IssueSync). run이 비활성이면 조회하지 않는다."""
+        assert self.sync is not None
+        while True:
+            wait = float(self.sync.intake.poll_interval_seconds)
+            try:
+                if self.intake_open():
+                    wait = self.sync.next_wait(self.sync.poll_once())
+            except Exception as exc:  # noqa: BLE001 — 한 번의 오류로 루프를 멈추지 않는다
+                print(f"[poll] {type(exc).__name__}", file=sys.stderr)
+            if stop.wait(wait):
+                return
 
 
 def _loop(
@@ -255,7 +288,9 @@ def build_control_plane(
         features["agent"] = f"on: {adapter.name} (origin {adapter.origin})"
     else:
         features["agent"] = "off: adapter 없음(attempt는 만들지만 실행하지 않는다)"
-    supervisor = Supervisor(store, config=config, clock=clock, route_id=route_id, runtime=runtime)
+    supervisor = Supervisor(
+        store, config=config, clock=clock, route_id=route_id, runtime=runtime, run_id=run_id
+    )
 
     sync = router = worker = opener = release = None
     if github is not None:
@@ -277,6 +312,7 @@ def build_control_plane(
             config=config,
             repo=github.full_name,
             clock=clock,
+            run_id=run_id,
         )
         features["github"] = (
             "on (쓰기 " + ("켜짐" if github.write_enabled else "꺼짐: shadow") + ")"
@@ -310,6 +346,7 @@ def build_control_plane(
         max_submissions=config.agent.max_submissions,
         patch_gate=patch_gate,
         pr_opener=opener,
+        run_id=run_id,
     )
     reconciler = ExecutionReconciler(
         store, opener=opener, issue_router=router, route_id=route_id, release=release
@@ -348,6 +385,8 @@ def build_control_plane(
         execution_reconciler=reconciler,
         release_executor=release,
         case_search=case_search,
+        settings=settings,
+        runs_dir=runs_dir,
     )
     return ControlPlane(
         run_id=run_id,

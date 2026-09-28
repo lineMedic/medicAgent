@@ -60,6 +60,8 @@ WORK_STATUSES = (
     "EXECUTION_UNKNOWN",
 )
 TERMINAL_WORK_STATUSES = frozenset({"HANDED_OFF", "SUCCEEDED", "BLOCKED", "CANCELLED"})
+# 나가는 전이가 없는 사건 상태(W19 archive의 미해결 목록이 쓴다)
+TERMINAL_INCIDENT_STATUSES = frozenset({"RESOLVED", "ESCALATED", "WORK_ORDER_DRAFTED"})
 
 _A = Actor
 

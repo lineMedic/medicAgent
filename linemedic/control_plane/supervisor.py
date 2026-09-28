@@ -548,8 +548,12 @@ class Supervisor:
         clock: Clock,
         route_id: str | None = None,
         runtime: AttemptRuntime | None = None,
+        run_id: str | None = None,
     ) -> None:
         self.store = store
+        self.run_id = (
+            run_id  # 주면 이 run의 work만 다룬다(W19: reset 뒤 과거 run 작업을 이어받지 않게)
+        )
         self.clock = clock
         self.agent = config.agent
         self.route_id = route_id or config.notifications.required_start_route_id
@@ -612,7 +616,9 @@ class Supervisor:
                 "SELECT w.id AS work_id, n.status AS notice_status,"
                 " n.created_at AS notice_created_at"
                 " FROM work_items w LEFT JOIN notifications n ON n.id = w.start_notification_id"
-                " WHERE w.status = 'WAITING_NOTIFICATION' ORDER BY w.created_at"
+                " WHERE w.status = 'WAITING_NOTIFICATION' AND (? IS NULL OR w.run_id = ?)"
+                " ORDER BY w.created_at",
+                (self.run_id, self.run_id),
             )
             for row in rows:
                 expired = start_wait_exceeded(
@@ -735,9 +741,9 @@ class Supervisor:
             ids = [
                 row["id"]
                 for row in tx.all(
-                    "SELECT id FROM work_items WHERE status = 'READY' ORDER BY updated_at, id"
-                    " LIMIT ?",
-                    (limit,),
+                    "SELECT id FROM work_items WHERE status = 'READY'"
+                    " AND (? IS NULL OR run_id = ?) ORDER BY updated_at, id LIMIT ?",
+                    (self.run_id, self.run_id, limit),
                 )
             ]
         results: list[dict[str, Any]] = []
@@ -897,7 +903,9 @@ class Supervisor:
             for row in tx.all(
                 "SELECT w.id AS work_id FROM work_items w JOIN incidents i ON i.id = w.incident_id"
                 " WHERE w.status = 'RUNNING' AND i.status = 'INVESTIGATING'"
-                " AND i.attempt_id = w.attempt_id ORDER BY w.updated_at"
+                " AND i.attempt_id = w.attempt_id AND (? IS NULL OR w.run_id = ?)"
+                " ORDER BY w.updated_at",
+                (self.run_id, self.run_id),
             ):
                 work = _work(tx, row["work_id"])
                 incident = _incident(tx, work)
@@ -932,7 +940,9 @@ class Supervisor:
             for row in tx.all(
                 "SELECT w.id AS work_id FROM work_items w JOIN incidents i ON i.id = w.incident_id"
                 " WHERE w.status = 'RUNNING' AND i.status = 'INVESTIGATING'"
-                " AND i.attempt_id = w.attempt_id ORDER BY w.updated_at"
+                " AND i.attempt_id = w.attempt_id AND (? IS NULL OR w.run_id = ?)"
+                " ORDER BY w.updated_at",
+                (self.run_id, self.run_id),
             ):
                 work = _work(tx, row["work_id"])
                 incident = _incident(tx, work)

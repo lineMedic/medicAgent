@@ -73,6 +73,14 @@ class DockerPort(Protocol):
 
     def network_remove(self, name: str) -> CommandResult: ...
 
+    # run 정리(W19): 라벨로 찾고 정확한 ID로만 지운다. prune·wildcard는 쓰지 않는다
+
+    def list_containers(self, label: str) -> list[dict[str, str]] | None: ...
+
+    def remove_container(self, container_id: str) -> CommandResult: ...
+
+    def list_networks(self, label: str) -> list[dict[str, str]] | None: ...
+
 
 # ── CLI 구현 ───────────────────────────────────────────────────
 
@@ -249,6 +257,40 @@ class CliDocker:
     def network_remove(self, name: str) -> CommandResult:
         return self._run(["network", "rm", name])
 
+    def _listed(self, args: list[str]) -> list[dict[str, str]] | None:
+        result = self._run(args)
+        if result.returncode != 0:
+            return None
+        items = []
+        for line in result.stdout.splitlines():
+            if "\t" in line:
+                item_id, name = line.split("\t", 1)
+                items.append({"id": item_id.strip(), "name": name.strip()})
+        return items
+
+    def list_containers(self, label: str) -> list[dict[str, str]] | None:
+        """`label`(key=value)이 붙은 컨테이너(정지 포함). 조회 실패면 None."""
+        return self._listed(
+            [
+                "ps",
+                "-a",
+                "--no-trunc",
+                "--filter",
+                f"label={label}",
+                "--format",
+                "{{.ID}}\t{{.Names}}",
+            ]
+        )
+
+    def remove_container(self, container_id: str) -> CommandResult:
+        return self._run(["rm", "--force", container_id])
+
+    def list_networks(self, label: str) -> list[dict[str, str]] | None:
+        return self._listed(
+            ["network", "ls", "--no-trunc", "--filter", f"label={label}", "--format",
+             "{{.ID}}\t{{.Name}}"]
+        )  # fmt: skip
+
 
 # ── 테스트용 구현 ──────────────────────────────────────────────
 
@@ -299,6 +341,7 @@ class FakeDocker:
         self.images: dict[str, str] = {}
         self.streams: dict[str, FakeLogStream] = {}
         self.networks: set[str] = set()
+        self.network_labels: dict[str, dict[str, str]] = {}
         self.log_history: dict[str, list[str]] = {}
         self.exit_codes: dict[str, int | None] = {}  # wait 결과. None이면 제한 시간 초과
         self.exec_handler = exec_handler
@@ -311,8 +354,11 @@ class FakeDocker:
         self._counter = 0
 
     def inspect(self, name: str) -> dict[str, Any] | None:
+        """이름 또는 컨테이너 ID로 찾는다(`docker inspect`와 같다)."""
         self.calls.append(("inspect", name))
         data = self.containers.get(name)
+        if data is None:
+            data = next((c for c in self.containers.values() if c.get("Id") == name), None)
         return copy.deepcopy(data) if data is not None else None
 
     def container_exists(self, name: str) -> bool | None:
@@ -410,9 +456,43 @@ class FakeDocker:
     def network_create(self, name: str, labels: dict[str, str]) -> CommandResult:
         self.calls.append(("network_create", name, labels))
         self.networks.add(name)
+        self.network_labels[name] = dict(labels)
         return CommandResult(0, name, "")
 
     def network_remove(self, name: str) -> CommandResult:
         self.calls.append(("network_remove", name))
         self.networks.discard(name)
+        self.network_labels.pop(name, None)
         return CommandResult(0, name, "")
+
+    def list_containers(self, label: str) -> list[dict[str, str]] | None:
+        self.calls.append(("list_containers", label))
+        if self.daemon_down:
+            return None
+        key, _, value = label.partition("=")
+        return [
+            {"id": data["Id"], "name": name}
+            for name, data in self.containers.items()
+            if (data.get("Config") or {}).get("Labels", {}).get(key) == value
+        ]
+
+    def remove_container(self, container_id: str) -> CommandResult:
+        self.calls.append(("remove_container", container_id))
+        for name, data in list(self.containers.items()):
+            if data["Id"] == container_id:
+                del self.containers[name]
+                if name in self.streams:
+                    self.streams[name].end()
+                return CommandResult(0, container_id, "")
+        return CommandResult(1, "", f"No such container: {container_id}")
+
+    def list_networks(self, label: str) -> list[dict[str, str]] | None:
+        self.calls.append(("list_networks", label))
+        if self.daemon_down:
+            return None
+        key, _, value = label.partition("=")
+        return [
+            {"id": name, "name": name}
+            for name in sorted(self.networks)
+            if self.network_labels.get(name, {}).get(key) == value
+        ]

@@ -35,10 +35,11 @@ linemedic/
 │   ├── config.py                  # [B00] toml+env 로드·strict 검증, config hash (D52·D60)
 │   └── sanitize.py                # [W06] 비밀 패턴·멘션·URL·HTML 정제
 ├── integrations/
-│   ├── docker.py                  # [W05] DockerPort, CliDocker, FakeDocker (D47)
+│   ├── docker.py                  # [W05] DockerPort, CliDocker, FakeDocker (D47), [W19] 라벨 목록·정확한 ID 삭제
 │   ├── github.py                  # [W22] GitHubPort, HttpGitHub, FakeGitHub (D46)
 │   ├── git_push.py                # [W11] candidate push(GitPusher·FakePusher, force·hook 없음)
-│   └── git_fetch.py               # [W12] 승인한 merge commit 하나만 신뢰 mirror로 fetch(GitFetcher)
+│   ├── git_fetch.py               # [W12] 승인한 merge commit 하나만 신뢰 mirror로 fetch(GitFetcher)
+│   └── github_baseline.py         # [W19] baseline/<run_id> 브랜치 준비(repo ID 확인, 이동 없음)
 ├── control_plane/
 │   ├── app.py                     # [W06] FastAPI app factory, 라우터 등록, body 파서
 │   ├── auth.py                    # [W06] token → principal(agent/operator), scope 검사
@@ -53,7 +54,8 @@ linemedic/
 │   ├── evidence.py                # [W07] evidence 저장·정제·조회, [W27] history_projection 종류
 │   ├── tools_api.py               # [W07] /tools/* 라우터 (W08·W09·W27·W28에서 도구 추가)
 │   ├── ops_api.py                 # [W06] /ops/* 라우터 (카드별 endpoint 추가)
-│   ├── runs.py                    # [W06] demo_runs, run manifest, [W19] run-new/archive/reset
+│   ├── runs.py                    # [W06] demo_runs, run manifest, [W19] run-new/archive/reset·정리
+│   ├── run_export.py              # [W19] run 증거 export(private 원본·shared 정제·run-record)
 │   ├── catalog.py                 # [W22] repo·service·route·equipment catalog 로더
 │   ├── main.py                    # [W13] make start 진입점: ControlPlane 조립(외부 연결별 끄기)·루프·기동 복구·pid·make stop
 │   ├── attempts.py                # [W13] attempt 기록(adapter·origin) 조회: PR 본문·배포 검증이 사람 제안을 구분
