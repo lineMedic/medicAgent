@@ -224,6 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument(
         "--output-dir", type=Path, default=memory_snapshot.SNAPSHOT_DIR, help="manifest 폴더"
     )
+    choose = snapshot_parser.add_mutually_exclusive_group()  # G9: 사람이 후보를 보고 고른다
+    choose.add_argument("--list", action="store_true", help="후보만 출력(파일·감사 기록 없음)")
+    choose.add_argument("--notes", help="넣을 note ID(쉼표로 구분)")
+    choose.add_argument("--notes-file", type=Path, help="넣을 note ID 파일(줄마다 하나, # 주석)")
     snapshot_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     snapshot_parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
 
@@ -752,33 +756,83 @@ def _rebuild_case_index(
     return _print_response(response)
 
 
+def _selected_notes(args: argparse.Namespace) -> list[str] | None:
+    """`--notes`·`--notes-file`로 사람이 고른 note ID. 둘 다 없으면 None."""
+    if args.notes is not None:
+        items = args.notes.split(",")
+    elif args.notes_file is not None:
+        text = args.notes_file.read_text(encoding="utf-8")
+        items = [line.split("#", 1)[0] for line in text.splitlines()]
+    else:
+        return None
+    return [item.strip() for item in items if item.strip()]
+
+
 def _memory_snapshot(args: argparse.Namespace) -> int:
-    """제어 DB의 사례 노트로 manifest를 만들어 쓰고, 대상 run의 감사 기록에 남긴다."""
+    """G9: `--list`로 후보를 보고, 사람이 고른 note ID(`--notes`·`--notes-file`)로만 manifest를
+    만들어 쓰고 대상 run의 감사 기록에 남긴다. 고르지 않으면 아무것도 쓰지 않는다(D84 ⑤).
+    """
     env = process_env(args.env_file)
     db_path = args.db or runs.default_db_path(env)
     if not db_path.is_file():
         print(f"memory-snapshot 실패: 제어 DB가 없다: {db_path}", file=sys.stderr)
         return 2
     try:
+        selected = _selected_notes(args)
+    except OSError as exc:
+        print(f"memory-snapshot 실패: note 목록 파일을 읽지 못했다({exc})", file=sys.stderr)
+        return 2
+    if not args.list and not selected:
+        print(
+            "memory-snapshot 실패: 넣을 노트를 사람이 골라야 한다(G9)."
+            " 후보를 LIST=1(--list)로 보고 NOTES=(--notes)·NOTES_FILE=(--notes-file)로 고른다",
+            file=sys.stderr,
+        )
+        return 2
+    try:
         settings = load_settings(args.config, env)
         store = Store(db_path, SystemClock())
         store.migrate()
+        scope = {
+            "run_id": args.run_id,
+            "cutoff": args.cutoff,
+            "repository_id": settings.config.repository.id,
+            "terms": eval_identifiers(),
+        }
         with store.tx() as tx:
             if tx.one("SELECT 1 FROM demo_runs WHERE id = ?", (args.run_id,)) is None:
                 print(f"memory-snapshot 실패: 없는 run이다: {args.run_id}", file=sys.stderr)
                 return 2
-            snapshot = memory_snapshot.build_snapshot(
-                tx,
-                run_id=args.run_id,
-                cutoff=args.cutoff,
-                repository_id=settings.config.repository.id,
-                terms=eval_identifiers(),
-            )
-            path = memory_snapshot.write_snapshot(snapshot, args.output_dir)
-            memory_snapshot.record_snapshot(tx, snapshot, path)
+            if args.list:
+                found = memory_snapshot.candidates(tx, **scope)
+            else:
+                snapshot = memory_snapshot.build_snapshot(tx, **scope, selected=selected)
+                path = memory_snapshot.write_snapshot(snapshot, args.output_dir)
+                memory_snapshot.record_snapshot(tx, snapshot, path)
+    except memory_snapshot.SnapshotSelectionError as exc:
+        print(
+            "memory-snapshot 실패: 고른 노트 중 넣을 수 없는 것이 있다(아무것도 쓰지 않음)\n"
+            + json.dumps(exc.problems, ensure_ascii=False, indent=2, sort_keys=True),
+            file=sys.stderr,
+        )
+        return 2
     except (ConfigError, StoreError, memory_snapshot.SnapshotError) as exc:
         print(f"memory-snapshot 실패: {exc}", file=sys.stderr)
         return 2
+    if args.list:
+        print(
+            json.dumps(
+                {
+                    "run_id": args.run_id,
+                    "candidates": found,
+                    "requires_selection": sorted(memory_snapshot.SELECTION_REQUIRED_ORIGINS),
+                    "next": "고른 note ID로: make memory-snapshot RUN_ID=<run> NOTES=<ID,ID>",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
     counts = snapshot.manifest["counts"]
     print(
         json.dumps(
