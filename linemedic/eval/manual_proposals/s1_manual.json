@@ -1,0 +1,15 @@
+{
+  "note": "W13 manual_integration용 사람 제안. 모델 산출물이 아니다. eval 폴더에만 두고 에이전트 workspace·시드에 넣지 않는다",
+  "category": "code_bug",
+  "summary": "inspector_id가 없는 불량 record가 있으면 /defects/summary 집계가 KeyError로 실패한다(로트 L3-0927-118)",
+  "action": {
+    "type": "create_pr",
+    "root_cause_hypothesis": "summarize가 모든 record에 inspector_id가 있다고 가정하고 row[\"inspector_id\"]로 직접 조회한다. 없는 record는 업무 규칙대로 미지정으로 집계해야 한다",
+    "new_test_path": "tests/repro/test_missing_inspector.py",
+    "local_test_observation": {
+      "before": "failed",
+      "after": "passed"
+    },
+    "diff": "diff --git a/app/defects.py b/app/defects.py\nindex 0bda5f1..1357b13 100644\n--- a/app/defects.py\n+++ b/app/defects.py\n@@ -4,7 +4,7 @@\n def summarize(lot_id: str, records: list[dict]) -> dict:\n     by_inspector: dict[str, int] = {}\n     for row in records:\n-        inspector = row[\"inspector_id\"]\n+        inspector = row.get(\"inspector_id\") or \"미지정\"\n         by_inspector[inspector] = by_inspector.get(inspector, 0) + 1\n     return {\n         \"lot_id\": lot_id,\ndiff --git a/tests/repro/test_missing_inspector.py b/tests/repro/test_missing_inspector.py\nnew file mode 100644\nindex 0000000..d1cb9e6\n--- /dev/null\n+++ b/tests/repro/test_missing_inspector.py\n@@ -0,0 +1,15 @@\n+\"\"\"재현: inspector_id가 없는 record가 있으면 집계가 KeyError로 실패한다.\"\"\"\n+\n+from app.defects import summarize\n+\n+\n+def test_missing_inspector_is_counted_as_unassigned():\n+    records = [\n+        {\"defect_id\": \"D-1\", \"inspector_id\": \"I-01\"},\n+        {\"defect_id\": \"D-2\"},\n+    ]\n+    assert summarize(\"L3-0927-118\", records) == {\n+        \"lot_id\": \"L3-0927-118\",\n+        \"total_defects\": 2,\n+        \"by_inspector\": {\"I-01\": 1, \"미지정\": 1},\n+    }\n"
+  }
+}

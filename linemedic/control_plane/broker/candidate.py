@@ -18,11 +18,15 @@ git 호출은 고정 argv다. 사용자·시스템 설정·hook·credential·pro
 
 `prepare_release_trees`(W12)는 사람이 승인한 merge commit 하나를 같은 방식의 버리는 사본에서 꺼내
 base·repro·final tree를 만든다(최신 branch를 고르지 않는다). 배포 재검사와 MES 빌드 context에 쓴다.
+
+`prepare_workspace`(W13)는 attempt의 쓰기 가능한 작업 사본을 만든다. base commit의 파일만 풀고
+git 이력·hook·원격 설정은 넣지 않는다(spec 05 §3).
 """
 
 import io
 import os
 import re
+import shutil
 import subprocess
 import tarfile
 from collections.abc import Mapping
@@ -381,3 +385,29 @@ def prepare_release_trees(
         workdir=workdir,
         trees=trees,
     )
+
+
+# ── attempt workspace (W13) ─────────────────────────────────
+
+
+def prepare_workspace(*, mirror: Path, root: Path, base_sha: str) -> Path:
+    """`root/repo`에 base commit의 파일만 푼다(에이전트가 쓰는 사본). 이력은 넣지 않는다.
+
+    버리는 bare 사본(`root/source`)은 추출 뒤 지운다. `root`는 없는 새 경로여야 한다.
+    """
+    if not _OBJECT_ID.fullmatch(base_sha):
+        raise CandidateError("invalid_base_sha")
+    source = root / "source"
+    repo, home = _clone(mirror, source)
+    try:
+        if not _has_commit(repo, home, base_sha):
+            raise CandidateError("base_not_in_mirror")
+        try:
+            archive = _git(["archive", "--format=tar", base_sha], home=home, git_dir=repo)
+        except _GitFailed as exc:
+            raise CandidateError(f"git_{exc.command}_failed") from None
+        workspace = root / "repo"
+        _extract(archive, workspace)
+    finally:
+        shutil.rmtree(source, ignore_errors=True)
+    return workspace

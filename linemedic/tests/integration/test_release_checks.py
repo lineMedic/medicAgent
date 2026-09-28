@@ -27,11 +27,12 @@ import httpx
 import pytest
 
 from linemedic import cli
-from linemedic.control_plane import release
+from linemedic.control_plane import audit, release
 from linemedic.control_plane.auth import AgentPrincipal, OperatorPrincipal
 from linemedic.control_plane.broker.candidate import CandidateError, prepare_release_trees
 from linemedic.control_plane.catalog import Catalog
 from linemedic.control_plane.notifications import templates
+from linemedic.control_plane.state import Actor
 from linemedic.factory_sim.scenarios import mes_container_options
 from linemedic.integrations.git_fetch import GitFetcher
 from linemedic.tests.helpers.api import OPERATOR_TOKEN, OTHER_RUN, RUN
@@ -200,6 +201,27 @@ def test_identity_chain_is_filled_from_base_to_contract_hash(world):
     assert chain["verdict"] == "PASS" and chain["contract_id"] == "defect-summary-v1"
     required = ("patch_sha256", "contract_sha256", "fixture_sha256", "verification_id")
     assert all(chain[key] for key in required)
+
+
+def test_manual_attempt_origin_is_kept_in_the_verification(world):  # W13
+    with world.store.tx() as tx:
+        audit.append(
+            tx,
+            RUN,
+            world.incident,
+            Actor.SUPERVISOR,
+            "ATTEMPT_STARTED",
+            {"attempt_id": ATTEMPT, "adapter": "scripted", "origin": "manual_integration"},
+        )
+    execution_id = approved(world)
+    world.drain()
+    request = json.loads(world.deploy()["request_json"])
+    assert request["origin"] == "manual_integration"
+    verification = world.conn.execute("SELECT * FROM verifications").fetchone()
+    assert (verification["origin"], verification["execution_id"]) == (
+        "manual_integration",
+        execution_id,
+    )
 
 
 def test_same_approval_is_idempotent_and_deploys_once(world):
@@ -384,6 +406,21 @@ def test_release_lock_blocks_another_release_in_the_run(world):
     assert error(response) == (409, "STATE_CONFLICT", "release_locked")
     assert response.json()["error"]["details"]["holder_execution_id"] == "EXE-0000000000EE"
     assert len(world.github.requests) == before and world.docker.calls == []  # 조회 전에 거부
+
+
+@pytest.mark.parametrize("command", ["scenario-s1", "scenario-s2-lite"])
+def test_release_lock_blocks_fault_injection(world, tmp_path, monkeypatch, capsys, command):
+    """배포·검증 중에는 장애 주입을 하지 않는다(spec 08 §2, PR #57 리뷰에서 W13으로 넘긴 항목)."""
+    with world.store.tx() as tx:
+        release._hold(tx, RUN, "EXE-0000000000EE")
+    injected = []
+    monkeypatch.setattr(cli.scenarios, "inject_s1", lambda *a, **k: injected.append(a))
+    monkeypatch.setattr(cli.scenarios, "inject_s2_lite", lambda *a, **k: injected.append(a))
+    argv = [command, "--run-id", RUN, "--db", str(world.store.path)]
+    assert cli.main([*argv, "--env-file", str(tmp_path / "none.env")]) == 2
+    assert injected == []
+    err = capsys.readouterr().err
+    assert "EXE-0000000000EE" in err and "make reconcile" in err
 
 
 def test_catalog_must_register_the_repository_for_this_service(world):

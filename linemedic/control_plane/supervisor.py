@@ -20,21 +20,34 @@
 `READY → RUNNING`과 incident `NEW → INVESTIGATING`, attempt 발급·deadline을 한 트랜잭션에).
 **attempt ID는 `start_attempt`만 만든다.** 슬롯이 차 있으면 기다린다(실패 아님).
 늦게 온 receipt로 BLOCKED work를 되살리지 않는다.
+
+attempt 실행(W13, `AttemptRuntime`이 있을 때): 게이트를 통과한 뒤에만 workspace(base 파일 사본)와
+context(`context.json`, credential 없음)를 만들고, attempt 범위 agent token을 발급해 adapter를
+부른다.
+adapter는 별도 thread에서 돌리고 deadline(+유예)이 지나면 기다리지 않는다. 끝나면 token을 폐기하고
+`ATTEMPT_FINISHED`를 남긴다. 제안 없이 조사 중(INVESTIGATING·RUNNING)이면 attempt를 닫는다
+(ESCALATED/BLOCKED: deadline → BUDGET_EXCEEDED, 제안 거절 → VALIDATION_FAILED, 제안 없음 →
+INSUFFICIENT_EVIDENCE, 실행 오류 → MODEL_UNAVAILABLE). 재시작 때 끊긴 attempt는 새 세션 없이 닫는다.
 """
 
 import json
 import re
 import sqlite3
+import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
+from linemedic.agent.adapter import AgentAdapter, AttemptResult
 from linemedic.common.canonical_json import canonical_dumps
 from linemedic.common.clock import Clock, from_rfc3339, to_rfc3339
 from linemedic.common.config import LineMedicConfig
 from linemedic.common.ids import new_id
 from linemedic.control_plane import audit
+from linemedic.control_plane.auth import AgentPrincipal, TokenRegistry
+from linemedic.control_plane.broker.candidate import CandidateError, prepare_workspace
 from linemedic.control_plane.errors import ApiError
 from linemedic.control_plane.notifications import outbox
 from linemedic.control_plane.notifications.blocker import blocker_report
@@ -46,6 +59,7 @@ from linemedic.control_plane.state import (
     transition_work,
 )
 from linemedic.control_plane.store import Store, Tx
+from linemedic.control_plane.symptoms import observed_symptom
 
 HUMAN_WORK_IN_PROGRESS = "HUMAN_WORK_IN_PROGRESS"
 PROPOSAL_ACTIONS = ("create_pr", "create_work_order_draft", "escalate")
@@ -445,21 +459,44 @@ def cancel(
 # ── 시작 알림 게이트 (W26) ─────────────────────────────────────
 
 
-def on_start_notice_accepted(tx: Tx, notification: Any) -> str:
+def start_wait_exceeded(created_at: str | None, now: str, start_wait_seconds: float) -> bool:
+    """시작 알림을 만든 뒤 `start_wait_seconds`가 지났는가(D83 ⑥).
+
+    발송 전(outbox)·receipt 저장·만료 검사가 같은 기준을 쓴다. supervisor 루프가 attempt 실행으로
+    멈춰 있어도 60초 게이트가 지켜지게 한다.
+    """
+    if created_at is None:
+        return True
+    elapsed = (from_rfc3339(now) - from_rfc3339(created_at)).total_seconds()
+    return elapsed > start_wait_seconds
+
+
+def on_start_notice_accepted(tx: Tx, notification: Any, start_wait_seconds: float) -> str:
     """필수 route의 시작 알림 receipt가 저장됐다. 그 work가 아직 알림 대기면 READY로 옮긴다.
 
-    이미 BLOCKED·CANCELLED 등으로 끝난 work는 되살리지 않는다(늦게 온 receipt).
+    - 이미 BLOCKED·CANCELLED 등으로 끝난 work는 되살리지 않는다(늦게 온 receipt)
+    - 대기 시간(`start_wait_seconds`)이 지난 뒤 저장된 receipt도 READY로 올리지 않는다. work는
+      알림 대기에 남고 다음 `expire_start_notices`가 멈춘다(만료 검사가 늦게 돌아도 게이트 유지)
     """
     work = tx.one("SELECT * FROM work_items WHERE id = ?", (notification["work_id"],))
     if work is None or work["start_notification_id"] != notification["id"]:
         return "not_start_notice"
+    late = None
     if work["status"] != "WAITING_NOTIFICATION":
+        late = "work_not_waiting"
+    elif start_wait_exceeded(notification["created_at"], tx.now, start_wait_seconds):
+        late = "start_wait_exceeded"
+    if late is not None:
         _audit(
             tx,
             work,
             Actor.NOTIFIER,
             "LATE_START_RECEIPT",
-            {"notification_id": notification["id"], "work_status": work["status"]},
+            {
+                "notification_id": notification["id"],
+                "work_status": work["status"],
+                "reason": late,
+            },
         )
         return "late"
     transition_work(
@@ -477,6 +514,22 @@ def on_start_notice_accepted(tx: Tx, notification: Any) -> str:
 
 
 @dataclass(frozen=True)
+class AttemptRuntime:
+    """attempt를 실제로 돌리는 host 자원(W13). 없으면 supervisor는 attempt를 만들기만 한다(W25)."""
+
+    adapter: AgentAdapter
+    tokens: TokenRegistry
+    mirror: Path  # 신뢰 mirror(base 파일을 꺼낸다)
+    runs_dir: Path
+    tools_base_url: str
+    grace_seconds: float = 5.0  # deadline 뒤 adapter를 더 기다리는 시간
+    poll_seconds: float = 1.0
+
+
+MAX_BLOCKER_EVIDENCE = 5
+
+
+@dataclass(frozen=True)
 class AttemptStart:
     status: str  # started | waiting_slot | not_ready | blocked | cancelled
     work_id: str
@@ -488,13 +541,20 @@ class AttemptStart:
 
 class Supervisor:
     def __init__(
-        self, store: Store, *, config: LineMedicConfig, clock: Clock, route_id: str | None = None
+        self,
+        store: Store,
+        *,
+        config: LineMedicConfig,
+        clock: Clock,
+        route_id: str | None = None,
+        runtime: AttemptRuntime | None = None,
     ) -> None:
         self.store = store
         self.clock = clock
         self.agent = config.agent
         self.route_id = route_id or config.notifications.required_start_route_id
         self.start_wait_seconds = config.notifications.start_wait_seconds
+        self.runtime = runtime
 
     def auto_approve(self, work_id: str) -> None:
         """승인된 작성자(W23 `auto_start_eligible`)의 work를 등록 정책으로 승인한다."""
@@ -542,6 +602,8 @@ class Supervisor:
         아직 보내지 않은(PENDING) 시작 알림은 같은 트랜잭션에서 `FAILED(expired_before_send)`로
         닫는다. 시작하지 않을 work에 "작업 시작 예정" 댓글이 나중에 달리지 않게 한다.
         SENDING·UNKNOWN은 이미 나갔을 수 있으므로 그대로 두고 조정 결과는 감사만 남긴다.
+        대기 시간이 지난 뒤 저장된 receipt(ACCEPTED인데 work가 아직 알림 대기)도 멈춘다. 제시간
+        receipt는 저장과 같은 트랜잭션에서 READY가 되므로 여기 남은 ACCEPTED는 늦은 것뿐이다(D83 ⑥).
         """
         blocked = []
         now = self.clock.utc_now()
@@ -553,20 +615,16 @@ class Supervisor:
                 " WHERE w.status = 'WAITING_NOTIFICATION' ORDER BY w.created_at"
             )
             for row in rows:
-                if row["notice_status"] == "ACCEPTED":
-                    continue
-                created = row["notice_created_at"]
-                expired = created is None or (now - from_rfc3339(created)).total_seconds() > (
-                    self.start_wait_seconds
+                expired = start_wait_exceeded(
+                    row["notice_created_at"], to_rfc3339(now), self.start_wait_seconds
                 )
                 if not expired and row["notice_status"] != "FAILED":
                     continue
                 work = _work(tx, row["work_id"])
-                reason = (
-                    "시작 알림 실패"
-                    if row["notice_status"] == "FAILED"
-                    else "시작 알림 대기 시간 초과"
-                )
+                reason = {
+                    "FAILED": "시작 알림 실패",
+                    "ACCEPTED": "대기 시간이 지난 뒤 시작 알림 접수",
+                }.get(row["notice_status"] or "", "시작 알림 대기 시간 초과")
                 self._block(
                     tx,
                     work,
@@ -654,9 +712,290 @@ class Supervisor:
                     "start_notice_recorded_at": json.loads(notice["result_json"] or "{}").get(
                         "recorded_at"
                     ),
+                    # 사람 제안(manual_integration)을 에이전트 산출물로 표시하지 않게 남긴다(W13)
+                    **(
+                        {
+                            "adapter": self.runtime.adapter.name,
+                            "origin": self.runtime.adapter.origin,
+                        }
+                        if self.runtime is not None
+                        else {}
+                    ),
                 },
             )
         return AttemptStart("started", work_id, attempt_id, deadline, self.agent.tool_call_budget)
+
+    # ── attempt 실행 (W13) ─────────────────────────────────────
+
+    def run_ready(self, limit: int = 5) -> list[dict[str, Any]]:
+        """READY work를 오래된 순서로 시작하고, 시작하면 adapter를 끝까지 부른다(한 번에 하나)."""
+        if self.runtime is None:
+            raise RuntimeError("attempt runtime이 없다")
+        with self.store.read() as tx:
+            ids = [
+                row["id"]
+                for row in tx.all(
+                    "SELECT id FROM work_items WHERE status = 'READY' ORDER BY updated_at, id"
+                    " LIMIT ?",
+                    (limit,),
+                )
+            ]
+        results: list[dict[str, Any]] = []
+        for work_id in ids:
+            started = self.start_attempt(work_id)
+            if started.status != "started":
+                results.append({"work_id": work_id, "status": started.status})
+                if started.status == "waiting_slot":
+                    break
+                continue
+            results.append(self.run_attempt(started))
+        return results
+
+    def run_attempt(self, started: AttemptStart) -> dict[str, Any]:
+        """게이트를 통과한 attempt 하나: workspace·context·token → adapter → 정리."""
+        runtime = self.runtime
+        if runtime is None or started.attempt_id is None or started.deadline is None:
+            raise RuntimeError("시작한 attempt와 runtime이 필요하다")
+        with self.store.read() as tx:
+            work = _work(tx, started.work_id)
+            incident = _incident(tx, work)
+            notice = tx.one(
+                "SELECT id, receipt_id, accepted_at FROM notifications WHERE id = ?",
+                (work["start_notification_id"],),
+            )
+            run = tx.one("SELECT config_json FROM demo_runs WHERE id = ?", (work["run_id"],))
+        manifest = json.loads(run["config_json"]) if run is not None else {}
+        base_sha = (manifest.get("runtime_env") or {}).get("baseline_commit")
+        root = runtime.runs_dir / work["run_id"] / "workspaces" / started.attempt_id
+        adapter = runtime.adapter
+        try:
+            if not base_sha:
+                raise CandidateError("run_baseline_unconfigured")
+            workspace = prepare_workspace(mirror=runtime.mirror, root=root, base_sha=base_sha)
+        except CandidateError as exc:
+            failed = AttemptResult(
+                "error", adapter.name, adapter.origin, detail=f"workspace:{exc.reason}"
+            )
+            return self.finish_attempt(started, failed)
+        context = {
+            "schema_version": "linemedic.v4",
+            "run_id": work["run_id"],
+            "incident_id": incident["id"],
+            "work_id": work["id"],
+            "attempt_id": started.attempt_id,
+            "deadline": started.deadline,
+            "issue": {
+                "repository_id": work["repository_id"],
+                "number": work["issue_number"],
+                "snapshot_sha256": work["issue_snapshot_sha256"],
+            },
+            "start_notice": {
+                "notification_id": notice["id"] if notice is not None else None,
+                "receipt_id": notice["receipt_id"] if notice is not None else None,
+                "accepted_at": notice["accepted_at"] if notice is not None else None,
+            },
+            "base": {"sha": base_sha, "service": incident["service"]},
+            "memory": {"mode": "cold_start", "snapshot_id": None, "retrieval_id": None},
+            "budget": {
+                "tool_calls": self.agent.tool_call_budget,
+                "max_submissions": self.agent.max_submissions,
+            },
+            "tools": {"base_url": runtime.tools_base_url},
+            "adapter": adapter.name,
+            "origin": adapter.origin,
+        }
+        context_ref = root / "context.json"
+        context_ref.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", "utf-8")
+        principal = AgentPrincipal(work["run_id"], incident["id"], work["id"], started.attempt_id)
+        token = runtime.tokens.issue_agent_token(principal)
+        try:
+            result = self._call_adapter(started, work, incident, workspace, context_ref, token)
+        finally:
+            runtime.tokens.revoke_attempt(started.attempt_id)
+        return self.finish_attempt(started, result)
+
+    def _call_adapter(
+        self,
+        started: AttemptStart,
+        work: Any,
+        incident: Any,
+        workspace: Path,
+        context_ref: Path,
+        token: str,
+    ) -> AttemptResult:
+        """adapter를 별도 thread에서 돌린다. deadline + 유예가 지나면 더 기다리지 않는다."""
+        runtime = self.runtime
+        assert runtime is not None and started.attempt_id and started.deadline
+        adapter = runtime.adapter
+        box: dict[str, AttemptResult] = {}
+
+        def target() -> None:
+            try:
+                box["result"] = adapter.run_agent(
+                    work["run_id"],
+                    incident["id"],
+                    work["id"],
+                    started.attempt_id,
+                    started.deadline,
+                    workspace,
+                    context_ref,
+                    credential=token,
+                )
+            except Exception as exc:  # noqa: BLE001 — adapter 오류도 attempt 결과로 남긴다
+                box["result"] = AttemptResult(
+                    "error", adapter.name, adapter.origin, detail=type(exc).__name__
+                )
+
+        thread = threading.Thread(target=target, name=f"attempt-{started.attempt_id}", daemon=True)
+        thread.start()
+        until = from_rfc3339(started.deadline) + timedelta(seconds=runtime.grace_seconds)
+        while thread.is_alive():
+            thread.join(timeout=runtime.poll_seconds)
+            if thread.is_alive() and self.clock.utc_now() >= until:
+                return AttemptResult(
+                    "deadline_exceeded", adapter.name, adapter.origin, detail="adapter_timeout"
+                )
+        return box.get("result") or AttemptResult(
+            "error", adapter.name, adapter.origin, detail="no_result"
+        )
+
+    def finish_attempt(self, started: AttemptStart, result: AttemptResult) -> dict[str, Any]:
+        """adapter가 끝났다. 제안 없이 조사 중이면 attempt를 닫는다."""
+        blocker = None
+        with self.store.tx() as tx:
+            work = _work(tx, started.work_id)
+            incident = _incident(tx, work)
+            _audit(
+                tx,
+                work,
+                Actor.SUPERVISOR,
+                "ATTEMPT_FINISHED",
+                {"attempt_id": started.attempt_id, **result.record()},
+            )
+            if _open_attempt(work, incident, started.attempt_id):
+                blocker, detail = _attempt_blocker(tx, incident, result)
+                attempted = [f"adapter {result.adapter} → {result.status}"] + [
+                    f"submit_proposal {pid}" for pid in result.proposal_ids
+                ]
+                self._close_attempt(tx, work, incident, blocker, detail, attempted)
+        return {
+            "work_id": started.work_id,
+            "attempt_id": started.attempt_id,
+            "status": "finished",
+            "adapter_status": result.status,
+            "blocked": blocker,
+        }
+
+    def expire_attempts(self) -> list[str]:
+        """제안 없이 조사 중인데 deadline이 지났거나 adapter가 이미 끝난 attempt를 닫는다.
+
+        브로커가 제안을 거절해 조사 단계로 되돌렸지만 adapter가 더 제출하지 않는 경우도
+        여기서 닫는다.
+        """
+        closed = []
+        with self.store.tx() as tx:
+            for row in tx.all(
+                "SELECT w.id AS work_id FROM work_items w JOIN incidents i ON i.id = w.incident_id"
+                " WHERE w.status = 'RUNNING' AND i.status = 'INVESTIGATING'"
+                " AND i.attempt_id = w.attempt_id ORDER BY w.updated_at"
+            ):
+                work = _work(tx, row["work_id"])
+                incident = _incident(tx, work)
+                if incident["attempt_deadline"] and tx.now >= incident["attempt_deadline"]:
+                    blocker, detail = (
+                        "BUDGET_EXCEEDED",
+                        "attempt deadline이 지났고 조사 중 제안이 없다",
+                    )
+                elif _attempt_finished(tx, work):
+                    blocker = "VALIDATION_FAILED"
+                    detail = "adapter가 끝난 뒤 제안이 조사 단계로 돌아왔고 더 제출되지 않았다"
+                else:
+                    continue
+                self._close_attempt(
+                    tx, work, incident, blocker, detail, [f"attempt {work['attempt_id']}"]
+                )
+                closed.append(work["id"])
+        if self.runtime is not None:
+            for work_id in closed:
+                with self.store.read() as tx:
+                    attempt = _work(tx, work_id)["attempt_id"]
+                self.runtime.tokens.revoke_attempt(attempt)
+        return closed
+
+    def recover_attempts(self) -> list[str]:
+        """재시작 때 조사 중인 attempt를 닫는다.
+
+        이 프로세스에는 그 attempt의 adapter가 없다. 새 세션을 자동으로 만들지 않는다.
+        """
+        closed = []
+        with self.store.tx() as tx:
+            for row in tx.all(
+                "SELECT w.id AS work_id FROM work_items w JOIN incidents i ON i.id = w.incident_id"
+                " WHERE w.status = 'RUNNING' AND i.status = 'INVESTIGATING'"
+                " AND i.attempt_id = w.attempt_id ORDER BY w.updated_at"
+            ):
+                work = _work(tx, row["work_id"])
+                incident = _incident(tx, work)
+                self._close_attempt(
+                    tx,
+                    work,
+                    incident,
+                    "MODEL_UNAVAILABLE",
+                    "프로세스가 다시 시작돼 attempt가 끊겼다. 새 세션을 자동으로 만들지 않는다",
+                    [f"attempt {work['attempt_id']} → 재시작으로 중단"],
+                )
+                closed.append(work["id"])
+        return closed
+
+    def _close_attempt(
+        self,
+        tx: Tx,
+        work: Any,
+        incident: Any,
+        blocker: str,
+        detail: str,
+        attempted: list[str],
+    ) -> None:
+        """조사 중 attempt를 닫는다: incident ESCALATED·work BLOCKED + WORK_BLOCKED(차단 보고)."""
+        result = coupled_transition(
+            tx,
+            incident_id=incident["id"],
+            expected_incident_version=incident["version"],
+            incident_to="ESCALATED",
+            work_id=work["id"],
+            expected_work_version=work["version"],
+            work_to="BLOCKED",
+            actor=Actor.SUPERVISOR,
+            reason=blocker,
+            details={"attempt_id": work["attempt_id"], "reason_detail": detail},
+        )
+        evidence_ids = [
+            row["id"]
+            for row in tx.all(
+                "SELECT id FROM evidence WHERE run_id = ? AND incident_id = ?"
+                " ORDER BY observed_at, id LIMIT ?",
+                (incident["run_id"], incident["id"], MAX_BLOCKER_EVIDENCE),
+            )
+        ]
+        observed = observed_symptom(json.loads(incident["details_json"] or "{}"))
+        report = blocker_report(
+            blocker_code=blocker,
+            stage="agent",
+            incident=incident,
+            work=work,
+            symptom_impact=observed or f"{incident['service']} 사건(관찰 요약을 만들 수 없음)",
+            evidence_ids=evidence_ids,
+            owner_route_id=self.route_id,
+            observed_at=tx.now,
+            attempted_actions=attempted,
+            operator_next_step=[
+                "attempt 기록·제안·검사 결과를 확인한 뒤 새 generation 승인 여부를 판단"
+            ],
+            retry_condition="운영자가 원인을 확인하고 새 generation을 승인한 뒤",
+            reason_detail=detail,
+        )
+        assert result.outbox_event == "WORK_BLOCKED"
+        outbox.enqueue(tx, work, result.outbox_event, report, self.route_id)
 
     def _block(
         self, tx: Tx, work: Any, reason: str, symptom: str, blocker_code: str = "SOURCE_CHANGED"
@@ -690,3 +1029,42 @@ class Supervisor:
         )
         assert result.outbox_event == "WORK_BLOCKED"
         outbox.enqueue(tx, work, result.outbox_event, report, self.route_id)
+
+
+def _open_attempt(work: Any, incident: Any, attempt_id: str | None) -> bool:
+    """그 attempt가 아직 제안 없이 조사 중인가(브로커 검사·PR·이관으로 넘어가지 않았다)."""
+    return (
+        work["status"] == "RUNNING"
+        and work["attempt_id"] == attempt_id
+        and incident["status"] == "INVESTIGATING"
+        and incident["attempt_id"] == attempt_id
+    )
+
+
+def _attempt_blocker(tx: Tx, incident: Any, result: AttemptResult) -> tuple[str, str]:
+    """조사 중에 끝난 attempt의 blocker 코드와 사유."""
+    deadline = incident["attempt_deadline"]
+    if result.status == "deadline_exceeded" or (deadline and tx.now >= deadline):
+        return "BUDGET_EXCEEDED", "attempt deadline 안에 통과한 제안이 없다"
+    if result.status == "decided" and result.decision == "REJECTED":
+        return (
+            "VALIDATION_FAILED",
+            "제안이 브로커 검사를 통과하지 못했고 adapter가 더 제출하지 않았다",
+        )
+    if result.status == "no_proposal":
+        return "INSUFFICIENT_EVIDENCE", f"adapter가 제안을 내지 않았다({result.detail})"
+    return (
+        "MODEL_UNAVAILABLE",
+        f"에이전트 실행이 결과 없이 끝났다({result.status}: {result.detail})",
+    )
+
+
+def _attempt_finished(tx: Tx, work: Any) -> bool:
+    for row in tx.all(
+        "SELECT payload_json FROM audit_events WHERE run_id = ? AND incident_id = ?"
+        " AND event_type = 'ATTEMPT_FINISHED'",
+        (work["run_id"], work["incident_id"]),
+    ):
+        if json.loads(row["payload_json"] or "{}").get("attempt_id") == work["attempt_id"]:
+            return True
+    return False

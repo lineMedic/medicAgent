@@ -55,11 +55,12 @@ linemedic/
 │   ├── ops_api.py                 # [W06] /ops/* 라우터 (카드별 endpoint 추가)
 │   ├── runs.py                    # [W06] demo_runs, run manifest, [W19] run-new/archive/reset
 │   ├── catalog.py                 # [W22] repo·service·route·equipment catalog 로더
-│   ├── main.py                    # [W13] make start 진입점: API·supervisor·poll·outbox·broker 루프
+│   ├── main.py                    # [W13] make start 진입점: ControlPlane 조립(외부 연결별 끄기)·루프·기동 복구·pid·make stop
+│   ├── attempts.py                # [W13] attempt 기록(adapter·origin) 조회: PR 본문·배포 검증이 사람 제안을 구분
 │   ├── security_probe.py          # [W17] S3-C 대조 절차·판정
 │   ├── issue_sync.py              # [W23] polling·mirror·checkpoint·snapshot hash
 │   ├── issue_router.py            # [W24] 매칭 1~5·CREATE_ISSUE·binding
-│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W28] attempt 시작
+│   ├── supervisor.py              # [W25] work claim·approve·retry·cancel, [W26] start gate, [W13] attempt 실행(workspace·context·token·deadline), [W28] attempt 시작
 │   ├── broker/
 │   │   ├── proposals.py           # [W09] 제안 pydantic 모델(union 3종)
 │   │   ├── intake.py              # [W09] B01~B06, 202 접수·백그라운드 검사
@@ -84,7 +85,7 @@ linemedic/
 │   ├── observer.py                # [W05] 로그 스트림 연속성·container/image 불변 관찰
 │   └── verifier.py                # [W05] 업무 계약 판정
 ├── agent/                         # 제품 runtime 에이전트 쪽 (개발 지침을 넣지 않는다)
-│   ├── adapter.py                 # [W13] AgentAdapter, ScriptedAdapter (D53)
+│   ├── adapter.py                 # [W13] AgentAdapter 계약(run_agent + credential), ScriptedAdapter, http tools client (D53·D83)
 │   ├── tools_client.py            # [W14] /tools HTTP client (scope token)
 │   ├── runtime_<openclaw|nat>.py  # [W14, G4 후] 선택한 하나만
 │   ├── trace.py                   # [W14] model ID·prompt hash·tool trace·token

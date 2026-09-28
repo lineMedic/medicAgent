@@ -17,7 +17,7 @@ MES_BASE_PYTHON ?= python:3.12-slim
 # 패치 검사 runner 이미지 (신뢰 레시피 linemedic/runner/runner.Dockerfile, W10)
 RUNNER_IMAGE ?= linemedic-runner:v1
 
-.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release
+.PHONY: setup lock test test-docker test-live lint fmt doctor host-manifest mes-image runner-image scenario-s1 verify-negative run-new detect-once scenario-s2-lite api-schema issue-sync issue-bind approve-work retry-work cancel-work notification-reconcile reconcile approve-release start stop
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -155,3 +155,15 @@ reconcile:
 approve-release:
 	@test -n "$(RUN_ID)" -a -n "$(INCIDENT_ID)" -a -n "$(WORK_ID)" -a -n "$(PR_NUMBER)" -a -n "$(MERGE_SHA)" -a -n "$(EXPECTED_IMAGE_ID)" || { echo "사용법: make approve-release RUN_ID= INCIDENT_ID= WORK_ID= PR_NUMBER= MERGE_SHA= EXPECTED_IMAGE_ID= [PROPOSAL_ID=] [NOTE=]"; exit 2; }
 	$(PY) -m linemedic.cli approve-release --run-id "$(RUN_ID)" --incident-id "$(INCIDENT_ID)" --work-id "$(WORK_ID)" --pr-number "$(PR_NUMBER)" --merge-sha "$(MERGE_SHA)" --expected-image-id "$(EXPECTED_IMAGE_ID)" $(if $(PROPOSAL_ID),--proposal-id "$(PROPOSAL_ID)",) $(if $(NOTE),--note "$(NOTE)",)
+
+# Control Plane 기동 (W13): Control API와 루프(로그 감지·Issue poll·Issue 연결·알림·supervisor·broker)를 한 프로세스로
+# 띄운다. attempt는 사람이 미리 쓴 제안(ScriptedAdapter, origin=manual_integration)으로 돈다. 기동 때 결과를 모르는
+# 외부 실행은 UNKNOWN으로 두고 다시 실행하지 않는다. 외부 연결(G2 GitHub·RUNNER_IMAGE_ID)이 없으면 그 기능만 꺼진다.
+start:
+	@test -n "$(RUN_ID)" || { echo "사용법: make start RUN_ID=<make run-new가 만든 활성 run> [MANUAL_PROPOSAL=]"; exit 2; }
+	$(PY) -m linemedic.cli start --run-id "$(RUN_ID)" $(if $(MANUAL_PROPOSAL),--manual-proposal "$(MANUAL_PROPOSAL)",)
+
+# make start로 띄운 프로세스 종료 (W13): pid 파일의 프로세스가 이 run의 LineMedic일 때만 SIGTERM을 보낸다.
+stop:
+	@test -n "$(RUN_ID)" || { echo "사용법: make stop RUN_ID=<run>"; exit 2; }
+	$(PY) -m linemedic.cli stop --run-id "$(RUN_ID)"

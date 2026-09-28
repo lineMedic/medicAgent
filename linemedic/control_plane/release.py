@@ -44,6 +44,7 @@ from linemedic.common.clock import Clock, to_rfc3339
 from linemedic.common.ids import is_valid_entity_id, is_valid_run_id, new_id
 from linemedic.common.sanitize import mask_secrets
 from linemedic.control_plane import audit, checkpoints
+from linemedic.control_plane.attempts import attempt_origin
 from linemedic.control_plane.broker.candidate import CandidateError, prepare_release_trees
 from linemedic.control_plane.broker.github_pr import branches
 from linemedic.control_plane.broker.intake import _block
@@ -353,6 +354,7 @@ class Subject:
     candidate_tree: str
     patch_sha256: str | None
     new_test_path: str
+    attempt_id: str
 
 
 @dataclass
@@ -526,6 +528,7 @@ class ReleaseExecutor:
             candidate_tree=pr_request["candidate_tree"],
             patch_sha256=candidate.get("patch_sha256"),
             new_test_path=action["new_test_path"],
+            attempt_id=proposal["attempt_id"],
         )
 
     def _catalog_check(self, subject: Subject) -> None:
@@ -746,7 +749,10 @@ class ReleaseExecutor:
                 "expected_current_image_id": request.expected_current_image_id,
                 "runtime": {"previous": previous},
                 "build_recipe": build_recipe(),
-                "origin": self.origin,
+                # 사람 제안(W13 manual_integration)은 attempt 기록의 origin을 따른다
+                "origin": attempt_origin(
+                    tx, subject.run_id, subject.incident_id, subject.attempt_id, self.origin
+                ),
                 "approval": {
                     "principal": request.principal,
                     "note": request.approval_note,
