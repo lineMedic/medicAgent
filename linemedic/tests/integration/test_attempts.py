@@ -477,6 +477,36 @@ def test_read_calls_and_other_attempts_do_not_block_the_retry(world, tool, same_
     assert retry["detail"] == "model_timeout"
 
 
+def test_a_proposal_row_from_another_attempt_does_not_block_the_retry(world):
+    """같은 사건의 이전 attempt(retry generation)에 제안 행이 있어도 이 attempt의 재시도는 한다."""
+    results = iter(
+        [
+            AttemptResult(
+                "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+            ),
+            AttemptResult("no_proposal", "fake", "manual_integration", detail="no_evidence"),
+        ]
+    )
+
+    def earlier_attempt_row_then_timeout(call):
+        run_id, incident_id, work_id, _ = call["ids"]
+        if len(world.adapter.calls) == 1:  # 이전 attempt가 남긴 제안 행(이 attempt 것이 아니다)
+            with world.store.tx() as tx:
+                tx.execute(
+                    "INSERT INTO proposals (id, run_id, incident_id, work_id, attempt_id,"
+                    " idempotency_key, body_sha256, decision, received_at, payload_json,"
+                    " checks_json) VALUES (?, ?, ?, ?, ?, 'key-1', ?, 'REJECTED', ?, '{}', '{}')",
+                    (new_id("PROP"), run_id, incident_id, work_id, new_id("ATT"), "0" * 64, tx.now),
+                )
+        return next(results)
+
+    world.adapter.behavior = earlier_attempt_row_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 2
+    (retry,) = world.audit("ATTEMPT_RETRY")
+    assert retry["detail"] == "model_timeout"
+
+
 def test_attempt_trace_records_identity_tools_and_tokens(world):
     world.adapter.behavior = lambda call: AttemptResult(
         "no_proposal",
