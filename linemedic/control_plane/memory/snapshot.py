@@ -5,6 +5,10 @@
 - 선택 기준: series마다 cutoff 이전에 기록된 최신 PUBLISHED revision. 대상 run에서 나온 노트,
   cutoff 뒤 노트(미래 revision), 평가 식별자(holdout 입력 로트 ID 등)가 든 노트, 등록 repo 밖
   노트는 넣지 않는다
+- 사람 선택(G9, D84 ⑤): `make memory-snapshot LIST=1`로 후보(`candidates`)를 보고 `NOTES=`로 고른다.
+  고른 note ID만 넣고, 고른 것도 위 규칙을 다시 적용한다(규칙에 걸리면 사유와 함께 거부).
+  선택 없이 규칙만으로 만들면(`rule_only`, 코드·테스트용) 사람 제안(`manual_integration`)·S1b 주입
+  (`human_injected_negative`) 노트는 넣지 않는다. 이 둘은 사람이 명시적으로 고른 경우에만 들어간다
 - manifest에는 note ID·series·revision·content hash·created_at·observed_at·outcome·origin·seed,
   cutoff, scope, 선택 기준, 제외 수, tokenizer·질의 정규화 버전을 남긴다. 노트 본문은 넣지 않는다
 - snapshot ID는 manifest 내용의 hash(`MEM-<12 hex>`)다. 같은 이름의 파일을 덮어쓰지 않는다
@@ -13,7 +17,7 @@
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -47,8 +51,26 @@ NOTE_FIELDS = (
 )
 
 
+SELECTION_REQUIRED_ORIGINS = frozenset({"manual_integration", "human_injected_negative"})
+RULE_EXCLUSIONS = (
+    "not_published",
+    "target_run",
+    "after_cutoff",
+    "other_repository",
+    "eval_identifier",
+)
+
+
 class SnapshotError(ValueError):
     """manifest를 만들거나 읽을 수 없음."""
+
+
+class SnapshotSelectionError(SnapshotError):
+    """사람이 고른 note ID 중 넣을 수 없는 것이 있다. `problems`는 note ID → 사유."""
+
+    def __init__(self, problems: dict[str, str]) -> None:
+        super().__init__("고른 노트 중 넣을 수 없는 것이 있다: " + ", ".join(sorted(problems)))
+        self.problems = problems
 
 
 @dataclass(frozen=True)
@@ -78,6 +100,88 @@ def normalize_cutoff(value: str) -> str:
     return to_rfc3339(parsed)
 
 
+@dataclass(frozen=True)
+class _Pool:
+    """규칙을 통과한 series별 최신 노트와, 규칙에 걸린 노트의 사유."""
+
+    latest: dict[str, Any]  # series ID → 행
+    excluded: dict[str, int]  # 규칙 사유 → 수
+    rejected: dict[str, str]  # note ID → 사유(규칙·옛 revision)
+
+
+def _rule(
+    row: Any, run_id: str, cutoff: str, repository_id: int | None, terms: tuple
+) -> str | None:
+    if row["publish_status"] != "PUBLISHED":
+        return "not_published"
+    if row["source_run_id"] == run_id:
+        return "target_run"  # 같은 run의 결과를 같은 run의 memory로 되먹이지 않는다
+    if row["created_at"] > cutoff:
+        return "after_cutoff"
+    if repository_id is not None and row["repository_id"] != repository_id:
+        return "other_repository"
+    if any(term in row["payload_json"] for term in terms):
+        return "eval_identifier"
+    return None
+
+
+def _pool(
+    tx: Tx, run_id: str, cutoff: str, repository_id: int | None, terms: tuple[str, ...]
+) -> _Pool:
+    excluded = dict.fromkeys(RULE_EXCLUSIONS, 0)
+    rejected: dict[str, str] = {}
+    latest: dict[str, Any] = {}
+    for row in tx.all("SELECT * FROM case_notes ORDER BY series_id, revision"):
+        reason = _rule(row, run_id, cutoff, repository_id, terms)
+        if reason is not None:
+            excluded[reason] += 1
+            rejected[row["id"]] = reason
+            continue
+        previous = latest.get(row["series_id"])
+        if previous is not None:  # revision 오름차순이라 마지막이 series의 최신이다
+            rejected[previous["id"]] = "not_latest_revision"
+        latest[row["series_id"]] = row
+    return _Pool(latest, excluded, rejected)
+
+
+def _note(row: Any) -> dict[str, Any]:
+    payload = json.loads(row["payload_json"])
+    values = {
+        "note_id": row["id"],
+        "series_id": row["series_id"],
+        "revision": row["revision"],
+        "content_sha256": row["content_sha256"],
+        "repository_id": row["repository_id"],
+        "service": row["service"],
+        "outcome": row["outcome"],
+        "origin": row["origin"],
+        "seed": bool(payload.get("seed")),
+        "observed_at": row["observed_at"],
+        "created_at": row["created_at"],
+    }
+    return {key: values[key] for key in NOTE_FIELDS}
+
+
+def candidates(
+    tx: Tx,
+    *,
+    run_id: str,
+    cutoff: str | None = None,
+    repository_id: int | None = None,
+    terms: Iterable[str] = (),
+) -> list[dict[str, Any]]:
+    """G9에서 사람이 고를 후보: 규칙을 통과한 series별 최신 노트(파일·감사를 쓰지 않는다)."""
+    cutoff = normalize_cutoff(cutoff) if cutoff else tx.now
+    pool = _pool(tx, run_id, cutoff, repository_id, tuple(terms))
+    rows = [pool.latest[series_id] for series_id in sorted(pool.latest)]
+    return [{**_note(row), "requires_selection": row_needs_selection(row)} for row in rows]
+
+
+def row_needs_selection(row: Any) -> bool:
+    """사람 제안·S1b 주입 노트는 사람이 명시적으로 고를 때만 넣는다(W13 카드, G9)."""
+    return row["origin"] in SELECTION_REQUIRED_ORIGINS
+
+
 def build_snapshot(
     tx: Tx,
     *,
@@ -85,49 +189,40 @@ def build_snapshot(
     cutoff: str | None = None,
     repository_id: int | None = None,
     terms: Iterable[str] = (),
+    selected: Collection[str] | None = None,
 ) -> Snapshot:
-    """대상 run을 위한 manifest를 만든다(파일은 `write_snapshot`이 쓴다)."""
+    """대상 run을 위한 manifest를 만든다(파일은 `write_snapshot`이 쓴다).
+
+    `selected`(사람이 고른 note ID)가 있으면 그 노트만 넣는다. 고른 것 중 후보가 아닌 것이 있으면
+    `SnapshotSelectionError`(사유: `not_found`·`not_latest_revision`·규칙 사유)로 아무것도 만들지
+    않는다. 없으면 규칙만 쓰고 사람 선택이 필요한 origin은 뺀다.
+    """
     cutoff = normalize_cutoff(cutoff) if cutoff else tx.now
-    terms = tuple(terms)
-    excluded = dict.fromkeys(
-        ("not_published", "target_run", "after_cutoff", "other_repository", "eval_identifier"), 0
-    )
-    latest: dict[str, Any] = {}
-    for row in tx.all("SELECT * FROM case_notes ORDER BY series_id, revision"):
-        if row["publish_status"] != "PUBLISHED":
-            reason = "not_published"
-        elif row["source_run_id"] == run_id:
-            reason = "target_run"  # 같은 run의 결과를 같은 run의 memory로 되먹이지 않는다
-        elif row["created_at"] > cutoff:
-            reason = "after_cutoff"
-        elif repository_id is not None and row["repository_id"] != repository_id:
-            reason = "other_repository"
-        elif any(term in row["payload_json"] for term in terms):
-            reason = "eval_identifier"
-        else:
-            reason = None
-        if reason is not None:
-            excluded[reason] += 1
-            continue
-        latest[row["series_id"]] = row  # revision 오름차순이라 마지막이 series의 최신이다
-    notes = []
-    for series_id in sorted(latest):
-        row = latest[series_id]
-        payload = json.loads(row["payload_json"])
-        values = {
-            "note_id": row["id"],
-            "series_id": series_id,
-            "revision": row["revision"],
-            "content_sha256": row["content_sha256"],
-            "repository_id": row["repository_id"],
-            "service": row["service"],
-            "outcome": row["outcome"],
-            "origin": row["origin"],
-            "seed": bool(payload.get("seed")),
-            "observed_at": row["observed_at"],
-            "created_at": row["created_at"],
+    pool = _pool(tx, run_id, cutoff, repository_id, tuple(terms))
+    excluded = {**pool.excluded, "origin_requires_selection": 0, "not_selected": 0}
+    chosen: dict[str, Any] = {}
+    if selected is None:
+        for series_id, row in pool.latest.items():
+            if row_needs_selection(row):
+                excluded["origin_requires_selection"] += 1
+            else:
+                chosen[series_id] = row
+    else:
+        wanted = set(selected)
+        by_note = {row["id"]: row for row in pool.latest.values()}
+        problems = {
+            note_id: pool.rejected.get(note_id, "not_found")
+            for note_id in wanted
+            if note_id not in by_note
         }
-        notes.append({key: values[key] for key in NOTE_FIELDS})
+        if problems:
+            raise SnapshotSelectionError(problems)
+        for series_id, row in pool.latest.items():
+            if row["id"] in wanted:
+                chosen[series_id] = row
+            else:
+                excluded["not_selected"] += 1
+    notes = [_note(chosen[series_id]) for series_id in sorted(chosen)]
     body = {
         "schema_version": SNAPSHOT_SCHEMA,
         "target_run_id": run_id,
@@ -140,6 +235,9 @@ def build_snapshot(
             "created_at_lte_cutoff": True,
             "exclude_source_run_ids": [run_id],
             "exclude_eval_identifiers": True,
+            "mode": "rule_only" if selected is None else "human_selected",
+            "selected_note_ids": None if selected is None else sorted(set(selected)),
+            "origins_requiring_selection": sorted(SELECTION_REQUIRED_ORIGINS),
         },
         "search": {
             "engine_at_creation": "sqlite_fts5" if fts_enabled(tx) else "keyword_fallback",
@@ -207,5 +305,6 @@ def record_snapshot(tx: Tx, snapshot: Snapshot, path: Path) -> None:
             "manifest_sha256": sha256_hex(snapshot.manifest),
             "cutoff": snapshot.manifest["cutoff"],
             "notes": snapshot.manifest["counts"]["notes"],
+            "selection_mode": snapshot.manifest["selection"]["mode"],
         },
     )
