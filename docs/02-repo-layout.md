@@ -120,7 +120,7 @@ linemedic/
 │   ├── holdout-defects-v1.json    # [W04] holdout 입력+기대값 (verifier만 읽음)
 │   ├── scenario_expectations.toml # [W20] 시나리오별 기대 category/action
 │   ├── harness.py                 # [W20] make evaluate
-│   ├── manual_proposals/          # [W13] 사람이 작성한 제안 (origin=manual_integration)
+│   ├── manual_proposals/          # [W13] 사람이 작성한 제안 (origin=manual_integration): s1_manual.json, [W16] s2_lite_manual.json
 │   └── snapshots/                 # [W27] memory snapshot manifest
 ├── dashboard/
 │   ├── __main__.py                # [W18] 127.0.0.1 읽기 전용 서버 (D49·D85: mode=ro·GET만·script 차단 CSP)

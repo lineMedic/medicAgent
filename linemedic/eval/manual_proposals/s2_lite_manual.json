@@ -1,0 +1,16 @@
+{
+  "note": "W16 manual_integration용 사람 제안. 모델 산출물이 아니다. eval 폴더에만 두고 에이전트 workspace·시드에 넣지 않는다",
+  "category": "equipment",
+  "summary": "L3-CAM-2만 밝기와 판정 신뢰도가 기준보다 낮게 관찰됨(L3-CAM-1·3은 정상 범위)",
+  "action": {
+    "type": "create_work_order_draft",
+    "equipment_id": "L3-CAM-2",
+    "symptom": "다른 카메라 대비 밝기와 판정 신뢰도가 낮게 관찰됨",
+    "probable_cause": "렌즈·조명·설정 중 원인은 미확정",
+    "manual_ref_id": "MANUAL-L3-VISION-4.2",
+    "open_questions": [
+      "현장 담당자의 승인된 절차에 따른 점검이 필요함",
+      "같은 시간대 조명·설정 변경 기록 확인이 필요함"
+    ]
+  }
+}

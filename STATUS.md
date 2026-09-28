@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W16의 게이트 없는 부분(fake S2-lite 전체 경로)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W28의 fake 부분(문맥·`get_bound_issue`·초기 검색·T-MEM-06)이다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -42,7 +42,7 @@
 | 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1569 passed(PR #55 리뷰 반영 뒤. W27 테스트 63개: `test_case_memory.py` 61(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7, G9 사람 선택 4), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T21:35Z |
 | 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음. PR #58 리뷰 반영(재시도 전 서버 기록 확인): `make test` → 1679 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T03:55Z |
 | 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
-| 25 | W16 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
+| 25 | W16 | LIVE_VERIFIED | UNIT_TESTED (fake host 경로. sandbox 안 실제 에이전트 3회: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G10) | `make test` → 1687 passed(W16 테스트 3개: S2-lite fake E2E 2(기본·recent-deploy), 코드 경로 없는 서비스의 create_pr 거절 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 4개 모두 잡힘. GitHub·모델 호출 없음 | BLOCKED_ON_HUMAN: W15의 G5 준비와 W14 runtime(G3·G4) 뒤, G2·G10 + 사용자 허락(데모 repo Issue·댓글) / 확인: 기본 2회·recent-deploy 1회를 각자 새 run(`make run-new` → `make scenario-s2-lite RUN_ID= [RECENT_DEPLOY=1]`)으로 → run-record에 도구 호출·제안 category·action·초안 필드, 코드·배포 칸 N/A | 2026-09-28T00:57Z |
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
 | 27 | W17 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
@@ -107,6 +107,42 @@
 - 테스트: `integration/test_attempts.py`에 `test_no_retry_when_the_server_already_accepted_a_submission`(제출 접수 → VALIDATING), `test_no_retry_after_a_server_recorded_submit_call`(사건은 조사 중, 제출 호출 기록만 있음) 추가. 수정 전 두 테스트 모두 FAIL(2 == 1), 수정 뒤 PASS
 - 실행: `make test` → 1679 passed, 20 deselected / `make lint` → PASS (로컬 개발 Mac, fake). 모델·GitHub 호출 없음
 - 남은 일: 없음(이 지적 범위). runtime adapter·live는 기존대로 G3·G4 대기. 이 수정은 아래 stack(#59~#65)에 병합이 필요하다
+
+### W16 중단 보고 — fake host 경로 완료, sandbox 안 실제 에이전트 대기 (2026-09-28T00:57Z)
+
+- 상태: UNIT_TESTED (fake host 경로: S2-lite 두 변형 E2E, 코드 경로 없는 서비스의 코드 수정 제안 거절. sandbox 안 실제 에이전트 3회: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G10). GitHub·모델은 부르지 않았다
+- 착수 근거: 선행 W14(목표 상태)·W15 sandbox 준비가 게이트 대기다. 사용자가 맡긴 목록의 게이트 없는 부분만 했다
+- 변경 파일:
+  - `linemedic/control_plane/broker/intake.py`·`catalog.py`: 코드 경로 없는 서비스의 create_pr 거절
+    - 사건 서비스가 `code_paths = []`로 등록돼 있으면(`Catalog.has_no_code`) 패치 게이트에 보내지 않는다
+    - `PATCH_PATH_DENIED`(reason `service_has_no_code_paths`)로 거절한다. 수정 기회는 남고 제안 원본은 그대로다
+  - `linemedic/eval/manual_proposals/s2_lite_manual.json`(새): 사람이 쓴 설비 제안(origin `manual_integration`, 모델 산출물 아님)
+  - `linemedic/tests/integration/test_e2e_fake.py`: 제안 파일을 고를 수 있게 하고 `inject_s2_lite`를 더했다
+    - S2-lite E2E 2개(기본·recent-deploy, 각자 새 DB·run)
+  - `linemedic/tests/integration/test_proposal_intake.py`(+1): 코드 경로 없는 서비스의 create_pr
+- 실행 (로컬 개발 Mac, FakeGitHub·FakeDocker·ScriptedAdapter — 데모 호스트 아님):
+  - `make test` → 1687 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - 변이 4개 모두 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다): 코드 경로 검사 없음, 수정 기회 없이 멈춤, 생략한 서비스도 코드 없음으로 봄, 항상 코드 없음
+- 수용 기준 (AC-S2):
+  - 정비 요청 초안이 남고 서버 패치·재시작·배포·정비 완료 처리가 없다: fake PASS
+    - 초안: 등록 설비 L3-CAM-2, 사건 증거 안의 관찰 근거, 가설 표시, 미확인 질문, 승인 매뉴얼, `review_required`
+    - PR·빌드·컨테이너 실행·배포 job 0건, execution은 CREATE_ISSUE·DRAFT_WORK_ORDER만
+    - incident WORK_ORDER_DRAFTED·work HANDED_OFF, 대시보드에 "정비 완료" 없음
+  - 렌즈 오염 등 세부 원인은 가설로 표시: fake PASS(`probable_cause_is_hypothesis`)
+  - `delivery_status=not_sent`와 GitHub `HANDOFF_DRAFTED` 알림 상태가 따로: fake PASS(댓글 ACCEPTED 뒤에도 초안은 not_sent)
+  - 변형별 결과 분리: fake PASS(변형마다 새 DB·run). 실제 3회 run: NOT_RUN
+  - 에이전트가 지표·배포·매뉴얼을 조회했는지, PR을 골랐는지(오답 기록): NOT_RUN. 사람 제안이라 도구 선택이 없다
+- 판단: D89(코드 경로 없는 서비스의 create_pr 거절, S2-lite fake E2E 범위)
+- 증거: 커밋은 이 보고를 포함한 W16 커밋(로컬, push 전). 실제 run의 run-record는 게이트 전이라 없다
+- 작업 중 발견:
+  - 패치 게이트는 사건 서비스를 보지 않고 데모 repo 전체 정책으로 검사한다
+  - 그래서 설비 사건에 코드 수정 제안이 오면 MES 코드에 R0~R2를 돌려 봇 PR까지 갈 수 있었다(AC-S2 "PR·배포 0건", D73 `code_paths = []`와 어긋남)
+  - 게이트 앞에서 막고 제안 원본을 남겨, 평가(W20)가 오답으로 기록할 수 있게 했다
+- 남은 일·위험:
+  - W15의 G5 준비와 W14 runtime(G3·G4) 뒤: sandbox 안 실제 에이전트로 기본 2회·recent-deploy 1회를 각자 새 run으로 돌린다(G2·G10 + 사용자 허락)
+  - 각 run의 도구 호출(지표 비교·배포 기록·매뉴얼)·category·action·초안 필드를 run-record에 적고, 코드·배포 칸은 N/A로 둔다
+  - 에이전트가 PR을 고르면 이제 게이트 전에 거절된다. 그 제출도 오답으로 그대로 기록한다(사후 수정 금지)
+- 다음 카드: 맡긴 순서대로 W28의 fake 부분(문맥·`get_bound_issue`·초기 검색·T-MEM-06)
 
 ### W15 중단 보고 — 게이트 없는 부분 완료, OpenShell·S1 sandbox run 대기 (2026-09-28T00:49Z)
 
