@@ -148,6 +148,55 @@ def test_late_receipt_after_timeout_does_not_revive_work(gate):
     assert gate.sup.start_attempt(gate.work_id).status == "not_ready"
 
 
+def test_receipt_after_the_wait_does_not_open_the_gate_before_expiry_runs(gate):
+    """만료 검사가 아직 돌지 않았어도(루프 지연) 60초 뒤 receipt로 READY가 되지 않는다.
+
+    PR #53 리뷰 재현.
+    """
+    gate.github.fail_next("timeout", after_side_effect=True)
+    gate.worker.process_pending()
+    gate.clock.advance(61)  # expire_start_notices()를 부르지 않는다
+    found = gate.worker.reconcile(gate.notice()["id"])
+    assert (found["outcome"], found["start_gate"]) == ("FOUND", "late")
+    assert gate.notice()["status"] == "ACCEPTED"
+    assert gate.work()["status"] == "WAITING_NOTIFICATION"  # READY로 올리지 않는다
+    (late,) = [
+        json.loads(r[0])
+        for r in gate.conn.execute(
+            "SELECT payload_json FROM audit_events WHERE event_type = 'LATE_START_RECEIPT'"
+        )
+    ]
+    assert late["reason"] == "start_wait_exceeded"
+    assert gate.sup.start_attempt(gate.work_id).status == "not_ready"
+    assert gate.sup.expire_start_notices() == [gate.work_id]  # 늦게 접수된 것도 멈춘다
+    work = gate.work()
+    assert (work["status"], work["reason_code"]) == ("BLOCKED", "START_NOTICE_UNCONFIRMED")
+    assert gate.incident()["attempt_id"] is None
+
+
+def test_start_notice_past_the_wait_is_not_sent_even_before_expiry_runs(gate):
+    """발송이 늦어진 시작 알림은 60초가 지나면 worker가 보내지 않는다(작업 시작 예정 댓글 없음)."""
+    gate.clock.advance(61)  # expire_start_notices()를 부르지 않는다
+    sent = gate.worker.process_pending()
+    assert "WORK_STARTING" not in [s["event_type"] for s in sent]
+    assert gate.comments() == []
+    notice = gate.notice()
+    assert notice["status"] == "FAILED"
+    assert json.loads(notice["result_json"])["last"] == {"error": "expired_before_send"}
+    assert gate.work()["status"] == "WAITING_NOTIFICATION"
+    assert gate.sup.expire_start_notices() == [gate.work_id]  # FAILED → 바로 멈춘다
+
+
+def test_start_notice_sent_within_the_wait_still_opens_the_gate(gate):
+    gate.clock.advance(59)
+    (sent,) = gate.worker.process_pending()
+    assert (sent["status"], sent["start_gate"]) == ("ACCEPTED", "ready")
+    assert gate.work()["status"] == "READY"
+    gate.clock.advance(30)  # 접수 뒤에는 만료 대상이 아니다
+    assert gate.sup.expire_start_notices() == []
+    assert gate.sup.start_attempt(gate.work_id).status == "started"
+
+
 def test_start_attempt_requires_the_required_route(gate):
     gate.worker.process_pending()
     gate.conn.execute(

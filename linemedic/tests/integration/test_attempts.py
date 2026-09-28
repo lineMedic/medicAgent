@@ -304,6 +304,83 @@ def test_waiting_slot_stops_the_scan(world, conn):
     assert world.adapter.calls == []
 
 
+def _second_work(w) -> tuple[str, int]:
+    """승인됐고 시작 알림이 PENDING인 두 번째 work."""
+    issue = w.github.add_issue(title="두 번째 요청", author_id=200001)
+    insert_issue(w.conn, issue["number"])
+    incident_id = insert_incident(w.conn, RUN, "NEW")
+    with w.store.tx() as tx:
+        incident = tx.one("SELECT * FROM incidents WHERE id = ?", (incident_id,))
+        mirror_row = tx.one(
+            "SELECT * FROM github_issues WHERE issue_number = ?", (issue["number"],)
+        )
+        work, _ = supervisor.ensure_work(tx, incident, mirror_row, authorization={"b": 1})
+        supervisor.approve(
+            tx,
+            work["id"],
+            work["version"],
+            mirror_row["snapshot_sha256"],
+            principal="operator:host-operator",
+            note="승인",
+            route_id=ROUTE_ID,
+        )
+    return work["id"], issue["number"]
+
+
+def _outbox(w) -> OutboxWorker:
+    return OutboxWorker(
+        w.store,
+        adapters={"github_comment": GitHubCommentAdapter(w.github)},
+        config=CONFIG,
+        repo=REPO,
+        clock=w.clock,
+    )
+
+
+@pytest.mark.parametrize("delivery", ["sent_late", "found_late"])
+def test_start_gate_of_another_work_holds_while_an_attempt_runs(world, conn, delivery):
+    """A의 attempt가 supervisor 루프를 붙잡는 동안(만료 검사가 돌지 않음) B의 시작 알림이 60초 뒤에
+    처리돼도 B는 READY가 되지 않고 attempt도 없다(PR #53 리뷰 재현).
+
+    - sent_late: B의 알림이 늦게 발송될 차례가 됐다 → 보내지 않는다(작업 시작 예정 댓글 없음)
+    - found_late: B의 알림 결과가 불명이었다가 조정으로 늦게 FOUND → READY로 올리지 않는다
+    """
+    b, b_issue = _second_work(world)
+    outbox = _outbox(world)
+    (b_notice,) = conn.execute(
+        "SELECT start_notification_id FROM work_items WHERE id = ?", (b,)
+    ).fetchone()
+    if delivery == "found_late":
+        world.github.fail_next("timeout", after_side_effect=True)
+        outbox.process_pending()  # B 시작 알림 UNKNOWN
+
+    def slow(call):  # A가 도는 동안 120초가 지나고 outbox thread가 B를 처리한다
+        world.clock.advance(120)
+        if delivery == "sent_late":
+            outbox.process_pending()
+        else:  # adapter thread라 테스트 연결(conn)은 쓰지 않는다
+            found.append(outbox.reconcile(b_notice))
+        return AttemptResult("no_proposal", "fake", "manual_integration")
+
+    found: list[dict] = []
+
+    world.adapter.behavior = slow
+    world.sup.run_ready()  # supervisor 루프 한 번: A를 끝까지 돈다
+    b_status = conn.execute("SELECT status FROM work_items WHERE id = ?", (b,)).fetchone()[0]
+    assert b_status == "WAITING_NOTIFICATION"  # READY가 아니다
+    if delivery == "sent_late":
+        bodies = [c["body"] for c in world.github.comments.get(b_issue, [])]
+        assert not any("작업 시작 예정" in body for body in bodies)
+    else:
+        assert [(f["outcome"], f["start_gate"]) for f in found] == [("FOUND", "late")]
+    assert world.sup.expire_start_notices() == [b]  # 다음 루프에서 멈춘다
+    row = conn.execute("SELECT status, reason_code FROM work_items WHERE id = ?", (b,)).fetchone()
+    assert tuple(row) == ("BLOCKED", "START_NOTICE_UNCONFIRMED")
+    assert world.sup.run_ready() == []
+    assert len(world.adapter.calls) == 1  # A만. B의 workspace·token·adapter 호출 없음
+    assert len(list((world.runs_dir / RUN / "workspaces").iterdir())) == 1  # A의 workspace만
+
+
 def test_expired_or_finished_attempts_are_closed(world):
     started = world.sup.start_attempt(world.work_id)  # adapter 없이 attempt만 있다
     assert world.sup.expire_attempts() == []
