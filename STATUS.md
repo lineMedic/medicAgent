@@ -48,7 +48,7 @@
 | 28 | W18 | UNIT_TESTED | UNIT_TESTED | `make test` → 1607 passed(W18 테스트 42개: escape·서버 7, 읽기 모델·ops 33, 실제 프로세스 1, INV-01 표시 전용 1, fake E2E 화면 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 33개 모두 테스트 실패로 잡힘 | | 2026-09-27T17:38Z |
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고) | BLOCKED_ON_HUMAN: G2 — 데모 repo·`GITHUB_SETUP_CREDENTIAL`·`BASELINE_COMMIT` / G10 + 사용자 허락 — `make run-new CREATE_BASELINE=1`로 실제 `baseline/<run_id>` 생성, `github_setup_check`로 보호 규칙 적용 확인 → `evidence/W19-baseline-branch.md` | 2026-09-27T21:45Z |
 | 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN). PR #63 리뷰 반영(첫 제안 채점·attempt 사용량 합산): `make test` → 1747 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T04:06Z |
-| 31 | W29 | LIVE_VERIFIED | UNIT_TESTED (자동 회귀 기록·문서 정합성 자동 점검. live S4~S7·S7 비교: BLOCKED_ON_HUMAN 전체 게이트·G9) | `make test` → 1736 passed·1 skipped(W29 테스트 7개: 문서 정합성, 제출 초안 점검은 W21 전 skip), `make test-docker` → 13 passed, `make test-live` → 8 skipped(NOT_CONFIGURED·쓰기 허락 없음), `make lint` → PASS. T-ISS·T-NOT·T-MEM·T-V4·T-STATE-01·T-IDEM-02 표는 W29 중단 보고 | BLOCKED_ON_HUMAN: G2·G10 + 사용자 허락 — S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked 실제 API 각 1회, N15 / G3~G5·G9 — S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍) | 2026-09-28T02:02Z |
+| 31 | W29 | LIVE_VERIFIED | UNIT_TESTED (자동 회귀 기록·문서 정합성 자동 점검. live S4~S7·S7 비교: BLOCKED_ON_HUMAN 전체 게이트·G9) | `make test` → 1736 passed·1 skipped(W29 테스트 7개: 문서 정합성, 제출 초안 점검은 W21 전 skip), `make test-docker` → 13 passed, `make test-live` → 8 skipped(NOT_CONFIGURED·쓰기 허락 없음), `make lint` → PASS. T-ISS·T-NOT·T-MEM·T-V4·T-STATE-01·T-IDEM-02 표는 W29 중단 보고. PR #64 리뷰 후속: 금지 표현 목록과 §4 표 양방향 대조(`BANNED` 23 + `CONTEXT_ONLY` 1 = §4 24), LIVE_VERIFIED 검사를 가짜 작업표로 확인, W29 테스트 9개, 변이 16개 모두 잡힘, `make test` → 1768 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G2·G10 + 사용자 허락 — S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked 실제 API 각 1회, N15 / G3~G5·G9 — S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍) | 2026-09-28T05:22Z |
 | 32 | W21 | LIVE_VERIFIED | UNIT_TESTED (에이전트 몫: README·제출 초안·점검, 금지 문구 자동 점검 PASS. 녹화·제출: BLOCKED_ON_HUMAN 사람) | `README.md` 다시 씀, `docs/14-submission-draft.md`(새: 신청서 초안·영상 구성표·제출 전 점검 결과), `make test` → 1737 passed(README·초안 금지 문구 점검 포함), `make lint` → PASS | BLOCKED_ON_HUMAN: 선행 W20·W29의 실제 결과(전체 게이트), G6 답변(R1~R5) / 사람 — 영상 녹화·편집, 저장소 공개 범위, 신청서 입력·팀원 전원 개별 제출, 제출 시각 기록 | 2026-09-28T02:06Z |
 | 33 | H03~H07 | UNIT_TESTED | NOT_STARTED | 선행 확인: core 전체 경로의 실제 통과(V4-CP5 증거)가 없다. 카드 규칙상 착수하지 않았다 | 선행: core 완료(모든 core 카드 목표 상태) | 2026-09-28T02:06Z |
 
@@ -99,6 +99,19 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W29 리뷰 후속 — 금지 표현 목록 양방향 대조·LIVE_VERIFIED 검사 확인 (2026-09-28T05:22Z)
+
+- 범위: PR #64 리뷰 [P2]. 금지 표현 목록(`BANNED`)이 docs/11 §4에 있는지만 봐서, §4에 표현이 늘어도 통과했다(D93 "목록이 어긋나면 실패"와 다름). §4 표현 24개 중 5개(정답 사례·실패했으니 재실행·메일 발송·R1/R2 충족·3/3 성공)가 목록에 없었다. PR #65 리뷰 [P2](docs/14 점검 근거)도 같은 원인이다
+- 변경: `unit/test_docs_consistency.py`
+  - §4 표 첫 칸을 표현으로 나누는 규칙(끝의 괄호 조건 제거, ` / `·`, `·` → `·`·` 분리)과 양방향 대조. §4에만 있거나, 목록에만 있거나, 두 목록이 겹치거나, `BANNED`가 중복이면 실패
+  - 4개는 `BANNED`로 옮겼다. '자동 복구 완료 (PR만 있음)'처럼 문맥 조건이 붙은 표현도 이미 부분 문자열로 막고 있고, 대시보드 금지 문구(§5)에도 '정답 사례'·'실패했으니 재실행'이 있다. 지금 README·제출 초안에 걸리는 문장은 없다
+  - `CONTEXT_ONLY`에는 '3/3 성공' 하나를 이유와 함께 둔다(결론이 아닌 전제, 결론 문구는 `BANNED`)
+  - LIVE_VERIFIED 검사를 함수로 빼서 가짜 작업표로 확인하고, 실제 작업표 행을 30개 이상 읽었는지 본다. 리뷰가 적은 대로 지금은 LIVE_VERIFIED 행이 없어 이 검사가 한 번도 assert한 적이 없었다
+  - D93 ③·④, ADR 요약, docs/09 W29 줄 갱신
+- 테스트: 수정 전 목록으로는 양방향 대조가 FAIL(§4에만 5개) → 목록을 고친 뒤 PASS. 변이 16개 모두 잡힘. 같은 변이를 수정 전 코드에 걸면 적용되는 7개 중 1개만 잡혔다(§4의 새 표현, 작업표를 못 읽음, README의 '메일 발송' 등이 통과)
+- 실행: `make test` → 1768 passed, 21 deselected / `make lint` → PASS (로컬 개발 Mac). docker 시험은 바뀐 경로가 없어 다시 돌리지 않았다(NOT_RUN)
+- 남은 일: 없음(이 지적 범위). live S4~S7·S7 비교는 기존대로 전체 게이트·G9 대기
 
 ### W16 리뷰 후속 — D89와 S2 첫 제안 채점 연결 (2026-09-28T05:16Z)
 
