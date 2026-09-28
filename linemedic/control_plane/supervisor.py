@@ -891,7 +891,12 @@ class Supervisor:
             token = runtime.tokens.issue_agent_token(principal)
             try:
                 result = self._call_adapter(started, work, incident, workspace, context_ref, token)
-                if result.retryable and not result.proposal_ids and self._before(started.deadline):
+                if (
+                    result.retryable
+                    and not result.proposal_ids
+                    and self._before(started.deadline)
+                    and self._nothing_submitted(started, work)
+                ):
                     # 외부 변경 없는 조사 단계의 모델 일시 오류: 같은 deadline 안에서 한 번만 다시
                     self._audit_retry(started, result)
                     result = self._call_adapter(
@@ -980,6 +985,37 @@ class Supervisor:
 
     def _before(self, deadline: str) -> bool:
         return self.clock.utc_now() < from_rfc3339(deadline)
+
+    def _nothing_submitted(self, started: AttemptStart, work: Any) -> bool:
+        """재시도 전에 서버 기록으로 외부 변경이 없었는지 본다(adapter 보고만 믿지 않는다).
+
+        사건이 아직 같은 attempt로 조사 중이고, 이 attempt의 제안 행과 제출 호출 기록이 없어야 한다.
+        제출 직후 timeout으로 adapter가 제안 ID를 돌려주지 못한 경우도 여기서 막는다.
+        """
+        run_id, incident_id = work["run_id"], work["incident_id"]
+        with self.store.read() as tx:
+            incident = tx.one(
+                "SELECT status, attempt_id FROM incidents WHERE id = ?", (incident_id,)
+            )
+            if (
+                incident is None
+                or incident["status"] != "INVESTIGATING"
+                or incident["attempt_id"] != started.attempt_id
+            ):
+                return False
+            proposals = tx.one(
+                "SELECT COUNT(*) FROM proposals WHERE run_id = ? AND incident_id = ?"
+                " AND attempt_id = ?",
+                (run_id, incident_id, started.attempt_id),
+            )[0]
+            submit_calls = tx.one(
+                "SELECT COUNT(*) FROM audit_events WHERE run_id = ? AND incident_id = ?"
+                " AND event_type IN ('TOOL_CALL', 'TOOL_CALL_REFUSED')"
+                " AND json_extract(payload_json, '$.attempt_id') = ?"
+                " AND json_extract(payload_json, '$.tool') = 'submit_proposal'",
+                (run_id, incident_id, started.attempt_id),
+            )[0]
+        return proposals == 0 and submit_calls == 0
 
     def _audit_retry(self, started: AttemptStart, result: AttemptResult) -> None:
         with self.store.tx() as tx:
