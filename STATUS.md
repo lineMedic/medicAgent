@@ -49,7 +49,7 @@
 | 29 | W19 | LIVE_VERIFIED | UNIT_TESTED (live: baseline 브랜치 생성 PASS, 보호 적용 확인 불가 — D94) | `make test` → 1635 passed(PR #57 리뷰 반영 뒤. W19 테스트 29개: T-RESET-01·정지·run 범위·정리·export·기준 브랜치·API·CLI 25, 배포 lock 중 reset·archive·CLI 거부 3, 실제 Docker 라벨 정리 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 33개 중 31개 잡힘(남은 2개는 겹치는 안전 가드, 설명은 완료 보고). **live(2026-09-28T09:08Z)**: `make run-new CREATE_BASELINE=1` → `baseline/r-20260928-090848-85c7` @ `19045b62…` CREATED(setup credential). `make reset RUN_ID=r-20260928-081049-b29e` → 그 run 라벨 컨테이너·network만 정리, export 생성 | D94: `baseline/*` 보호 규칙이 없어 '보호 적용' 확인 불가. 규칙 설정 뒤 `github_setup_check` | 2026-09-28T09:20Z |
 | 30 | W20 | LIVE_VERIFIED | UNIT_TESTED (하네스·기대값·수집·집계. 실제 평가 실행: BLOCKED_ON_HUMAN 전체 게이트) | `make test` → 1730 passed(W20 테스트 9개: 기대값·plan·preflight·evaluate·수집·채점·집계), `make test-docker` → 13 passed, `make lint` → PASS, 변이 15개 모두 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인), `make evaluate SUITE=s1` → NOT_CONFIGURED(run 없음), `evidence/eval-summary.md`(평가 run 없음 → 전부 NOT_RUN). PR #63 리뷰 반영(첫 제안 채점·attempt 사용량 합산): `make test` → 1747 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G1~G10 전체(데모 호스트·모델·runtime·sandbox·repo·쓰기 허락·사람 G7·G8) + 코드 동결 / 확인: 동결 뒤 `make evaluate SUITE=<suite>`를 목표 횟수만큼(S1 3, S2-lite 2+1, S1b 1, S3-A 1) → 사람 단계 → `make evaluate-collect RUN_ID=` → `make eval-summary` | 2026-09-28T04:06Z |
 | 31 | W29 | LIVE_VERIFIED | UNIT_TESTED (자동 회귀 기록·문서 정합성 자동 점검. live S4~S7·S7 비교: BLOCKED_ON_HUMAN 전체 게이트·G9) | `make test` → 1736 passed·1 skipped(W29 테스트 7개: 문서 정합성, 제출 초안 점검은 W21 전 skip), `make test-docker` → 13 passed, `make test-live` → 8 skipped(NOT_CONFIGURED·쓰기 허락 없음), `make lint` → PASS. T-ISS·T-NOT·T-MEM·T-V4·T-STATE-01·T-IDEM-02 표는 W29 중단 보고. PR #64 리뷰 후속: 금지 표현 목록과 §4 표 양방향 대조(`BANNED` 23 + `CONTEXT_ONLY` 1 = §4 24), LIVE_VERIFIED 검사를 가짜 작업표로 확인, W29 테스트 9개, 변이 16개 모두 잡힘, `make test` → 1768 passed, `make lint` → PASS | BLOCKED_ON_HUMAN: G2·G10 + 사용자 허락 — S4-new·existing·ambiguous·S5-new·S5-duplicate·S6-blocked 실제 API 각 1회, N15 / G3~G5·G9 — S7 cold_start·memory_assisted 최소 1쌍(목표 3쌍) | 2026-09-28T05:22Z |
-| 32 | W21 | LIVE_VERIFIED | UNIT_TESTED (에이전트 몫: README·제출 초안·점검, 금지 문구 자동 점검 PASS. 녹화·제출: BLOCKED_ON_HUMAN 사람) | `README.md` 다시 씀, `docs/14-submission-draft.md`(새: 신청서 초안·영상 구성표·제출 전 점검 결과), `make test` → 1737 passed(README·초안 금지 문구 점검 포함), `make lint` → PASS. PR #65 리뷰 후속: 점검표 '금지 표현 없음'의 근거를 양방향 대조(W29 후속)에 맞춰 고침, README `make test` → 1768 passed | BLOCKED_ON_HUMAN: 선행 W20·W29의 실제 결과(전체 게이트), G6 답변(R1~R5) / 사람 — 영상 녹화·편집, 저장소 공개 범위, 신청서 입력·팀원 전원 개별 제출, 제출 시각 기록 | 2026-09-28T05:26Z |
+| 32 | W21 | LIVE_VERIFIED | UNIT_TESTED (README·제출 초안을 live 결과로 갱신, 금지 문구 자동 점검 PASS. 녹화·제출: BLOCKED_ON_HUMAN 사람) | `README.md` 다시 씀, `docs/14-submission-draft.md`(새: 신청서 초안·영상 구성표·제출 전 점검 결과), `make test` → 1737 passed(README·초안 금지 문구 점검 포함), `make lint` → PASS. PR #65 리뷰 후속: 점검표 '금지 표현 없음'의 근거를 양방향 대조(W29 후속)에 맞춰 고침, README `make test` → 1768 passed. **2026-09-28T11:15Z**: 마감 9/28 23:59 KST(사용자 전달)에 맞춰 README를 live 재현 결과(N01·N11·S4·S5-new·N12·S1 live run 1·2)로 다시 쓰고, 제출 초안의 신청서 문안·Tech Stack·영상 구성표(run 2 실제 기록)·점검표를 고침. `unit/test_docs_consistency.py` 9 passed, `make test` 1785 passed | BLOCKED_ON_HUMAN: 사람 — 영상 녹화(`make dashboard RUN_ID=r-20260928-102418-c75e`, GitHub Issue #9·PR #10), 저장소 공개 범위, 신청서 입력·팀원 전원 개별 제출, 제출 시각 기록. R1~R5는 G6 답변 없음 | 2026-09-28T11:15Z |
 | 33 | H03~H07 | UNIT_TESTED | NOT_STARTED | 선행 확인: core 전체 경로의 실제 통과(V4-CP5 증거)가 없다. 카드 규칙상 착수하지 않았다 | 선행: core 완료(모든 core 카드 목표 상태) | 2026-09-28T02:06Z |
 
 ## 사람 게이트
@@ -99,6 +99,14 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W21 갱신 — README·제출 초안을 live 결과로 (2026-09-28T11:15Z)
+
+- 사람: 마감은 오늘 9/28 23:59 KST(주최 측 답변 원문 아님, R5 UNCONFIRMED 유지). 제출 우선 경로 선택
+- 변경: `README.md`(현재 상태·확인 수준 표 live 칸·live 재현 결과 표·한계·게이트 상태·NVIDIA 기술 실제 호출), `docs/14-submission-draft.md`(Problem·Solution·Tech Stack, run 2 기록 기준 3분 영상 구성표, 제출 전 점검)
+- 주장 범위: 경로 전체를 실제 GitHub·Docker로 1회 실행, 수정안은 사람 작성(`manual_integration`), Nemotron은 N01 도구 호출 형식 시험만, runtime·OpenShell 미통합, 봇=개인 계정(D94)
+- 확인: `make dashboard RUN_ID=r-20260928-102418-c75e PORT=8765`가 run 2 타임라인(KST)·사례 노트 UNVERIFIED→VERIFIED_SUCCESS·댓글 receipt를 보여 줌(영상용). `make test` 1785 passed, `make lint` PASS
+- 남은 일(사람): 영상 녹화·편집, 저장소 공개 범위, 신청서 입력·팀원 개별 제출, 제출 시각 기록
 
 ### live 재현 시험 6차 — S1 live run 2 RESOLVED (사람 제안, 사람 G7·G8) (2026-09-28T10:50Z)
 
