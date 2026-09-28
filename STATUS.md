@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62, W20 #63, W29 #64). 맡긴 목록(W14~W21, H03~H07)의 게이트 없는 부분을 모두 했다. H03~H07은 선행(core 전체 경로 실제 통과) 전이라 착수하지 않았다(NOT_STARTED). 이제 남은 일은 모두 사람 게이트 대기다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W29 전체·G9, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 2026-09-28 사용자 지시("앞으로 카드마다 push·PR까지 해")로 카드마다 커밋 → push → PR까지 한다(W14 #58, W15 #59, W16 #60, W28 #61, W17 #62, W20 #63, W29 #64). 맡긴 목록(W14~W21, H03~H07)의 게이트 없는 부분을 모두 했다. H03~H07은 선행(core 전체 경로 실제 통과) 전이라 착수하지 않았다(NOT_STARTED). 이제 남은 일은 모두 사람 게이트 대기다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W15 G5(+G2·G3·G4·G7·G8·G10), W16 G5(+G2·G3·G4·G10), W28 G3~G5(+G2·G10), W17 G3·G5, W20 전체, W29 전체·G9, W19 G2·G10, W23 G2. 2026-09-28 live 재현 시험 1차: G3 DONE(N01 PASS), G10 DONE(데모 repo 쓰기 허락). 다음은 G2 credential(`GITHUB_BROKER_CREDENTIAL`·`GITHUB_SETUP_CREDENTIAL`)과 `.env` image ID 수정을 받은 뒤 W03 live(setup check·시드 push·보호 probe) → W22·W24·W26 live → W19·W13 S1 전체 run이다(완료 보고 "live 재현 시험 1차").
 
 ## 작업표
 
@@ -21,8 +21,8 @@
 | 1 | B00 | UNIT_TESTED | UNIT_TESTED | `make test` → 38 passed, `make lint` → PASS, `python -m linemedic.cli doctor` → exit 1 (env NOT_CONFIGURED), 새 clone `make setup`·`make test`·`make lint` PASS, 커밋 `cc2766b6c8fc2ca221893a10fe2c2602745ca4aa` | | 2026-09-27T02:27Z |
 | 2 | W00 | LIVE_VERIFIED | BLOCKED | | BLOCKED_ON_HUMAN: G1 — 데모 호스트 확정·`DEMO_HOST_ID` / 확인: 확정 호스트에서 `make host-manifest > evidence/host-manifest.json` | 2026-09-27T02:27Z |
 | 3 | W01 | LIVE_VERIFIED | BLOCKED | 기록 양식 `evidence/contest-conditions.md`(R1~R5 상태 표·답변 표·공식 페이지 관찰), 커밋은 W01 완료 보고 참조 | BLOCKED_ON_HUMAN: G6 — 주최 측 문의 발송·답변 원문 / 확인: `evidence/contest-conditions.md` §2 답변 표 | 2026-09-27T03:15Z |
-| 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G3·G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행) | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / 확인: N01 스크립트 PASS. G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-27T03:23Z |
-| 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇·리뷰어·`baseline/*` 보호·squash·credential / 확인: `python -m linemedic.scripts.github_setup_check --reviewer <계정> --output evidence/github-setup-check.json`. G10 + 사용자 허락 — `github_protection_probe --confirm-write`(첫 쓰기 전 repo 숫자 ID 대조). 시드 push는 코드 미구현 — G2 뒤 계획 출력·`--confirm-write` 구조로 구현 | 2026-09-27T04:02Z |
+| 4 | W02 | LIVE_VERIFIED | UNIT_TESTED (N01 live PASS. 나머지 live: BLOCKED_ON_HUMAN G4·G5) | `make test` → 46 passed(N01 스크립트 단위 테스트 8개 포함), `make test-live` → 1 skipped(NOT_CONFIGURED), N01 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED). 스파이크 evidence 없음(미실행). **live 재현(2026-09-28T08:07Z, 개발 Mac)**: N01 스크립트 → PASS(종료 코드 0, `nvidia/nemotron-3.5-lightning-30b-a3b` tool call → 결과 재입력 → 구조화 제안), `pytest -m live_model` → 1 passed, 증거 `evidence/spikes/N01-model-tool-call.{json,md}` | G3 DONE(2026-09-28, N01 PASS). BLOCKED_ON_HUMAN: G4 — N02 결과로 runtime 결정. G5 — OpenShell 설치 후 N03·N04·N09·N10 | 2026-09-28T08:07Z |
+| 5 | W03 | LIVE_VERIFIED | UNIT_TESTED (시드 push 구현. live: BLOCKED_ON_HUMAN G2 credential) | `make test` → 63 passed(GitHub 점검·보호 시험·doctor github 단위 테스트 17개 포함), 점검·보호 시험 스크립트 키 없이 실행 → 종료 코드 2(NOT_CONFIGURED), `make doctor`의 github 항목 NOT_CONFIGURED. live 점검·쓰기 시험·시드 push는 미실행. 2026-09-28: 시드 push 구현(`seed_demo_repo --push` 계획 / `--confirm-write` 실행, setup credential로 repo 숫자 ID 대조 뒤 `GitPusher`로 force 없이 main push, 다른 이력은 FAIL·결과 불명은 재시도 없이 INCONCLUSIVE), `unit/test_seed_push.py` 16개, 변이 4개 모두 잡힘, `make test` → 1785 passed, `make lint` → PASS. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — `.env`의 `GITHUB_BROKER_CREDENTIAL`·`GITHUB_SETUP_CREDENTIAL` 미설정(2026-09-28T08:06Z doctor), 리뷰어 계정명 / 확인: `make doctor` github OK → `github_setup_check --reviewer <계정>`. G10은 2026-09-28 허락(DONE) — credential 뒤 `seed_demo_repo --push --confirm-write --record evidence/W03-seed-push.json` → `github_protection_probe --confirm-write` | 2026-09-28T08:20Z |
 | 6 | W04 | UNIT_TESTED | UNIT_TESTED | `make test` → 79 passed(W04 단위 테스트 16개 포함), `make test-docker` → 1 passed(실제 컨테이너: 로트 118 500×3·KeyError 로그, 101 200, 격리·egress 차단 확인), `make mes-image` → image `sha256:425755201561179ca1cf1ee1eccf03ef2559a8d556a9ce0b36b4a32968d5bce0`, base `python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f`, 시드 커밋 `19045b62f292dedff24529cab505e6d86a91ed8c`(tree `e6718ce7deb861efd2d4916cbd27ef3078c621e3`, 결정적) | | 2026-09-27T04:19Z |
 | 7 | W05 (1부) | UNIT_TESTED | UNIT_TESTED | `make test` → 154 passed(W05 단위 테스트 74개 + W04 회귀 1개 포함), `make test-docker` → 3 passed(실제 S1b 컨테이너 FAIL/content_mismatch, 실제 KeyError 로그 재발 signature), `make verify-negative RUN_ID=r-20260927-050621-a8c3` → 종료 코드 0, `VER-588F634C683A` FAIL/content_mismatch, 표본 1/4, observation_complete=false, resolved_written=false, 결과 `runs/r-20260927-050621-a8c3/verifications/VER-588F634C683A.json`(git 제외 경로), contract_sha256 `0334df2662cdb121064bdc6e34b016980b497afb17d9b53b916e03d0c0bfc87f` | 2부는 W06 뒤 | 2026-09-27T05:07Z |
 | 8 | W06 | UNIT_TESTED | UNIT_TESTED | `make test` → 547 passed(W06 테스트 393개), `make lint` → PASS, `make test-docker` → 3 passed, DDL 제약 19건 + `PRAGMA foreign_key_check` 빈 결과(FTS5 1건은 W27), T-AUTH-01~03·T-IDEM-01·02·T-STATE-02·03 PASS, `make run-new` → run `r-20260927-054424-94f9`, `runs/linemedic.db`(git 제외), config_hash `3b9c3d0150ebc4ac53acf0de7e95f729ff2418614bd669d511fca665667e6361` | | 2026-09-27T05:46Z |
@@ -59,15 +59,15 @@
 | ID | 내용 | 상태 (OPEN / REQUESTED / DONE / DECLINED) | 요청 내용·요청 시각 | 사람이 알려 준 값 (비밀 제외) | 완료 시각 |
 |---|---|---|---|---|---|
 | G1 | 데모 호스트 확정 | REQUESTED | 2026-09-27T02:10Z — 평가·영상용 호스트 1대(OS·arch·메모리·디스크) 결정, OpenShell Support Matrix와 대조. 현재 개발 Mac은 OpenShell 미설치 | | |
-| G2 | GitHub 조직·repo·봇·리뷰어·보호 규칙·trusted author ID | REQUESTED | 2026-09-27T02:10Z — ① 조직에 `l3-mes-api` 생성 ② 봇 계정/App(해당 repo만 metadata·Issues·PR·contents) ③ 봇 아닌 리뷰어 ④ `baseline/*` 보호(리뷰 1, 최신 변경 승인, 봇 직접 push 금지) ⑤ squash만 ⑥ 자동 처리 작성자 숫자 ID. 조직 관리자 필요 | | |
-| G3 | NVIDIA 키·모델 | REQUESTED | 2026-09-27T02:10Z — build.nvidia.com 키 발급 후 `.env`에 `NVIDIA_API_KEY` 직접 입력, `NVIDIA_BASE_URL`·`NVIDIA_MODEL_ID` 후보 알려 주기 | | |
+| G2 | GitHub 조직·repo·봇·리뷰어·보호 규칙·trusted author ID | REQUESTED | 2026-09-27T02:10Z — ① 조직에 `l3-mes-api` 생성 ② 봇 계정/App(해당 repo만 metadata·Issues·PR·contents) ③ 봇 아닌 리뷰어 ④ `baseline/*` 보호(리뷰 1, 최신 변경 승인, 봇 직접 push 금지) ⑤ squash만 ⑥ 자동 처리 작성자 숫자 ID. 조직 관리자 필요 | 2026-09-28T08:06Z `make doctor`: `GITHUB_REPOSITORY`·`GITHUB_REPOSITORY_ID`·`ISSUE_TRUSTED_AUTHOR_IDS`는 설정됨, `GITHUB_BROKER_CREDENTIAL`·`GITHUB_SETUP_CREDENTIAL`은 미설정 → github 항목 NOT_CONFIGURED. 리뷰어 계정명 미전달 | |
+| G3 | NVIDIA 키·모델 | DONE | 2026-09-27T02:10Z — build.nvidia.com 키 발급 후 `.env`에 `NVIDIA_API_KEY` 직접 입력, `NVIDIA_BASE_URL`·`NVIDIA_MODEL_ID` 후보 알려 주기 | `NVIDIA_BASE_URL` `https://integrate.api.nvidia.com/v1`, `NVIDIA_MODEL_ID` `nvidia/nemotron-3.5-lightning-30b-a3b`(N01에서 응답 모델 일치 확인), 키는 사람이 `.env`에 입력(값 미기록). 확인: N01 PASS `evidence/spikes/N01-model-tool-call.md` | 2026-09-28T08:07Z |
 | G4 | runtime 선택 (OpenClaw/NemoClaw vs NAT) | OPEN | | | |
 | G5 | OpenShell 설치·정책 | REQUESTED | 2026-09-27T02:10Z — G1 호스트에 OpenShell 설치·버전 고정, effective policy 확인 방법과 정책 schema 문서 위치 알려 주기 | | |
 | G6 | 대회 조건 R1~R5 문의 | REQUESTED | 2026-09-27T02:10Z — spec 12 §2 문안을 주최 측에 발송, 답변 원문(확인일·질문·답변·출처·확인자) 전달 | | |
 | G7 | PR 리뷰·머지 (run마다) | OPEN | | | |
 | G8 | 배포 승인 실행 (run마다) | OPEN | | | |
 | G9 | memory snapshot 선택 | OPEN | | | |
-| G10 | GitHub 쓰기 활성화 (shadow 해제) | OPEN | | | |
+| G10 | GitHub 쓰기 활성화 (shadow 해제) | DONE | 2026-09-28 live 재현 시험 계획에서 요청 | 사용자가 이번 세션(2026-09-28)에서 허락: 등록 데모 repo(`GITHUB_REPOSITORY`)에만 GitHub 쓰기(Issue·댓글·브랜치·PR). 머지(G7)·배포 승인(G8)은 사람이 직접. `config` `github.write_enabled` 전환과 실제 쓰기는 G2 credential이 들어온 뒤 | 2026-09-28T08:05Z (대화 허락 시각, 분 단위 근사) |
 | G11 | 체크포인트 KST 시각 | REQUESTED | 2026-09-27T02:10Z — V4-CP0~CP5 목표 KST, 코드 동결·평가 시작·내부 제출 시각 결정 | | |
 | G12 | 메일 채널 선택 여부 | OPEN | | | |
 
@@ -99,6 +99,23 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### live 재현 시험 1차 — W02 N01 live PASS, W03 시드 push 구현, GitHub는 G2 credential 대기 (2026-09-28T08:20Z)
+
+- 배경: 사용자가 해커톤 제출 전 real 재현 시험을 요청했다(2026-09-28). 범위는 단계별 live 검증(읽기·모델 → GitHub 쓰기 smoke → 사람 제안 S1 전체 run), G10은 등록 데모 repo에만 허락. `.env`는 열지 않고 `make doctor`·종료 코드로만 설정을 확인했다
+- 환경: 개발 Mac(Darwin 25.6.0 arm64, Docker 29.8.0, Python 3.14.7) — 데모 호스트 아님(G1 미확정), OpenShell·runtime 미설치, `AGENT_MODE=local`
+- `make doctor`(08:06Z): python·config·docker·openshell(local) OK. env 미설정 `AGENT_RUNTIME`·`GITHUB_BROKER_CREDENTIAL`·`GITHUB_SETUP_CREDENTIAL`·`DEMO_HOST_ID`·`RUNS_DIR`. github NOT_CONFIGURED. runner_image MISSING(`.env`의 ID가 이 호스트에 없음)
+- 이미지: `make mes-image` → `sha256:52663bf6e7a0422a07ac86d59547a14ee57d1faca9b63285cb8a149473b4b312`, `make runner-image` → `sha256:bd0afbb94c2187a4cf09eb34db0d93222088db04c257ec6e3af9c88d600b73c2`(base `python@sha256:f77ac9e4…`). `.env`의 `MES_BASE_IMAGE_ID`·`RUNNER_IMAGE_ID`와 둘 다 다름 → 사람이 `.env`를 이 값으로 고쳐야 doctor가 OK
+- 실행 결과:
+  - N01 실모델(G3): PASS — `nvidia/nemotron-3.5-lightning-30b-a3b` tool call(3.2s) → 결과 재입력 → 구조화 제안(27.4s), `pytest -m live_model` 1 passed. `evidence/spikes/N01-model-tool-call.{json,md}`
+  - `make test` → 1769 passed(기준선) → 1785 passed(시드 push 테스트 16개 추가 뒤), `make lint` PASS, `make test-docker` → 13 passed
+  - 실제 컨테이너 S1: run `r-20260928-081049-b29e`(MES 이미지는 셸 env로 위 로컬 ID 지정), `make scenario-s1` → `make detect-once` → 사건 `INC-BC651A394BDA` NEW(오류 3). S1b: `make verify-negative` → `VER-CE49F8A7D888` FAIL/content_mismatch, origin human_injected_negative, resolved_written=false, 사건 `INC-CA5D53FBE42D` ESCALATED. 원본 `runs/`(git 제외)
+  - `make host-manifest > evidence/host-manifest.json`(개발 Mac, `demo_host_id` null — W00 증거로 쓰지 않음)
+- 변경 파일: `linemedic/scripts/seed_demo_repo.py`(W03 시드 push: `--push` 계획 / `--confirm-write` 실행, `--record`), `linemedic/tests/unit/test_seed_push.py`(새 16개), `evidence/spikes/N01-model-tool-call.{json,md}`, `evidence/host-manifest.json`, STATUS.md
+- 변이 확인: repo ID 검사 제거·계획 모드 무시·UNKNOWN을 PASS로·다른 credential 사용 4개 모두 테스트 실패로 잡힘
+- NOT_RUN(G2 credential 없음): GitHub 읽기 계약, `github_setup_check`, 시드 push, 보호 probe, N11·S4·N12·S5 live, `make run-new CREATE_BASELINE=1`, S1 전체 run(사람 제안 → 봇 PR → G7 → G8)
+- 재개 지점: 사람이 `.env`에 `GITHUB_BROKER_CREDENTIAL`·`GITHUB_SETUP_CREDENTIAL`을 넣고 `MES_BASE_IMAGE_ID`·`RUNNER_IMAGE_ID`를 위 값으로 고친 뒤, 리뷰어 계정명을 알려 주면 `make doctor` → setup check → 시드 push(`--confirm-write`) → `github.write_enabled = true` → 보호 probe → N11·S4·N12 → S1 전체 run 순서로 이어 간다
+- 실제 Nemotron agent E2E(W14 runtime, G4)·OpenShell sandbox(G5)는 이번 범위 밖이고 주장하지 않는다
 
 ### W21 리뷰 후속 — 제출 전 점검 근거와 README 명령 출력 (2026-09-28T05:26Z)
 

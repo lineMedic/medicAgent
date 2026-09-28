@@ -1,0 +1,35 @@
+{
+  "arch": "arm64",
+  "collected_at": "2026-09-28T08:08:49.516363Z",
+  "cpu_count": 10,
+  "demo_host_id": null,
+  "disk": {
+    "free_bytes": 638921146368,
+    "path": "/Users/jgoneit/project/lineMedic/.claude/worktrees/live-repro",
+    "total_bytes": 994610155520
+  },
+  "docker": {
+    "client": "Docker version 29.8.0, build 88096ef",
+    "server": "29.8.0"
+  },
+  "git": "git version 2.55.0",
+  "kernel": "25.6.0",
+  "memory_bytes": 34359738368,
+  "openshell": null,
+  "os": {
+    "release": "25.6.0",
+    "system": "Darwin",
+    "version": "Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:20 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_T8142"
+  },
+  "python": "3.14.7",
+  "runtime": {
+    "nat": null,
+    "nemoclaw": null,
+    "openclaw": null
+  },
+  "schema_version": "linemedic.v4",
+  "sqlite": {
+    "fts5": true,
+    "version": "3.53.4"
+  }
+}
