@@ -14,11 +14,13 @@
 """
 
 import hashlib
+import os
 import shutil
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from linemedic.agent import rules
 from linemedic.common.canonical_json import canonical_dumps
 from linemedic.common.clock import Clock
 from linemedic.common.config import Settings
@@ -41,7 +43,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 IDENTITY_FILES = {
     "policy_sha256": REPO_ROOT / "linemedic" / "policies" / "broker_policy.toml",
     "manual_templates_sha256": REPO_ROOT / "linemedic" / "policies" / "manual_templates.toml",
-    "prompt_sha256": REPO_ROOT / "linemedic" / "agent" / "prompts" / "system.md",  # W14 전 없음
 }
 WORKSPACES_DIR = "workspaces"
 RUN_LABEL_KEYS = ("linemedic.run_id", "linemedic.run")  # MES·배포 컨테이너 / runner 컨테이너
@@ -69,6 +70,7 @@ def identity(settings: Settings) -> dict[str, Any]:
         "runtime": agent.runtime,
         "agent_mode": agent.mode,
         **{key: _file_sha256(path) for key, path in IDENTITY_FILES.items()},
+        "prompt_sha256": rules.bundle_sha256(),  # system prompt·skill·도구 설명 묶음(W14)
         "contract_id": contract.contract_id,
         "contract_sha256": contract_sha256,
     }
@@ -308,6 +310,10 @@ def cleanup(docker: DockerPort | None, runs_dir: Path, run_id: str) -> dict[str,
                 result["errors"].append(f"network 삭제 실패: {item['name']}")
     workspaces = _workspaces(runs_dir, run_id)
     if workspaces is not None:
+        # attempt의 `agent_rules`는 읽기 전용(0555)이다. 지우기 전에 이 경로 안의 디렉터리만
+        # 쓰기 가능하게 바꾼다(symlink는 따라가지 않는다)
+        for directory, _, _ in os.walk(workspaces, followlinks=False):
+            os.chmod(directory, 0o700)
         shutil.rmtree(workspaces)  # 정확한 한 경로(run_id 검증·symlink 거부·상위 경로 확인 뒤)
         result["workspaces"] = f"{run_id}/{WORKSPACES_DIR}"
     return result

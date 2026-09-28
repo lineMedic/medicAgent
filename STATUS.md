@@ -12,7 +12,7 @@
 
 ## 다음 작업
 
-[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14는 선행 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 게이트 없이 할 수 있는 부분이 남은 것은 **W14의 A 부분**(tool client·prompt·예산·trace·workspace — runtime과 무관)이며, G4 결정 전에 시작할지는 팀이 정한다. live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W19 G2·G10, W23 G2.
+[AGENTS.md §2](AGENTS.md)의 선택 조건을 모두 만족하는 카드가 지금은 없다. 남은 카드는 게이트나 선행 카드를 기다린다: W14의 runtime adapter는 W02의 G4 결정(runtime 선택), W15·W16·W28·W17은 W14·W15, W20은 W15·W16·W17, W29·W21은 W20·W28, H03~H07은 core 완료 뒤다. 사용자가 W14·W15·W16·W28·W17·W20·W29·W21·H03~H07을 맡겨(2026-09-27) 이 순서로 **게이트 없는 부분만** 진행한다. 카드마다 로컬 커밋까지만 하고 push·PR은 사용자 허락 뒤에 한다. 다음은 W15·W16의 게이트 없는 부분 판단이다(G5 전). live 대기: W00 G1, W01 G6, W02 G3·G4·G5, W03·W11·W22·W24·W26 G2·G10, W12 G7·G8, W13 G2·G7·G8·G10, W14 G3·G4, W19 G2·G10, W23 G2.
 
 ## 작업표
 
@@ -40,7 +40,7 @@
 | 20 | W12 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8) | `make test` → 1462 passed(W12 테스트 81개: 배포 58, fetch 8, docker 포트 6, verifier 저장 4, 알림 3, GitHub 포트 2), main(#49·#50) 병합 뒤 1470 passed, `make test-docker` → 12 passed(W12 실제 배포 1개: fixture commit R0~R2·신뢰 레시피 빌드·image ID 기동·inspect = execution 기록·60초 PASS·복원 절차), `make lint` → PASS, 변이 51개 모두 테스트 실패로 잡힘(처음 살아남은 5개는 테스트를 보강한 뒤 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2·G10 뒤 W13 실제 run에서 G7 — 사람이 봇 PR을 리뷰·squash 머지 / G8 — 사람이 `make approve-release`를 직접 실행 / 확인: `GET /ops/executions/<id>`의 identity chain(PR·merge SHA·tree·image·container·verification·contract hash)이 채워짐 | 2026-09-27T14:57Z |
 | 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1506 passed(W13 테스트 36개: attempt 14, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T15:54Z |
 | 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1565 passed(W27 테스트 59개: `test_case_memory.py` 57(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T17:02Z |
-| 23 | W14 | LIVE_VERIFIED | NOT_CHECKED | | G3·G4 | |
+| 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
 | 24 | W15 | LIVE_VERIFIED | NOT_CHECKED | | G5·G7·G8 | |
 | 25 | W16 | LIVE_VERIFIED | NOT_CHECKED | | G5 | |
 | 26 | W28 | LIVE_VERIFIED | NOT_CHECKED | | G3~G5 | |
@@ -99,6 +99,82 @@
 ## 완료 보고 기록
 
 카드를 끝내거나 멈출 때마다 [docs/11 §3](docs/11-definition-of-done.md) 양식으로 이 절에 직접 추가한다(최신이 위). 카드 밖의 문서 변경은 제품 카드 완료와 구분해 기록한다.
+
+### W14 중단 보고 — A 부분 완료, runtime adapter·live G3·G4 대기 (2026-09-28T00:36Z)
+
+- 상태: UNIT_TESTED (A 부분: 규칙 묶음·tools client·trace·도구 예산·workspace. runtime adapter·실제 모델 실행: BLOCKED_ON_HUMAN G3·G4). 모델·NVIDIA endpoint는 부르지 않았다
+- 착수 근거: AGENTS §2 조건(선행 W02의 G4 결정)은 아직 충족되지 않았다. 사용자가 W14~H07을 맡기면서 게이트 없는 부분만 하라고 해서(2026-09-27) runtime과 무관한 A 부분만 했다
+- 변경 파일:
+  - 새 규칙 파일
+    - `linemedic/agent/prompts/system.md`: spec 05 §5 템플릿
+    - `prompts/tools.md`: 도구 9개 설명. 주소·token 없음
+    - `skills/code-exception/SKILL.md`·`skills/vision-quality-drop/SKILL.md`: spec 05 §6 내용 + 업무 규칙(`미지정`, 전체 건수 유지)
+  - `linemedic/agent/rules.py`(새)
+    - 규칙 묶음을 읽기 전용으로 설치하고 `prompt_sha256`를 계산한다
+    - 금지 자료 검사: 평가 식별자·기대값 표지·내부 경로·비밀 형태·docker socket·`.git`·symlink, 규칙 안의 시나리오 ID
+  - `linemedic/agent/tools_client.py`(새): `/tools/*` 9개 HTTP client
+    - token은 헤더에만 싣고 경로 인자는 형식부터 확인한다
+    - 자동 재시도는 없고 호출 기록에 본문을 남기지 않는다
+  - `linemedic/agent/trace.py`(새): attempt trace를 `runs/<run>/traces/<attempt>.json`에 남긴다
+    - 서버 도구 호출과 runtime 로컬 도구를 따로 기록한다
+    - token 상태는 observed/partial/null
+  - `linemedic/agent/adapter.py`: AttemptResult에 `retryable`·`model_id`·`runtime_version`·`usage`·`local_tools`
+  - `linemedic/control_plane/tools_api.py`: 서버 측 도구 예산
+    - 호출마다 감사 `TOOL_CALL`을 남긴다
+    - 초과하면 429와 `TOOL_CALL_REFUSED`, `get_proposal`은 예산에서 뺀다
+  - `app.py`·`main.py`: 예산·평가 식별자 연결
+  - `linemedic/control_plane/supervisor.py`
+    - workspace는 `work/repo`·`work/output`·`agent_rules`(읽기 전용)
+    - 금지 자료 검사를 통과해야 시작하고 `agent_mode`를 남긴다
+    - 일시 오류는 1회만 재시도(`ATTEMPT_RETRY`)하고 trace를 기록한다
+  - `linemedic/control_plane/runs.py`
+    - manifest identity의 `prompt_sha256` = 규칙 묶음 hash
+    - 읽기 전용 규칙이 있어도 workspace를 정리한다
+  - `linemedic/dashboard/readmodel.py`: 도구 순서를 서버 기록(`TOOL_CALL`)으로 보인다
+  - 테스트
+    - 새 파일: `unit/test_agent_workspace.py`(13), `unit/test_tools_client.py`(8), `integration/test_tool_budget.py`(5)
+    - `integration/test_attempts.py`(+4: 금지 자료, 재시도 1회, 제출 뒤 재시도 없음, trace)
+    - `integration/test_reset_archive.py`(+1)
+    - `integration/test_e2e_fake.py`: trace와 대시보드 도구 순서 확인 추가
+- 실행 (로컬 개발 Mac, fake adapter — 데모 호스트 아님):
+  - `make test` → 1663 passed / `make lint` → PASS / `make test-docker` → 13 passed
+  - 변이 26개 중 25개는 테스트가 잡았다(확인 뒤 원래 코드로 되돌렸다)
+    - 남은 1개 `os.walk(followlinks=True)`는 동등 변이다. symlink 디렉터리를 먼저 목록에서 빼기 때문이다
+  - 잡힌 변이
+    - 규칙: 쓰기 가능하게 설치, 검사 누락(평가 식별자·기대값 표지·비밀 형태·내부 경로·`.git`·symlink), 시나리오 ID를 모든 파일에서 검사
+    - tools client: 사건 ID 확인 누락, 호출 기록에 요청 인자, 전송 재시도, 멱등 키 누락
+    - 예산: 거절 없음, 결정 확인도 셈, 제출도 엄격 확인, 거절 기록 없음, 다른 attempt 호출까지 셈
+    - supervisor: 금지 자료 검사 없음, 재시도 표시 무시, 제출 뒤 재시도, trace 안 씀, `agent_mode` 누락
+    - trace·대시보드: token 상태 과장, 로컬 도구 본문 남김, 서버 기록 무시
+- 수용 기준:
+  - 실제 모델 ↔ 도구 왕복 ↔ schema-valid 제안 1건 이상(FR-03): NOT_RUN (G3·G4)
+  - 범위 밖·시간 초과·도구 실패 → escalate 또는 BLOCKED: fake adapter로 PASS, 실제 runtime은 NOT_RUN
+    - 시간 초과는 W13 `test_hanging_adapter_is_abandoned_after_the_deadline`
+    - 도구 예산 초과는 429
+    - 금지 자료가 있으면 시작하지 않고 `MODEL_UNAVAILABLE`로 막는다
+  - 접수(202)를 복구 성공으로 보고하지 않는다: tools client와 규칙에 202 = 접수이고 결정은 `get_proposal`로 본다고 적었다(단위 PASS)
+  - model ID·runtime version·prompt hash·tool trace·token 기록: trace 구조와 fake adapter 기록 PASS
+    - fake라 model_id·runtime_version은 null, token 상태는 null이다
+    - 실제 값: NOT_RUN
+  - local 결과 표시: `agent_mode=local` PASS(ATTEMPT_STARTED·context·trace). 평가 집계 제외는 집계 코드가 없어 W20에서 확인한다
+  - `test_agent_workspace.py`: PASS
+    - 규칙과 base 사본에 금지 자료가 없다(holdout 로트 ID·`S1`·`expected_category`·token 형태·`runs/` 경로)
+    - 일부러 넣은 자료를 위치·종류로 찾는다
+- 판단: D87(규칙 묶음·hash, workspace 구성, 금지 자료 검사, 서버 측 예산과 `get_proposal` 제외, tools client, trace 형식, 재시도 조건, agent_mode 기본값)
+- 증거: 커밋은 이 보고를 포함한 W14 커밋(로컬, push 전). 실제 모델 실행 기록 `evidence/W14-local-runs.md`는 게이트 전이라 없다
+- 작업 중 발견:
+  - 이전 attempt의 token으로 제출하면 예산 확인이 먼저 404를 줘서 intake의 원래 403(W09)을 가렸다. 제출은 지금 attempt일 때만 세고, 아니면 intake에 맡긴다
+  - 규칙 파일이 읽기 전용이면 workspace 정리(`shutil.rmtree`)가 실패한다. 정리 전에 디렉터리 권한을 되돌린다(`runs.cleanup`)
+  - 대시보드(W18)의 도구 순서를 제출 흐름에서 추정하지 않고 서버 기록으로 보이게 바꿨다. 사람이 쓴 제안은 N/A 사유와 호출 수를 함께 보인다
+- 남은 일·위험:
+  - G3·G4 뒤(B 부분): G4에서 고른 runtime 하나로 진행한다
+    - `linemedic/agent/runtime_<openclaw|nat>.py`(설치 버전의 API를 확인해서 쓴다)
+    - `tests/live/test_model_toolcall.py`(`live_model`)
+    - S1·S2-lite local 실행 → `evidence/W14-local-runs.md`
+  - `get_proposal` 예산 제외는 spec의 '런타임이 실행한 도구 호출' 정의보다 좁다(D87, 팀 리뷰 필요)
+  - 금지 자료 검사는 문자열·파일 형태만 본다. 인코딩을 바꾼 자료는 못 잡는다
+  - 전송 재시도는 서버에서 구분할 수 없어 호출로 센다
+- 다음 카드: 맡긴 순서대로 W15·W16의 게이트 없는 부분을 판단한다(G5 전). push·PR은 사용자 허락 뒤
 
 ### W19 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T18:11Z)
 

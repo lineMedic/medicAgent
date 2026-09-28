@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from linemedic import cli
+from linemedic.agent import rules
 from linemedic.common.config import load_settings
 from linemedic.common.ids import new_id
 from linemedic.control_plane import run_export, runs
@@ -541,7 +542,7 @@ def test_new_run_manifest_records_identity_memory_and_baseline_request(store, fa
     assert manifest["identity"]["policy_sha256"] == hashlib.sha256(policy.read_bytes()).hexdigest()
     assert manifest["identity"]["contract_id"] == "defect-summary-v1"
     assert len(manifest["identity"]["contract_sha256"]) == 64
-    assert manifest["identity"]["prompt_sha256"] is None  # W14 전에는 prompt 파일이 없다
+    assert manifest["identity"]["prompt_sha256"] == rules.bundle_sha256()  # W14 규칙 묶음
     assert manifest["memory"] == {"mode": "cold_start", "snapshot_path": None, "snapshot_id": None}
     assert manifest["baseline"] == {
         "branch": f"baseline/{created['run_id']}",
@@ -750,3 +751,11 @@ def test_cli_docker_listing_parses_ids_and_names(monkeypatch):
     assert "prune" not in " ".join(seen[0])
     monkeypatch.setattr(docker, "_run", lambda args, timeout=None: CommandResult(1, "", "down"))
     assert docker.list_networks("linemedic.run_id=r-1") is None
+
+
+def test_cleanup_removes_workspaces_with_read_only_agent_rules(seed):
+    attempt = seed.runs_dir / seed.run_id / "workspaces" / "ATT-0000000000E9"
+    rules.install_rules(attempt / "agent_rules")  # W14: 0555 디렉터리·0444 파일
+    result = runs.cleanup(None, seed.runs_dir, seed.run_id)
+    assert result["workspaces"] == f"{seed.run_id}/workspaces"
+    assert not (seed.runs_dir / seed.run_id / "workspaces").exists()

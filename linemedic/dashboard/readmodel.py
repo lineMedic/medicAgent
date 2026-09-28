@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
+from linemedic.agent import trace
 from linemedic.control_plane.store import Tx
 
 UNKNOWN = "미확인"
@@ -567,7 +568,10 @@ def notifications(
 
 
 def tool_trace(tx: Tx, run_id: str, incident_id: str) -> dict[str, Any]:
-    """모델이 고른 도구 순서. 기록 경로는 W14가 만든다(그 전에는 지어내지 않는다)."""
+    """마지막 attempt에서 서버가 받은 도구 호출 순서(W14 `TOOL_CALL`). 없으면 지어내지 않는다.
+
+    사람이 미리 쓴 제안(manual_integration)의 호출은 보이되 모델이 고른 순서가 아니라고 적는다.
+    """
     started = tx.one(
         "SELECT payload_json FROM audit_events WHERE run_id = ? AND incident_id = ?"
         " AND event_type = 'ATTEMPT_STARTED' ORDER BY seq DESC",
@@ -575,12 +579,21 @@ def tool_trace(tx: Tx, run_id: str, incident_id: str) -> dict[str, Any]:
     )
     if started is None:
         return {"status": f"{NOT_APPLICABLE}(agent 시작 전)", "tools": []}
-    if _loads(started["payload_json"]).get("origin") == "manual_integration":
-        return {
-            "status": f"{NOT_APPLICABLE}(사람이 미리 작성한 제안, 모델 도구 선택 없음)",
-            "tools": [],
-        }
-    return {"status": f"{UNKNOWN}(도구 trace 기록 없음)", "tools": []}
+    info = _loads(started["payload_json"])
+    calls = trace.server_calls(tx, run_id, incident_id, str(info.get("attempt_id")))
+    tools = trace.summarize(calls)
+    counted = sum(1 for c in calls if not c["budget_exempt"] and c["result"] == "served")
+    if info.get("origin") == "manual_integration":
+        status = f"{NOT_APPLICABLE}(사람이 미리 작성한 제안, 모델 도구 선택 없음)"
+        if tools:
+            status += f" — 제안 제출 흐름의 호출 {len(calls)}회"
+        return {"status": status, "tools": tools}
+    if not calls:
+        return {"status": f"{UNKNOWN}(도구 trace 기록 없음)", "tools": []}
+    return {
+        "status": f"서버가 받은 도구 호출 {len(calls)}회(예산 계산 {counted}회)",
+        "tools": tools,
+    }
 
 
 def work_card(tx: Tx, work: Any, routes: dict[str, dict[str, Any]]) -> dict[str, Any]:

@@ -284,6 +284,7 @@ def build_control_plane(
             mirror=mirror,
             runs_dir=runs_dir,
             tools_base_url=f"http://{api.host}:{api.port}",
+            eval_terms=tuple(sorted(eval_identifiers())),
         )
         features["agent"] = f"on: {adapter.name} (origin {adapter.origin})"
     else:
@@ -379,6 +380,7 @@ def build_control_plane(
         metrics_max_samples=tools.metrics.max_samples,
         knowledge=knowledge,
         max_submissions=config.agent.max_submissions,
+        tool_call_budget=config.agent.tool_call_budget,
         issue_sync=sync,
         issue_router=router,
         outbox_worker=worker,

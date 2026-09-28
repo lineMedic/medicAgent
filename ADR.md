@@ -127,13 +127,14 @@
 | D84 | 사례 기억: 원본 event 5종·키, VERIFIED_SUCCESS 도메인 검사(PASS·관찰·image·contract·DEPLOY·merge SHA), series·revision·정제 실패 DRAFT·철회, FTS5 색인 파생물(재구축 DROP·재생성, 없으면 keyword_fallback), snapshot manifest(series 최신 PUBLISHED·제외 규칙·내용 hash ID·덮어쓰기 없음), 필터 후 top_k·outcome 묶음 병합·관련 실패 포함·UNAVAILABLE 구분·적용 조건 경고, history projection 재사용, search_cases·rebuild-index·case 조회 | 사례 기억·검색 | 유효 (spec 17, spec 04 §5.1·§6 구체화) |
 | D85 | 대시보드: 화면·/ops/dashboard 공용 읽기 모델, 값 출처(run manifest·DB), 미확인/N/A 기준, docs/11 §5 매핑·표 밖 상태 문구·금지 표현 대조, 타임라인 9단계, 알림은 상태만, 127.0.0.1·mode=ro·query_only·GET만·autoescape·script 차단 CSP, INV-01 표시 전용 예외(SELECT 전용 확인) | 보안 | 유효 (spec 13 §1·§2, spec 07 §3, D49 구체화) |
 | D86 | run 수명 주기: manifest identity·memory·baseline, 기준 브랜치(CREATE_BASELINE·G2·G10, repo ID 확인·이동 없음·실패 시 run 없음), 정지=active=0·루프 반복마다 확인, supervisor·broker·outbox run 범위, archive(정지→미해결→export→정리), export(private 원본·shared 정제·run-record·hash), 라벨·정확한 ID·한 경로만 정리(prune 없음), reset은 안내, /ops/runs·archive | 기반 | 유효 (spec 11 §3·§7·§9, spec 04 §9 구체화) |
+| D87 | 에이전트 local 준비: 규칙 묶음(system·tools·skills) 읽기 전용·prompt hash, workspace work/repo·output·agent_rules, 시작 전 금지 자료 검사, 서버 측 도구 예산(TOOL_CALL·429, get_proposal 제외), tools client(ID 검사·재시도 없음), attempt trace(서버·로컬 도구 분리, token observed/partial/null), 모델 일시 오류 1회 재시도, agent_mode | 입력 | 유효 (spec 05 §1·§3·§5~§7 구체화) |
 
 ## 3. 주제별 보기
 
 | 영역 | 결정 |
 |---|---|
 | 범위·일정·평가 | D01 D02 D13 D15 D16 D18 D19 D23 D27 D41 D53 D58 D61 D62 |
-| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 D83 |
+| 입력(로그·Issue·work) | D08 D28 D29 D30 D31 D57 D59 D66 D72 D73 D76 D77 D78 D83 D87 |
 | 알림 | D33 D34 D39 D70 D79 |
 | 사례 기억·검색 | D36 D37 D38 D54 D84 |
 | 보안·권한·격리 | D09 D10 D14 D20 D22 D32 D47 D49 D69 D85 |
