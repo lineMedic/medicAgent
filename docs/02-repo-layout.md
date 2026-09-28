@@ -89,10 +89,12 @@ linemedic/
 │   └── verifier.py                # [W05] 업무 계약 판정
 ├── agent/                         # 제품 runtime 에이전트 쪽 (개발 지침을 넣지 않는다)
 │   ├── adapter.py                 # [W13] AgentAdapter 계약(run_agent + credential), ScriptedAdapter, http tools client (D53·D83)
-│   ├── tools_client.py            # [W14] /tools HTTP client (scope token)
+│   ├── tools_client.py            # [W14] /tools 9개 도구 HTTP client(token 헤더만, 경로 인자 검사, 재시도 없음)
+│   ├── rules.py                   # [W14] /agent_rules 설치(읽기 전용)·prompt hash·금지 자료 검사
 │   ├── runtime_<openclaw|nat>.py  # [W14, G4 후] 선택한 하나만
-│   ├── trace.py                   # [W14] model ID·prompt hash·tool trace·token
+│   ├── trace.py                   # [W14] attempt trace: model ID·prompt hash·서버/로컬 tool trace·token
 │   ├── prompts/system.md          # [W14] spec 05 §5 템플릿
+│   ├── prompts/tools.md           # [W14] 도구 설명(주소·token 없음)
 │   └── skills/{code-exception,vision-quality-drop}/SKILL.md  # [W14] spec 05 §6
 ├── policies/
 │   ├── broker_policy.toml         # [W10] 허용 경로·상한

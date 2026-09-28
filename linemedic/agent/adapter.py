@@ -72,6 +72,11 @@ class AttemptResult:
     - no_proposal: 제안을 내지 않았다(근거 없음 등)
     - deadline_exceeded: 결정 전에 deadline이 지났다
     - error: 도구 호출·제안 파일 오류
+
+    runtime이 알면 채우는 값(W14 trace): model_id·runtime_version, token 사용량(`usage`, 모르면
+    None), runtime이 관측한 로컬 도구(`local_tools`: 도구 이름·결과만). `retryable`은 외부 변경
+    없는 조사 단계의 모델 일시 오류(429·timeout)라 host가 같은 deadline 안에서 한 번 다시 부를 수
+    있다는 뜻이다.
     """
 
     status: Literal["decided", "closed", "no_proposal", "deadline_exceeded", "error"]
@@ -81,10 +86,16 @@ class AttemptResult:
     decision: str | None = None
     decision_reason: str | None = None
     detail: str | None = None
+    retryable: bool = False
+    model_id: str | None = None
+    runtime_version: str | None = None
+    usage: dict[str, Any] | None = None
+    local_tools: tuple[dict[str, Any], ...] = ()
 
     def record(self) -> dict[str, Any]:
         data = asdict(self)
         data["proposal_ids"] = list(self.proposal_ids)
+        data["local_tools"] = [dict(item) for item in self.local_tools]
         return data
 
 

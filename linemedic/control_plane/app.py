@@ -69,6 +69,7 @@ class AppContext:
     metrics_max_samples: int = 60  # docs/07 tools.metrics.max_samples
     knowledge: KnowledgeBase | None = None
     max_submissions: int = 2  # docs/07 agent.max_submissions (attempt당 서로 다른 제출 합산)
+    tool_call_budget: int = 15  # docs/07 agent.tool_call_budget (attempt당 서버 측 도구 호출, W14)
     issue_sync: IssueSync | None = None  # 등록 repo Issue 조회(W23). G2 전에는 없음
     issue_router: IssueRouter | None = None  # 로그 incident → Issue 연결(W24)
     outbox_worker: OutboxWorker | None = None  # 알림 발송·조정(W26)

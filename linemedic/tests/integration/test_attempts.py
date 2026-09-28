@@ -9,7 +9,9 @@
 - 재시작 때 끊긴 attempt, deadline이 지난 attempt, adapter가 끝난 뒤 조사로 돌아온 attempt를 닫는다
 """
 
+import dataclasses
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -17,7 +19,7 @@ import pytest
 
 from linemedic.agent.adapter import AttemptResult
 from linemedic.common.config import load_settings
-from linemedic.control_plane import supervisor
+from linemedic.control_plane import audit, supervisor
 from linemedic.control_plane.attempts import attempt_origin
 from linemedic.control_plane.auth import AgentPrincipal, TokenRegistry
 from linemedic.control_plane.notifications.github_comment import GitHubCommentAdapter
@@ -146,6 +148,12 @@ def world(store, conn, fake_clock, seed, tmp_path):
     return World(store, conn, fake_clock, seed, tmp_path)
 
 
+def rules_hash() -> str:
+    from linemedic.agent.rules import bundle_sha256
+
+    return bundle_sha256()
+
+
 def test_attempt_gets_base_workspace_context_and_a_scoped_token(world):
     assert world.work()["status"] == "READY"
     (result,) = world.sup.run_ready()
@@ -155,10 +163,15 @@ def test_attempt_gets_base_workspace_context_and_a_scoped_token(world):
     assert call["principal"] == AgentPrincipal(RUN, world.incident_id, world.work_id, attempt_id)
     assert world.tokens.resolve(call["credential"]) is None  # 끝나면 폐기
     root = world.runs_dir / RUN / "workspaces" / attempt_id
-    assert call["workspace"] == root / "repo" and call["context"] == root / "context.json"
-    defects = (root / "repo" / "app" / "defects.py").read_text(encoding="utf-8")
+    assert call["workspace"] == root / "work" and call["context"] == root / "context.json"
+    defects = (root / "work" / "repo" / "app" / "defects.py").read_text(encoding="utf-8")
     assert 'row["inspector_id"]' in defects  # base(버그) 코드
-    assert not (root / "repo" / ".git").exists() and not (root / "source").exists()
+    assert not (root / "work" / "repo" / ".git").exists()
+    assert not (root / "work" / "source").exists()
+    assert (root / "work" / "output").is_dir() and list((root / "work" / "output").iterdir()) == []
+    rules = root / "agent_rules"  # W14: 읽기 전용 prompt·skill·도구 설명
+    assert (rules / "system.md").is_file() and (rules / "skills" / "code-exception").is_dir()
+    assert not os.access(rules / "system.md", os.W_OK) and not os.access(rules, os.W_OK)
     context = json.loads(call["context"].read_text(encoding="utf-8"))
     assert context["base"] == {"sha": world.base, "service": "mes-api"}
     notice = world.conn.execute(
@@ -171,9 +184,11 @@ def test_attempt_gets_base_workspace_context_and_a_scoped_token(world):
     )
     assert context["issue"]["number"] == world.work()["issue_number"]
     assert context["memory"]["mode"] == "cold_start" and context["origin"] == "manual_integration"
+    assert context["agent_mode"] == "local" and context["prompt_sha256"] == rules_hash()
     assert call["credential"] not in call["context"].read_text(encoding="utf-8")
     (started,) = world.audit("ATTEMPT_STARTED")
     assert (started["adapter"], started["origin"]) == ("fake", "manual_integration")
+    assert started["agent_mode"] == "local"
     with world.store.read() as tx:
         assert attempt_origin(tx, RUN, world.incident_id, attempt_id) == "manual_integration"
     (finished,) = world.audit("ATTEMPT_FINISHED")
@@ -405,3 +420,118 @@ def test_restart_closes_the_interrupted_attempt(world):
     )
     assert world.blocked()["stage"] == "agent"
     assert world.sup.recover_attempts() == []
+
+
+# ── W14: 금지 자료·재시도·trace ────────────────────────────────
+
+
+def test_forbidden_material_in_the_workspace_blocks_the_start(world):
+    # 평가 식별자가 base 코드에 있다고 가정한다
+    world.sup.runtime = dataclasses.replace(world.runtime, eval_terms=("inspector_id",))
+    (result,) = world.sup.run_ready()
+    assert world.adapter.calls == []  # adapter·token 없음
+    (finished,) = world.audit("ATTEMPT_FINISHED")
+    assert finished["detail"].startswith("workspace:forbidden(eval_identifier:repo/")
+    assert "inspector_id" not in finished["detail"]  # 위치·종류만 남긴다
+    assert world.blocked()["blocker_code"] == "MODEL_UNAVAILABLE"
+    assert world.tokens.resolve("x" * 40) is None
+
+
+def test_transient_model_error_is_retried_once_within_the_deadline(world):
+    results = iter(
+        [
+            AttemptResult(
+                "error", "fake", "manual_integration", detail="model_429", retryable=True
+            ),
+            AttemptResult(
+                "error", "fake", "manual_integration", detail="model_429", retryable=True
+            ),
+        ]
+    )
+    world.adapter.behavior = lambda call: next(results)
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 2  # 한 번만 다시 부른다
+    (retry,) = world.audit("ATTEMPT_RETRY")
+    assert retry["detail"] == "model_429"
+    assert world.blocked()["blocker_code"] == "MODEL_UNAVAILABLE"
+
+
+def test_no_retry_after_a_submission(world):
+    world.adapter.behavior = lambda call: AttemptResult(
+        "error", "fake", "manual_integration", proposal_ids=("PROP-0000000000A1",),
+        detail="model_timeout", retryable=True,
+    )  # fmt: skip
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+
+
+def test_no_retry_when_the_server_already_accepted_a_submission(world):
+    """adapter가 제안 ID를 돌려주지 못해도(제출 직후 timeout) 서버 기록으로 재시도를 막는다."""
+
+    def submit_then_timeout(call):  # 제안이 접수돼 브로커가 검사 중이다(INVESTIGATING → VALIDATING)
+        with world.store.tx() as tx:
+            incident = tx.one("SELECT * FROM incidents WHERE id = ?", (world.incident_id,))
+            transition_incident(
+                tx, incident["id"], incident["version"], "VALIDATING", supervisor.Actor.BROKER
+            )
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = submit_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+    assert world.incident()["status"] == "VALIDATING"
+
+
+def test_no_retry_after_a_server_recorded_submit_call(world):
+    """사건이 아직 조사 중이어도 이 attempt의 제출 호출 기록이 있으면 다시 부르지 않는다."""
+
+    def submit_call_then_timeout(call):
+        with world.store.tx() as tx:
+            audit.append(
+                tx, RUN, world.incident_id, "agent", "TOOL_CALL",
+                {"attempt_id": call["ids"][3], "tool": "submit_proposal",
+                 "budget_exempt": False, "call": 1},
+            )  # fmt: skip
+        return AttemptResult(
+            "error", "fake", "manual_integration", detail="model_timeout", retryable=True
+        )
+
+    world.adapter.behavior = submit_call_then_timeout
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1 and world.audit("ATTEMPT_RETRY") == []
+
+
+def test_attempt_trace_records_identity_tools_and_tokens(world):
+    world.adapter.behavior = lambda call: AttemptResult(
+        "no_proposal",
+        "fake",
+        "manual_integration",
+        detail="no_evidence",
+        model_id="nvidia/test-model",
+        runtime_version="0.0-test",
+        usage={"input_tokens": 120},
+        local_tools=({"tool": "read_file", "status": "ok", "body": "비밀 본문"},),
+    )
+    world.sup.run_ready()
+    assert len(world.adapter.calls) == 1  # 재시도 가능 표시가 없으면 다시 부르지 않는다
+    (finished,) = world.audit("ATTEMPT_FINISHED")
+    attempt_trace = json.loads((world.runs_dir / finished["trace"]).read_text(encoding="utf-8"))
+    assert attempt_trace["attempt_id"] == world.work()["attempt_id"]
+    assert (attempt_trace["model_id"], attempt_trace["runtime_version"]) == (
+        "nvidia/test-model",
+        "0.0-test",
+    )
+    assert attempt_trace["agent_mode"] == "local"
+    assert attempt_trace["prompt_sha256"] == rules_hash()
+    assert attempt_trace["tokens"] == {
+        "input_tokens": 120,
+        "output_tokens": None,
+        "status": "partial",
+    }
+    assert attempt_trace["tool_calls"]["runtime_local"] == [
+        {"tool": "read_file", "status": "ok", "error": None}
+    ]
+    assert "비밀 본문" not in json.dumps(attempt_trace, ensure_ascii=False)  # 본문은 남기지 않는다
+    assert attempt_trace["started_at"] is not None

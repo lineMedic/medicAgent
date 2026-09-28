@@ -10,11 +10,15 @@ W27: search_cases(고정 snapshot 안의 과거 사례, history projection evide
 - `search_logs`의 `q`는 대소문자를 무시하는 부분 문자열이다. 정규식·shell을 쓰지 않는다.
 - 로그·증거는 비신뢰 데이터다. 안의 지시문·Issue 번호·URL을 해석하지 않는다.
 - `submit_proposal`의 202는 접수일 뿐 허용·실행 성공이 아니다. 결과는 `get_proposal`로 본다.
+- 도구 호출 예산(W14, D87): 조회 권한을 확인한 호출마다 감사 `TOOL_CALL`을 남기고 attempt당
+  `agent.tool_call_budget`(15)을 넘으면 429 `RATE_LIMITED`로 거절한다(`TOOL_CALL_REFUSED`).
+  제안 결정 확인(`get_proposal`)은 브로커 검사 시간에 따라 늘어나므로 예산에서 빼고 기록만 한다
 """
 
 import json
 import sqlite3
 from datetime import timedelta
+from functools import partial
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
@@ -24,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from linemedic.common.clock import from_rfc3339, to_rfc3339
 from linemedic.common.ids import is_valid_entity_id
 from linemedic.common.sanitize import disable_urls
-from linemedic.control_plane import evidence
+from linemedic.control_plane import audit, evidence
 from linemedic.control_plane.app import (
     AppContext,
     context,
@@ -34,7 +38,11 @@ from linemedic.control_plane.app import (
     reject_unknown_query,
     request_id,
 )
-from linemedic.control_plane.auth import AgentPrincipal, load_visible_incident
+from linemedic.control_plane.auth import (
+    AgentPrincipal,
+    agent_attempt_is_current,
+    load_visible_incident,
+)
 from linemedic.control_plane.broker import intake
 from linemedic.control_plane.broker.proposals import CHECK_RESULT_FIELDS, ProposalStatus
 from linemedic.control_plane.deploys import deploy_records
@@ -44,6 +52,8 @@ from linemedic.control_plane.symptoms import observed_symptom
 router = APIRouter()
 LOG_QUERY_MAX_CHARS = 200
 ENVELOPE_RESERVE_BYTES = 2048
+BUDGET_EXEMPT_TOOLS = frozenset({"get_proposal"})
+TOOL_ACTOR = "agent"
 
 
 def _agent(request: Request) -> AgentPrincipal:
@@ -51,6 +61,57 @@ def _agent(request: Request) -> AgentPrincipal:
     if not isinstance(current, AgentPrincipal):
         raise ApiError("FORBIDDEN_SCOPE")
     return current
+
+
+def _charge(
+    ctx: AppContext, agent: AgentPrincipal, tool: str, incident_id: str, *, strict: bool = True
+) -> None:
+    """조회 권한을 확인한 도구 호출을 기록하고 예산을 센다. 권한이 없으면 404(세지 않음).
+
+    `strict=False`(제안 제출)면 지금 attempt가 아닐 때 세지 않고 넘긴다. 그 거절은 intake가
+    원래 오류 코드로 한다(W09 계약 유지).
+    """
+    exempt = tool in BUDGET_EXEMPT_TOOLS
+    refused: dict[str, Any] | None = None
+    with ctx.store.tx() as tx:
+        if strict:
+            load_visible_incident(tx, agent, incident_id)
+        else:
+            incident = tx.one("SELECT * FROM incidents WHERE id = ?", (agent.incident_id,))
+            if incident is None or not agent_attempt_is_current(tx, agent, incident):
+                return
+        used = tx.one(
+            "SELECT COUNT(*) FROM audit_events WHERE run_id = ? AND incident_id = ?"
+            " AND event_type = 'TOOL_CALL' AND json_extract(payload_json, '$.attempt_id') = ?"
+            " AND json_extract(payload_json, '$.budget_exempt') = 0",
+            (agent.run_id, agent.incident_id, agent.attempt_id),
+        )[0]
+        payload = {"attempt_id": agent.attempt_id, "tool": tool, "budget_exempt": exempt}
+        if not exempt and used >= ctx.tool_call_budget:
+            refused = {
+                "reason": "tool_budget_exhausted",
+                "budget": ctx.tool_call_budget,
+                "used": used,
+            }
+            audit.append(
+                tx, agent.run_id, agent.incident_id, TOOL_ACTOR, "TOOL_CALL_REFUSED",
+                {**payload, **refused},
+            )  # fmt: skip
+        else:
+            audit.append(
+                tx, agent.run_id, agent.incident_id, TOOL_ACTOR, "TOOL_CALL",
+                {**payload, "call": used + (0 if exempt else 1)},
+            )  # fmt: skip
+    if refused is not None:  # 거절 기록은 남기고(커밋 뒤) 호출은 막는다
+        raise ApiError("RATE_LIMITED", refused)
+
+
+async def _tool(
+    request: Request, tool: str, incident_id: str, *, strict: bool = True
+) -> tuple[AppContext, AgentPrincipal]:
+    ctx, agent = context(request), _agent(request)
+    await run_in_threadpool(partial(_charge, strict=strict), ctx, agent, tool, incident_id)
+    return ctx, agent
 
 
 def _related_services(ctx: AppContext, service: str) -> frozenset[str]:
@@ -124,9 +185,8 @@ def _incident_data(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> 
 @router.get("/tools/incidents/{incident_id}")
 async def get_incident(incident_id: str, request: Request) -> JSONResponse:
     reject_unknown_query(request)
-    data, evidence_ids = await run_in_threadpool(
-        _incident_data, context(request), _agent(request), incident_id
-    )
+    ctx, agent = await _tool(request, "get_incident", incident_id)
+    data, evidence_ids = await run_in_threadpool(_incident_data, ctx, agent, incident_id)
     return JSONResponse(content=success_body(request_id(request), data, evidence_ids))
 
 
@@ -176,8 +236,9 @@ async def search_logs(
     limit: Annotated[int, Query(ge=1, le=20)] = 20,
 ) -> JSONResponse:
     reject_unknown_query(request, frozenset({"q", "limit"}))
+    ctx, agent = await _tool(request, "search_logs", incident_id)
     body = await run_in_threadpool(
-        _search_logs, context(request), _agent(request), incident_id, q, limit, request_id(request)
+        _search_logs, ctx, agent, incident_id, q, limit, request_id(request)
     )
     return JSONResponse(content=body)
 
@@ -202,7 +263,8 @@ def _deploys(ctx: AppContext, agent: AgentPrincipal, incident_id: str) -> dict:
 @router.get("/tools/incidents/{incident_id}/deploys")
 async def get_deploys(incident_id: str, request: Request) -> JSONResponse:
     reject_unknown_query(request)
-    data = await run_in_threadpool(_deploys, context(request), _agent(request), incident_id)
+    ctx, agent = await _tool(request, "get_deploys", incident_id)
+    data = await run_in_threadpool(_deploys, ctx, agent, incident_id)
     return JSONResponse(content=success_body(request_id(request), data))
 
 
@@ -242,9 +304,8 @@ async def query_equipment_metrics(
     incident_id: str, equipment_id: str, request: Request
 ) -> JSONResponse:
     reject_unknown_query(request)
-    data = await run_in_threadpool(
-        _equipment_metrics, context(request), _agent(request), incident_id, equipment_id
-    )
+    ctx, agent = await _tool(request, "query_equipment_metrics", incident_id)
+    data = await run_in_threadpool(_equipment_metrics, ctx, agent, incident_id, equipment_id)
     return JSONResponse(content=success_body(request_id(request), data))
 
 
@@ -277,7 +338,8 @@ async def get_knowledge(
     q: Annotated[str | None, Query(max_length=LOG_QUERY_MAX_CHARS)] = None,
 ) -> JSONResponse:
     reject_unknown_query(request, frozenset({"q"}))
-    data = await run_in_threadpool(_knowledge, context(request), _agent(request), incident_id, q)
+    ctx, agent = await _tool(request, "get_knowledge", incident_id)
+    data = await run_in_threadpool(_knowledge, ctx, agent, incident_id, q)
     return JSONResponse(content=success_body(request_id(request), data))
 
 
@@ -309,20 +371,19 @@ async def search_cases(
     limit: Annotated[int, Query(ge=1, le=5)] = 5,
 ) -> JSONResponse:
     reject_unknown_query(request, frozenset({"q", "limit"}))
-    data, evidence_ids = await run_in_threadpool(
-        _search_cases, context(request), _agent(request), incident_id, q, limit
-    )
+    ctx, agent = await _tool(request, "search_cases", incident_id)
+    data, evidence_ids = await run_in_threadpool(_search_cases, ctx, agent, incident_id, q, limit)
     return JSONResponse(content=success_body(request_id(request), data, evidence_ids))
 
 
 @router.post(intake.PROPOSALS_PATH)
 async def submit_proposal(request: Request) -> JSONResponse:
     reject_unknown_query(request)
-    agent = _agent(request)
     key = idempotency_key(request)
+    ctx, agent = await _tool(request, "submit_proposal", _agent(request).incident_id, strict=False)
     raw = await read_raw_body(request)
     status_code, body = await run_in_threadpool(
-        intake.submit, context(request), agent, key, raw, request_id(request)
+        intake.submit, ctx, agent, key, raw, request_id(request)
     )
     return JSONResponse(status_code=status_code, content=body)
 
@@ -371,5 +432,6 @@ def _proposal(ctx: AppContext, agent: AgentPrincipal, proposal_id: str) -> dict:
 @router.get(intake.PROPOSALS_PATH + "/{proposal_id}")
 async def get_proposal(proposal_id: str, request: Request) -> JSONResponse:
     reject_unknown_query(request)
-    data = await run_in_threadpool(_proposal, context(request), _agent(request), proposal_id)
+    ctx, agent = await _tool(request, "get_proposal", _agent(request).incident_id)
+    data = await run_in_threadpool(_proposal, ctx, agent, proposal_id)
     return JSONResponse(content=success_body(request_id(request), data))

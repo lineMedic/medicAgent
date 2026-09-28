@@ -438,13 +438,24 @@ def test_manual_proposal_goes_through_the_whole_path(e2e):
     assert [c["outcome"] for c in card["cases"]] == ["UNVERIFIED", "VERIFIED_SUCCESS"]
     assert {n["status_text"] for n in card["notifications"]} == {"댓글 등록"}
     assert card["trace"]["status"].startswith("N/A(사람이 미리 작성한 제안")
+    assert card["trace"]["tools"][:2] == ["get_incident", "submit_proposal"]  # W14 서버 기록
     assert "<script" not in dashboard.render(model).lower()
 
     # workspace·context: base 파일만, credential 없음
     root = e2e.runs_dir / RUN / "workspaces" / started["attempt_id"]
-    assert (root / "repo" / "app" / "defects.py").is_file() and not (
-        root / "repo" / ".git"
-    ).exists()
+    repo = root / "work" / "repo"
+    assert (repo / "app" / "defects.py").is_file() and not (repo / ".git").exists()
+    assert (root / "agent_rules" / "system.md").is_file()
+    trace_ref = json.loads(
+        e2e.conn.execute(
+            "SELECT payload_json FROM audit_events WHERE event_type = 'ATTEMPT_FINISHED'"
+        ).fetchone()[0]
+    )["trace"]
+    attempt_trace = json.loads((e2e.runs_dir / trace_ref).read_text(encoding="utf-8"))
+    tools = [call["tool"] for call in attempt_trace["tool_calls"]["server"]]
+    assert tools[:2] == ["get_incident", "submit_proposal"]  # 서버가 받은 도구 순서(W14)
+    assert set(tools[2:]) <= {"get_proposal"} and attempt_trace["tool_calls"]["counted"] == 2
+    assert attempt_trace["agent_mode"] == "local" and attempt_trace["tokens"]["status"] == "null"
     context = json.loads((root / "context.json").read_text(encoding="utf-8"))
     assert context["base"]["sha"] == e2e.base and context["origin"] == "manual_integration"
     assert all(token not in (root / "context.json").read_text() for token in e2e.issued)

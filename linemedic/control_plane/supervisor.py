@@ -40,7 +40,9 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from linemedic.agent import trace
 from linemedic.agent.adapter import AgentAdapter, AttemptResult
+from linemedic.agent.rules import forbidden_findings, install_rules
 from linemedic.common.canonical_json import canonical_dumps
 from linemedic.common.clock import Clock, from_rfc3339, to_rfc3339
 from linemedic.common.config import LineMedicConfig
@@ -524,6 +526,7 @@ class AttemptRuntime:
     tools_base_url: str
     grace_seconds: float = 5.0  # deadline 뒤 adapter를 더 기다리는 시간
     poll_seconds: float = 1.0
+    eval_terms: tuple[str, ...] = ()  # workspace 금지 자료 검사의 평가 식별자(W14)
 
 
 MAX_BLOCKER_EVIDENCE = 5
@@ -551,14 +554,15 @@ class Supervisor:
         run_id: str | None = None,
     ) -> None:
         self.store = store
-        self.run_id = (
-            run_id  # 주면 이 run의 work만 다룬다(W19: reset 뒤 과거 run 작업을 이어받지 않게)
-        )
+        # 주면 이 run의 work만 다룬다(W19: reset 뒤 과거 run 작업을 이어받지 않게)
+        self.run_id = run_id
         self.clock = clock
         self.agent = config.agent
         self.route_id = route_id or config.notifications.required_start_route_id
         self.start_wait_seconds = config.notifications.start_wait_seconds
         self.runtime = runtime
+        # sandbox 실행(W15) 전에는 local이다. local 결과는 평가 집계에 넣지 않는다
+        self.agent_mode = config.agent.mode or "local"
 
     def auto_approve(self, work_id: str) -> None:
         """승인된 작성자(W23 `auto_start_eligible`)의 work를 등록 정책으로 승인한다."""
@@ -713,6 +717,7 @@ class Supervisor:
                     "deadline": deadline,
                     "tool_call_budget": self.agent.tool_call_budget,
                     "max_submissions": self.agent.max_submissions,
+                    "agent_mode": self.agent_mode,
                     # provider 시각과, 이 audit와 같은 시계로 receipt를 저장한 시각(receipt ≤ 시작)
                     "start_notice_accepted_at": notice["accepted_at"],
                     "start_notice_recorded_at": json.loads(notice["result_json"] or "{}").get(
@@ -777,10 +782,25 @@ class Supervisor:
         try:
             if not base_sha:
                 raise CandidateError("run_baseline_unconfigured")
-            workspace = prepare_workspace(mirror=runtime.mirror, root=root, base_sha=base_sha)
+            repo = prepare_workspace(mirror=runtime.mirror, root=root / "work", base_sha=base_sha)
         except CandidateError as exc:
             failed = AttemptResult(
                 "error", adapter.name, adapter.origin, detail=f"workspace:{exc.reason}"
+            )
+            return self.finish_attempt(started, failed)
+        workspace = repo.parent  # work/{repo,output}: 에이전트가 쓰는 곳
+        (workspace / "output").mkdir()
+        rules_dir = root / "agent_rules"
+        prompt_sha256 = install_rules(rules_dir)  # 읽기 전용 prompt·skill·도구 설명
+        terms = runtime.eval_terms
+        findings = [
+            *forbidden_findings(workspace, terms=terms),
+            *forbidden_findings(rules_dir, terms=terms, rules=True),
+        ]
+        if findings:  # 넣지 않을 자료가 보이면 시작하지 않는다(위치·종류만 남긴다)
+            listed = ", ".join(str(f) for f in findings[:5])
+            failed = AttemptResult(
+                "error", adapter.name, adapter.origin, detail=f"workspace:forbidden({listed})"
             )
             return self.finish_attempt(started, failed)
         context = {
@@ -809,6 +829,9 @@ class Supervisor:
             "tools": {"base_url": runtime.tools_base_url},
             "adapter": adapter.name,
             "origin": adapter.origin,
+            "agent_mode": self.agent_mode,
+            "prompt_sha256": prompt_sha256,
+            "rules_dir": str(rules_dir),  # local 모드 경로. sandbox에서는 /agent_rules(읽기 전용)
         }
         context_ref = root / "context.json"
         context_ref.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", "utf-8")
@@ -816,9 +839,92 @@ class Supervisor:
         token = runtime.tokens.issue_agent_token(principal)
         try:
             result = self._call_adapter(started, work, incident, workspace, context_ref, token)
+            if (
+                result.retryable
+                and not result.proposal_ids
+                and self._before(started.deadline)
+                and self._nothing_submitted(started, work)
+            ):
+                # 외부 변경 없는 조사 단계의 모델 일시 오류: 같은 deadline 안에서 한 번만 다시
+                self._audit_retry(started, result)
+                result = self._call_adapter(started, work, incident, workspace, context_ref, token)
         finally:
             runtime.tokens.revoke_attempt(started.attempt_id)
-        return self.finish_attempt(started, result)
+        trace_ref = self._record_trace(started, work, prompt_sha256, result)
+        return self.finish_attempt(started, result, trace_ref=trace_ref)
+
+    def _before(self, deadline: str) -> bool:
+        return self.clock.utc_now() < from_rfc3339(deadline)
+
+    def _nothing_submitted(self, started: AttemptStart, work: Any) -> bool:
+        """재시도 전에 서버 기록으로 외부 변경이 없었는지 본다(adapter 보고만 믿지 않는다).
+
+        사건이 아직 같은 attempt로 조사 중이고, 이 attempt의 제안 행과 제출 호출 기록이 없어야 한다.
+        제출 직후 timeout으로 adapter가 제안 ID를 돌려주지 못한 경우도 여기서 막는다.
+        """
+        run_id, incident_id = work["run_id"], work["incident_id"]
+        with self.store.read() as tx:
+            incident = tx.one(
+                "SELECT status, attempt_id FROM incidents WHERE id = ?", (incident_id,)
+            )
+            if (
+                incident is None
+                or incident["status"] != "INVESTIGATING"
+                or incident["attempt_id"] != started.attempt_id
+            ):
+                return False
+            proposals = tx.one(
+                "SELECT COUNT(*) FROM proposals WHERE run_id = ? AND incident_id = ?"
+                " AND attempt_id = ?",
+                (run_id, incident_id, started.attempt_id),
+            )[0]
+            submit_calls = tx.one(
+                "SELECT COUNT(*) FROM audit_events WHERE run_id = ? AND incident_id = ?"
+                " AND event_type IN ('TOOL_CALL', 'TOOL_CALL_REFUSED')"
+                " AND json_extract(payload_json, '$.attempt_id') = ?"
+                " AND json_extract(payload_json, '$.tool') = 'submit_proposal'",
+                (run_id, incident_id, started.attempt_id),
+            )[0]
+        return proposals == 0 and submit_calls == 0
+
+    def _audit_retry(self, started: AttemptStart, result: AttemptResult) -> None:
+        with self.store.tx() as tx:
+            work = _work(tx, started.work_id)
+            _audit(
+                tx,
+                work,
+                Actor.SUPERVISOR,
+                "ATTEMPT_RETRY",
+                {"attempt_id": started.attempt_id, "detail": result.detail},
+            )
+
+    def _record_trace(
+        self, started: AttemptStart, work: Any, prompt_sha256: str, result: AttemptResult
+    ) -> str | None:
+        """attempt trace를 `runs/<run>/traces/<attempt>.json`에 쓰고 상대 경로를 돌려준다."""
+        runtime = self.runtime
+        assert runtime is not None and started.attempt_id is not None
+        with self.store.read() as tx:
+            server = trace.server_calls(tx, work["run_id"], work["incident_id"], started.attempt_id)
+            started_row = tx.one(
+                "SELECT created_at FROM audit_events WHERE run_id = ? AND incident_id = ?"
+                " AND event_type = 'ATTEMPT_STARTED' AND json_extract(payload_json,"
+                " '$.attempt_id') = ?",
+                (work["run_id"], work["incident_id"], started.attempt_id),
+            )
+        record = trace.build_trace(
+            attempt_id=started.attempt_id,
+            run_id=work["run_id"],
+            incident_id=work["incident_id"],
+            agent_mode=self.agent_mode,
+            prompt_sha256=prompt_sha256,
+            started_at=started_row["created_at"] if started_row is not None else None,
+            ended_at=to_rfc3339(self.clock.utc_now()),
+            result=result.record(),
+            server=server,
+        )
+        path = trace.write_trace(runtime.runs_dir, work["run_id"], started.attempt_id, record)
+        return path.relative_to(runtime.runs_dir).as_posix()
 
     def _call_adapter(
         self,
@@ -865,7 +971,9 @@ class Supervisor:
             "error", adapter.name, adapter.origin, detail="no_result"
         )
 
-    def finish_attempt(self, started: AttemptStart, result: AttemptResult) -> dict[str, Any]:
+    def finish_attempt(
+        self, started: AttemptStart, result: AttemptResult, *, trace_ref: str | None = None
+    ) -> dict[str, Any]:
         """adapter가 끝났다. 제안 없이 조사 중이면 attempt를 닫는다."""
         blocker = None
         with self.store.tx() as tx:
@@ -876,7 +984,7 @@ class Supervisor:
                 work,
                 Actor.SUPERVISOR,
                 "ATTEMPT_FINISHED",
-                {"attempt_id": started.attempt_id, **result.record()},
+                {"attempt_id": started.attempt_id, **result.record(), "trace": trace_ref},
             )
             if _open_attempt(work, incident, started.attempt_id):
                 blocker, detail = _attempt_blocker(tx, incident, result)
