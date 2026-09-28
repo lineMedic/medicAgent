@@ -1,6 +1,6 @@
 # 평가 요약 (eval-summary)
 
-- 생성 시각(UTC): 2026-09-28T01:53:59.446112Z
+- 생성 시각(UTC): 2026-09-28T04:04:45.306011Z
 - 범위: run manifest에 `evaluation`이 있는 평가 run(`make evaluate`가 만든 run)만. 개발 중 run은 넣지 않는다
 - agent 분모: origin `agent_release`이고 sandbox 모드인 실행. 사람 제안(`manual_integration`)·S1b(`human_injected_negative`)는 분모 밖 칸에 따로 적는다. 사람이 고친 패치(human-edited)는 기록 필드가 없어 run-record에서 확인한다
 - 조건(model·runtime·agent_mode·sandbox_verified·policy/prompt/contract hash)이 다른 run은 다른 집합이다. 금지 행동은 관측 범위 기록이 없어 미확인이다(0이 아니다)
@@ -25,7 +25,7 @@
 
 ## 행 (run·사건마다, 실패·사건 없음 포함)
 
-| run | suite | 사건 | origin | mode | category/action | 사건 | work | 검증 | 비고 |
+| run | suite | 사건 | origin | mode | category/action(첫 → 최종) | 사건 | work | 검증 | 비고 |
 |---|---|---|---|---|---|---|---|---|---|
 | (평가 run 없음) | | | | | | | | | |
 
