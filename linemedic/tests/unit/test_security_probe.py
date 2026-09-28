@@ -12,13 +12,12 @@ import json
 import os
 import re
 import stat
-from datetime import timedelta
 
 import httpx
 import pytest
 
 from linemedic.agent import rules
-from linemedic.common.clock import from_rfc3339, to_rfc3339
+from linemedic.common.clock import to_rfc3339
 from linemedic.control_plane import security_probe as probe
 from linemedic.control_plane.redaction import eval_identifiers
 from linemedic.factory_sim.sinks import mock_ot_sink
@@ -60,6 +59,14 @@ def test_reaching_the_sink_from_the_sandbox_is_allowed_unexpectedly_whatever_els
     assert verdict(sandbox_reached_sink=True, host=FAILED)[0] == "ALLOWED_UNEXPECTEDLY"
 
 
+def test_a_forbidden_request_that_succeeded_is_allowed_unexpectedly():
+    """sink 기록을 놓쳐도 금지 요청이 성공 응답을 받았으면 거절로 판정하지 않는다."""
+    succeeded = probe.Attempt(at=T, ok=True, detail="HTTP 200")
+    expected = ("ALLOWED_UNEXPECTEDLY", "sandbox_request_succeeded")
+    assert verdict(sandbox_forbidden=succeeded) == expected  # 같은 정책 거절 기록이 있어도
+    assert verdict(sandbox_forbidden=succeeded, denials=[]) == expected
+
+
 def test_failed_controls_make_the_comparison_inconclusive():
     assert verdict(host=FAILED) == ("INCONCLUSIVE", "host_control_failed")
     assert verdict(host_reached_sink=False) == ("INCONCLUSIVE", "host_control_failed")
@@ -91,18 +98,64 @@ def test_mock_sink_records_canary_presence_without_the_body(tmp_path):
 def test_host_control_reaches_the_sink_with_the_same_request(tmp_path):
     record = tmp_path / "received.jsonl"
     server = mock_ot_sink.start("127.0.0.1", 0, record, canary=probe.CANARY)
+    payload = probe.request_payload()
     try:
         url = f"http://127.0.0.1:{server.server_port}/collect"
-        attempt = probe.send_canary(url)
+        attempt = probe.send_canary(url, payload=payload)
     finally:
         server.shutdown()
         server.server_close()
     assert attempt.ok, attempt.detail
-    assert probe.sink_received(record, since=attempt.at) is True
-    assert probe.sink_received(tmp_path / "missing.jsonl", since=attempt.at) is False
-    # 호스트 대조가 남긴 앞선 기록을 뒤의 sandbox 요청 도달로 세지 않는다
-    later = to_rfc3339(from_rfc3339(attempt.at) + timedelta(seconds=30))
-    assert probe.sink_received(record, since=later) is False
+    assert payload.startswith(probe.CANARY) and payload != probe.request_payload()
+    assert probe.sink_received(record, payload=payload) is True
+    assert probe.sink_received(tmp_path / "missing.jsonl", payload=payload) is False
+    # 호스트 대조가 남긴 기록을 다른 요청(sandbox)의 도달로 세지 않는다(요청마다 본문이 다르다)
+    assert probe.sink_received(record, payload=probe.request_payload()) is False
+
+
+class _Sandbox:
+    """테스트용 sandbox probe. `reach`면 받은 본문을 실제로 sink에 보낸다(정책 없음을 흉내)."""
+
+    policy_revision = REVISION
+
+    def __init__(self, reach: bool) -> None:
+        self.reach = reach
+
+    def check_allowed(self):
+        return probe.Attempt(
+            at=to_rfc3339(probe.SystemClock().utc_now()), ok=True, detail="HTTP 200"
+        )
+
+    def send_forbidden(self, url, payload):
+        if self.reach:
+            return probe.send_canary(url, payload=payload)
+        return probe.Attempt(
+            at=to_rfc3339(probe.SystemClock().utc_now()), ok=False, detail="ConnectionRefusedError"
+        )
+
+    def denials(self, since, until):
+        now = to_rfc3339(probe.SystemClock().utc_now())
+        return [] if self.reach else [probe.Denial(at=now, policy_revision=REVISION, event="deny")]
+
+
+def test_security_test_does_not_count_the_host_control_as_a_sandbox_arrival(tmp_path):
+    """sandbox 요청이 나가지 않았으면 직전 호스트 대조 기록 때문에 도달로 판정하지 않는다."""
+    result, _ = probe.run_security_test(
+        "r-20260928-010000-abcd", tmp_path / "runs", sandbox=_Sandbox(reach=False)
+    )
+    assert result["host_control"]["reached_sink"] is True
+    assert result["sandbox"]["reached_sink"] is False
+    assert (result["verdict"], result["reason"]) == ("DENIED_CONFIRMED", "matching_policy_denial")
+
+
+def test_security_test_detects_a_sandbox_request_that_reached_the_sink(tmp_path):
+    result, _ = probe.run_security_test(
+        "r-20260928-010000-abcd", tmp_path / "runs", sandbox=_Sandbox(reach=True)
+    )
+    assert result["sandbox"]["reached_sink"] is True
+    assert result["verdict"] == "ALLOWED_UNEXPECTEDLY"
+    host, sandbox = result["host_control"], result["sandbox"]["forbidden_request"]
+    assert host["payload_sha256"] != sandbox["payload_sha256"]  # 요청마다 다른 본문
 
 
 def test_write_probe_uses_a_sentinel_and_reports_denial(tmp_path):
