@@ -38,7 +38,7 @@
 | 18 | W10 | UNIT_TESTED | UNIT_TESTED | `make test` → 1293 passed(W10 테스트 195개: 정책 98, 판정 54, runner 단계 13, 게이트·브로커 30), `make test-docker` → 11 passed(W10 실제 컨테이너 7개: R0/R1/R2·비재현·회귀·timeout·OOM·N06 격리), `make lint` → PASS, 변이 79개 중 78개가 테스트 실패로 잡힘(1개는 동등 변이), `evidence/N06-runner-isolation.md`(로컬 개발 Mac) | | 2026-09-27T12:25Z |
 | 19 | W11 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G10) | `make test` → 1389 passed(Python 3.12·3.14 모두, #49·#50 병합 뒤 main 병합 기준. 리뷰 반영 `29c19ed` 직후는 3.12 1381 passed. W11 테스트 64개: PR 생성 41, 결과 불명·조정 14, push 7, 포트 2 + 리뷰 반영 14개), `make test-docker` → 11 passed, `make lint` → PASS, 변이 53개 모두 테스트 실패로 잡힘. GitHub 호출 없음. PR #51 리뷰 반영(R1 실패 요약·에이전트 문장 Issue 참조 무력화) 뒤: Python 3.14.7 1380 passed·1 failed(`test_loads_strict_rejects_deeply_nested_json_as_strict_error`, #49에서 수정), ruff PASS, `test_runner_docker.py` 7 passed | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential, 시드 push(W03)·run별 `baseline/<run>` 브랜치(W19·W13) / G10 + 사용자 허락 — `write_enabled = true`로 W13 실제 run에서 봇 PR 1개(head SHA = candidate SHA, 리뷰어가 봇이 아님) 기록 | 2026-09-27T14:01Z |
 | 20 | W12 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G7·G8) | `make test` → 1462 passed(W12 테스트 81개: 배포 58, fetch 8, docker 포트 6, verifier 저장 4, 알림 3, GitHub 포트 2), main(#49·#50) 병합 뒤 1470 passed, `make test-docker` → 12 passed(W12 실제 배포 1개: fixture commit R0~R2·신뢰 레시피 빌드·image ID 기동·inspect = execution 기록·60초 PASS·복원 절차), `make lint` → PASS, 변이 51개 모두 테스트 실패로 잡힘(처음 살아남은 5개는 테스트를 보강한 뒤 다시 확인). GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2·G10 뒤 W13 실제 run에서 G7 — 사람이 봇 PR을 리뷰·squash 머지 / G8 — 사람이 `make approve-release`를 직접 실행 / 확인: `GET /ops/executions/<id>`의 identity chain(PR·merge SHA·tree·image·container·verification·contract hash)이 채워짐 | 2026-09-27T14:57Z |
-| 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1506 passed(W13 테스트 36개: attempt 14, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T15:54Z |
+| 21 | W13 | LIVE_VERIFIED | UNIT_TESTED (live: BLOCKED_ON_HUMAN G2·G7·G8·G10) | `make test` → 1513 passed(PR #53 리뷰 반영 뒤. W13 테스트 43개: attempt 16, adapter 10, 기동·종료 8(실제 start·stop 프로세스 포함), fake E2E 2, 사람 제안 origin 2, 시작 게이트 시간 강제 3, 배포 lock 중 주입 거부 2), `make test-docker` → 12 passed, `make lint` → PASS, 변이 24개 모두 테스트 실패로 잡힘(처음 살아남은 1개는 테스트를 보강한 뒤 다시 확인). fake E2E: S1 감지 → Issue 생성 → 승인 → 시작 댓글 receipt → attempt → 사람 제안 → 게이트 → 봇 PR → 머지 → 배포 승인 → PASS → RESOLVED → 결과 댓글. GitHub 호출 없음 | BLOCKED_ON_HUMAN: G2 — 데모 repo·봇 credential·시드 push·`baseline/<run>`(W03·W19) / G10 + 사용자 허락 — `write_enabled = true` / G7 — 사람이 봇 PR 리뷰·squash 머지 / G8 — 사람이 `make approve-release` 실행 / 확인: 실제 run에서 Issue 번호·시작 comment ID·PR 번호·merge SHA·image ID·verification ID·결과 comment ID를 `runs/<run>/run-record.md`에 연결 | 2026-09-27T21:15Z |
 | 22 | W27 | UNIT_TESTED | UNIT_TESTED | `make test` → 1565 passed(W27 테스트 59개: `test_case_memory.py` 57(outcome 18, revision·철회·정제 6, 비노출 4, 검색·오류 8, 실패 조건·경고 4, 질의 안전·fallback·N13 10, 도구·ops·CLI 7), DDL 19번 1, memory 기동 1, fake E2E 노트 확인 추가), `make test-docker` → 12 passed, `make lint` → PASS, 변이 43개 모두 테스트 실패로 잡힘, N13 `evidence/N13-case-search.md` | | 2026-09-27T17:02Z |
 | 23 | W14 | LIVE_VERIFIED | UNIT_TESTED (A 부분. runtime adapter·live: BLOCKED_ON_HUMAN G3·G4) | `make test` → 1663 passed(W14 테스트 31개: workspace·규칙 13, tools client 8, 도구 예산 5, attempt 금지 자료·재시도·trace 4, 읽기 전용 규칙 정리 1, fake E2E trace·도구 순서 확인 추가), `make test-docker` → 13 passed, `make lint` → PASS, 변이 26개 중 25개 잡힘(남은 1개는 동등 변이). 모델 호출 없음 | BLOCKED_ON_HUMAN: G3 — `.env`에 NVIDIA_BASE_URL·NVIDIA_MODEL_ID·NVIDIA_API_KEY / G4 — N02 결과로 runtime 하나 결정 → `linemedic/agent/runtime_<openclaw\|nat>.py`·`tests/live/test_model_toolcall.py` / 확인: local 모드 S1·S2-lite 실제 실행 → `evidence/W14-local-runs.md`(제안 원본 hash·broker decision·trace 위치) | 2026-09-28T00:36Z |
 | 24 | W15 | LIVE_VERIFIED | UNIT_TESTED (게이트 없는 부분. OpenShell 정책·기동·S1 sandbox run: BLOCKED_ON_HUMAN G5, 그리고 G2·G3·G4·G7·G8·G10) | `make test` → 1684 passed(W15 테스트 21개: sandbox port·판정·정책 hash·effective policy·doctor 8, sandbox attempt 12, 대시보드 sandbox 상태 1), `make test-docker` → 13 passed, `make lint` → PASS, 변이 25개 모두 잡힘. OpenShell 호출 없음 | BLOCKED_ON_HUMAN: G5 — 데모 호스트에 OpenShell 설치 → 설치 버전 schema로 `linemedic/policies/openshell/` 정책 작성, OpenShell `SandboxPort` 구현, N03·N04·N09 확인 / 그 뒤 W14 runtime(G3·G4)으로 S1 전체 run(G2·G10, 사람 G7 머지·G8 배포 승인) → `runs/<run_id>/run-record.md` | 2026-09-28T00:49Z |
@@ -267,6 +267,24 @@
   - 금지 자료 검사는 문자열·파일 형태만 본다. 인코딩을 바꾼 자료는 못 잡는다
   - 전송 재시도는 서버에서 구분할 수 없어 호출로 센다
 - 다음 카드: 맡긴 순서대로 W15·W16의 게이트 없는 부분을 판단한다(G5 전). push·PR은 사용자 허락 뒤
+
+### W13 리뷰 반영 (카드 밖, 2026-09-27T21:15Z)
+
+- 계기: PR #53 리뷰(수정 요청). attempt가 도는 동안 supervisor 루프가 멈춰 다른 work의 60초 시작 게이트가 지나갔다. 늦게 보낸 "작업 시작 예정" 댓글, 늦은 receipt → READY → attempt가 발생했다. 같은 PR #57 리뷰에서 넘어온 "배포 lock 중 장애 주입 거부"를 함께 반영했다
+- 변경 파일:
+  - `linemedic/control_plane/supervisor.py`
+    - `start_wait_exceeded`(알림 `created_at` 기준) 추가
+    - `on_start_notice_accepted`는 대기 시간이 지난 receipt를 READY로 올리지 않는다(`LATE_START_RECEIPT` reason `start_wait_exceeded`)
+    - `expire_start_notices`는 ACCEPTED인데 아직 알림 대기인 work도 멈춘다
+  - `linemedic/control_plane/notifications/worker.py`: 대기 시간이 지난 PENDING 시작 알림은 보내지 않고 `FAILED(expired_before_send)`. receipt 저장 때 대기 시간을 넘긴다
+  - `linemedic/cli.py`: `scenario-s1`·`scenario-s2-lite`는 배포 lock(`release.lock_holder`)이 있으면 exit 2와 `make reconcile` 안내를 낸다
+  - 테스트: `integration/test_start_gate.py`(+3), `integration/test_attempts.py`(+2, 리뷰 재현: 늦게 발송·늦게 FOUND), `integration/test_release_checks.py`(+2)
+  - 기록: DECISIONS D83 ⑥, ADR 요약, 이 보고, W13 행
+- 실행 (로컬 개발 Mac, Python 3.14.7, mock):
+  - 새 테스트 7개는 수정 전 코드에서 모두 실패했다(B READY, 시작 알림 발송, 주입 진행)
+  - `make test`에 해당하는 fake 전체 → 1513 passed / ruff check·format → PASS
+  - docker 경로는 바꾸지 않아 `make test-docker`는 다시 돌리지 않았다(NOT_RUN)
+- 남은 일: 없음(이 수정 범위). #55·#56·#57 브랜치는 옛 #53 head 위에 있어 이 커밋을 병합으로 받아야 한다
 
 ### W19 중단 보고 — live 부분 G2·G10 대기 (2026-09-27T18:11Z)
 

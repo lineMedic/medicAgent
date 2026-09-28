@@ -85,6 +85,7 @@ class OutboxWorker:
         self.adapters = dict(adapters)
         self.routes: Mapping[str, NotificationRoute] = dict(config.notifications.routes)
         self.required_route = config.notifications.required_start_route_id
+        self.start_wait_seconds = config.notifications.start_wait_seconds
         self.max_attempts = config.notifications.retry_max_attempts
         self.repo = repo
         self.clock = clock
@@ -184,6 +185,11 @@ class OutboxWorker:
                     if work_status != "WAITING_NOTIFICATION":
                         detail = {"error": "work_not_waiting", "work_status": work_status}
                         self._finish(tx, row, "FAILED", detail)
+                        continue
+                    if supervisor.start_wait_exceeded(
+                        row["created_at"], tx.now, self.start_wait_seconds
+                    ):  # 대기 시간이 지났다: 시작하지 않을 work에 "작업 시작 예정"을 보내지 않는다
+                        self._finish(tx, row, "FAILED", {"error": "expired_before_send"})
                         continue
                 route = self.routes.get(row["route_id"])
                 adapter = self.adapters.get(route.adapter) if route is not None else None
@@ -312,5 +318,5 @@ class OutboxWorker:
         )
         if row["event_type"] == "WORK_STARTING" and row["route_id"] == self.required_route:
             current = tx.one("SELECT * FROM notifications WHERE id = ?", (row["id"],))
-            return supervisor.on_start_notice_accepted(tx, current)
+            return supervisor.on_start_notice_accepted(tx, current, self.start_wait_seconds)
         return None
