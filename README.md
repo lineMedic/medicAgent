@@ -40,7 +40,7 @@ flowchart LR
     SUP -- "시작 댓글 먼저" --> NOTI --> GH
     SUP -- "댓글 receipt 뒤에만" --> AG
     AG -- "도구 9개 · 제안 제출만" --> BR
-    AG -. "다음 단계" .-> NIM
+    AG -.->|"다음 단계"| NIM
     BR --> RUN
     BR -- "검사 통과 시 봇 PR" --> GH
     HUMAN -- "리뷰 · 머지" --> GH
