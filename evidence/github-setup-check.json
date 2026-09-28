@@ -1,0 +1,81 @@
+{
+  "check": "github_setup",
+  "schema_version": "linemedic.v4",
+  "checked_at": "2026-09-28T09:04:08.799104Z",
+  "repository": "lineMedic/l3-mes-api",
+  "repository_id": "1392050186",
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "name": "repository",
+      "status": "PASS",
+      "detail": "lineMedic/l3-mes-api (ID 1392050186) 일치"
+    },
+    {
+      "name": "merge_settings",
+      "status": "FAIL",
+      "detail": "squash만 허용해야 함 (allow_squash_merge=True, allow_merge_commit=True, allow_rebase_merge=True)"
+    },
+    {
+      "name": "bot_identity",
+      "status": "FAIL",
+      "detail": "봇 credential(jgoneit)이 리뷰어 계정과 같음 — PR 작성자는 자기 PR을 승인할 수 없다"
+    },
+    {
+      "name": "bot_permissions",
+      "status": "FAIL",
+      "detail": "봇이 관리자 권한을 가짐 — 보호 규칙을 바꿀 수 있다"
+    },
+    {
+      "name": "baseline_protection",
+      "status": "INCONCLUSIVE",
+      "detail": "일부 조회 실패, baseline/* 규칙을 찾지 못함"
+    }
+  ],
+  "observed": {
+    "merge_settings": {
+      "allow_squash_merge": true,
+      "allow_merge_commit": true,
+      "allow_rebase_merge": true
+    },
+    "bot_identity": {
+      "kind": "user",
+      "login": "jgoneit",
+      "id": 87176677,
+      "type": "User"
+    },
+    "bot_permissions": {
+      "admin": true,
+      "maintain": true,
+      "push": true,
+      "triage": true,
+      "pull": true
+    },
+    "installation_repository_count": null,
+    "baseline_classic_rules": [],
+    "rulesets": [],
+    "reviewer": "jgoneit"
+  },
+  "http": [
+    {
+      "call": "repo (setup)",
+      "status": 200
+    },
+    {
+      "call": "repo (bot)",
+      "status": 200
+    },
+    {
+      "call": "user (bot)",
+      "status": 200
+    },
+    {
+      "call": "branchProtectionRules (setup)",
+      "status": 200
+    },
+    {
+      "call": "rulesets (setup)",
+      "status": 403
+    }
+  ]
+}

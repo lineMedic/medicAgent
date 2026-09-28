@@ -1,0 +1,63 @@
+{
+  "spike": "N01",
+  "schema_version": "linemedic.v4",
+  "started_at": "2026-09-28T08:07:20.617087Z",
+  "model_id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "response_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "base_url": "https://integrate.api.nvidia.com/v1",
+  "calls": [
+    {
+      "step": "tool_request",
+      "status_code": 200,
+      "latency_ms": 3191,
+      "request_id": "6a4703f3-5eff-4972-b61a-9549a76035ac",
+      "usage": {
+        "prompt_tokens": 475,
+        "completion_tokens": 103,
+        "total_tokens": 578
+      },
+      "response_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "finish_reason": "tool_calls",
+      "tool_calls": [
+        {
+          "name": "get_incident",
+          "arguments": {
+            "incident_id": "INC-000000000001"
+          }
+        }
+      ]
+    },
+    {
+      "step": "after_tool_result_1",
+      "status_code": 200,
+      "latency_ms": 27356,
+      "request_id": "1c209941-eb90-4849-98dc-0a081ea5c50d",
+      "usage": {
+        "prompt_tokens": 724,
+        "completion_tokens": 742,
+        "total_tokens": 1466
+      },
+      "response_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "finish_reason": "stop",
+      "tool_calls": []
+    }
+  ],
+  "final_proposal": {
+    "category": "code_bug",
+    "summary": "Repeated exceptions in bad aggregation request for mes-api service, possibly due to recent deployment.",
+    "evidence_ids": [
+      "EV-000000000001",
+      "EV-000000000002"
+    ],
+    "action": {
+      "type": "escalate",
+      "reason": "INSUFFICIENT_EVIDENCE",
+      "open_questions": [
+        "What specific changes were included in the recent deployment to mes-api?",
+        "Which aggregation request parameters or data patterns trigger the repeated exception?"
+      ]
+    }
+  },
+  "verdict": "PASS",
+  "reason": "tool call → 결과 재입력 → 구조화 제안 성공"
+}

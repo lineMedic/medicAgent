@@ -1,0 +1,18 @@
+{
+  "action": "seed_push",
+  "schema_version": "linemedic.v4",
+  "started_at": "2026-09-28T09:03:48.666420Z",
+  "repository": "lineMedic/l3-mes-api",
+  "repository_id": "1392050186",
+  "commit": "19045b62f292dedff24529cab505e6d86a91ed8c",
+  "tree": "e6718ce7deb861efd2d4916cbd27ef3078c621e3",
+  "target": "refs/heads/main",
+  "credential": "GITHUB_SETUP_CREDENTIAL",
+  "push": {
+    "status": "PUSHED",
+    "detail": "new_branch"
+  },
+  "verdict": "PASS",
+  "reason": "원격 main = 시드 커밋 (new_branch)",
+  "baseline_commit": "19045b62f292dedff24529cab505e6d86a91ed8c"
+}
